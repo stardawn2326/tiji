@@ -13,7 +13,7 @@ android {
         applicationId = "com.tiji.mistakes"
         minSdk = 26
         targetSdk = 35
-        versionCode = 100
+        versionCode = 114
         versionName = "1.0.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }

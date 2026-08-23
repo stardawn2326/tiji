@@ -12,8 +12,8 @@
 - APK：`outputs/apk/releases/tiji-v1.0.0-release.apk`
 - 构建类型：Release（R8/资源压缩已启用）
 - versionName：`1.0.0`
-- versionCode：`100`
-- SHA-256：`AB0219906B1B4235B522A763318D75C17041A9B29D8F1A748F30F0946F5063D2`
+- versionCode：`114`
+- SHA-256：`C0DC11C6273B8310D64779FBF2AAE74DDBDC2465F166CA29DED29908C78333D6`
 
 ## v1.0.0 功能
 
@@ -30,7 +30,7 @@
 ## 验证结果
 
 - `assembleRelease`：成功（91 个任务）。
-- APK package/version：`com.tiji.mistakes` / `1.0.0` / `100`。
+- APK package/version：`com.tiji.mistakes` / `1.0.0` / `114`。
 - APK 大小：3,945,137 bytes。
 - 本次不自动安装模拟器，也不推送远程仓库。
 
