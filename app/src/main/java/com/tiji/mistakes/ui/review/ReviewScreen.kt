@@ -77,7 +77,7 @@ import com.tiji.mistakes.ui.ConceptTag
 import com.tiji.mistakes.ui.library.ConceptMistakeCard
 import com.tiji.mistakes.ui.MathText
 import com.tiji.mistakes.ui.MistakeViewModel
-import com.tiji.mistakes.ui.normalizeAsciiPunctuation
+import com.tiji.mistakes.ui.math.normalizeAsciiPunctuation
 import com.tiji.mistakes.ui.normalizedSubject
 import com.tiji.mistakes.ui.TijiSurfaceCard
 import java.io.File

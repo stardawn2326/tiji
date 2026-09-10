@@ -1,0 +1,69 @@
+package com.tiji.mistakes.ui.editor
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import com.tiji.mistakes.ui.FormulaPreview
+
+@Composable
+internal fun CaptureFields(
+    title: String,
+    userAnswer: String,
+    note: String,
+    subject: String,
+    errorReason: String,
+    questionType: String,
+    tags: String,
+    difficulty: Int,
+    onTitle: (String) -> Unit,
+    onUserAnswer: (String) -> Unit,
+    onNote: (String) -> Unit,
+    onSubject: (String) -> Unit,
+    onErrorReason: (String) -> Unit,
+    onQuestionType: (String) -> Unit,
+    onTags: (String) -> Unit,
+    onDifficulty: (Int) -> Unit
+) {
+    var showDetails by rememberSaveable { mutableStateOf(false) }
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            OutlinedTextField(subject, onSubject, label = { Text("科目") }, singleLine = true, modifier = Modifier.weight(1f))
+            OutlinedTextField(questionType, onQuestionType, label = { Text("题目类型") }, singleLine = true, modifier = Modifier.weight(1f))
+        }
+        OutlinedTextField(tags, onTags, label = { Text("分类 / 知识点标签") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        DifficultyPicker(difficulty, onDifficulty)
+        TextButton(onClick = { showDetails = !showDetails }) {
+            Text(if (showDetails) "收起补充信息" else "补充作答与总结（选填）")
+        }
+        if (showDetails) {
+            OutlinedTextField(
+                title,
+                onTitle,
+                label = { Text("标题") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            FormulaPreview(title)
+            OutlinedTextField(
+                userAnswer,
+                onUserAnswer,
+                label = { Text("我的答案（选填）") },
+                minLines = 2,
+                modifier = Modifier.fillMaxWidth()
+            )
+            ErrorReasonPicker(errorReason, onErrorReason)
+            OutlinedTextField(note, onNote, label = { Text("我的总结") }, minLines = 2, modifier = Modifier.fillMaxWidth())
+        }
+    }
+}

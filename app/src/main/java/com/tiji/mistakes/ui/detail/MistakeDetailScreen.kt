@@ -72,11 +72,11 @@ import com.tiji.mistakes.ui.ConceptSectionHeader
 import com.tiji.mistakes.ui.ConceptTag
 import com.tiji.mistakes.ui.ImagePreview
 import com.tiji.mistakes.ui.MathText
-import com.tiji.mistakes.ui.MistakeFields
+import com.tiji.mistakes.ui.editor.MistakeFields
 import com.tiji.mistakes.ui.MistakeViewModel
-import com.tiji.mistakes.ui.normalizeAsciiPunctuation
+import com.tiji.mistakes.ui.math.normalizeAsciiPunctuation
 import com.tiji.mistakes.ui.normalizedSubject
-import com.tiji.mistakes.ui.PhotoEditFields
+import com.tiji.mistakes.ui.editor.PhotoEditFields
 import com.tiji.mistakes.ui.solve.ContentBlockImages
 import com.tiji.mistakes.ui.TijiDimens
 import com.tiji.mistakes.ui.TijiStatusBadge
