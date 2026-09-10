@@ -171,7 +171,8 @@ score = Base * 0.45 + ForgetPenalty * 0.35 + RepeatPenalty * 0.20
 
 - 初始 v1.4B 实现提交：`1a773afe0f8198d2439580de385322e72c5bdbef`；
 - CI fixture 隔离修复提交：`7280a1ebc430f08cde108217227cecbb9fe22dc9`；
-- 最终分支：`codex/v1.4b-learning-data`，已核验远端指向 `7280a1ebc430f08cde108217227cecbb9fe22dc9`；
+- 功能代码分支：`codex/v1.4b-learning-data`，已核验远端包含 `7280a1ebc430f08cde108217227cecbb9fe22dc9`；
+- 远端结果记录更新提交：`9bd449f`；
 - Pull Request：[stardawn2326/tiji#3](https://github.com/stardawn2326/tiji/pull/3)；
 - 修复后的 push workflow：[run 34492686468](https://github.com/stardawn2326/tiji/actions/runs/34492686468)，Compile、Lint/打包和 API 35 instrumentation 均通过；
 - 修复后的 Pull Request workflow：[run 34492693312](https://github.com/stardawn2326/tiji/actions/runs/34492693312)，Compile、Lint/打包和 API 35 instrumentation 均通过；
