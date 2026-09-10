@@ -2,6 +2,7 @@ package com.tiji.mistakes.ui.common
 
 import com.tiji.mistakes.domain.ReviewGrade
 import com.tiji.mistakes.domain.ReviewPreview
+import com.tiji.mistakes.data.KnowledgePointNormalizer
 import java.text.DateFormat
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -38,11 +39,7 @@ internal fun reviewGradeUiLabel(grade: ReviewGrade): String = when (grade) {
     else -> grade.label
 }
 
-internal fun parseTagValues(raw: String): List<String> = raw
-    .split(',', '，', ';', '；', '|')
-    .map(String::trim)
-    .filter(String::isNotBlank)
-    .distinct()
+internal fun parseTagValues(raw: String): List<String> = KnowledgePointNormalizer.parseTags(raw)
 
 internal fun difficultyFilterLabel(value: Int): String = when (value) {
     1 -> "简单"

@@ -1,12 +1,16 @@
 package com.tiji.mistakes.data
 
+import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import com.tiji.mistakes.domain.ReviewScheduler
+import com.tiji.mistakes.domain.ReviewGrade
 import com.tiji.mistakes.service.QuestionContentBlockCodec
 import org.json.JSONArray
 
-class MistakeRepository(private val dao: MistakeDao) {
+class MistakeRepository(private val database: AppDatabase) {
+    private val dao = database.mistakeDao()
+
     fun observe(query: String): Flow<List<MistakeEntity>> {
         val keywords = query
             .replace('，', ',')
@@ -40,13 +44,25 @@ class MistakeRepository(private val dao: MistakeDao) {
     fun observeDue(now: Long): Flow<List<MistakeEntity>> = dao.observeDue(now)
     fun observeCount(): Flow<Int> = dao.observeActiveCount()
     fun observeDueCount(now: Long): Flow<Int> = dao.observeDueCount(now)
+    fun observeReviewRecords(): Flow<List<ReviewRecordEntity>> = database.reviewRecordDao().observeAll()
+    fun observeKnowledgePoints(): Flow<List<KnowledgePointEntity>> = database.knowledgePointDao().observeAll()
+    fun observeKnowledgePointLinks(): Flow<List<MistakeKnowledgePointCrossRef>> = database.mistakeKnowledgePointDao().observeAll()
     suspend fun find(id: Long): MistakeEntity? = dao.findById(id)
     suspend fun save(mistake: MistakeEntity): Long {
         val now = System.currentTimeMillis()
         val prepared = mistake.copy(updatedAt = now).let {
             if (it.id == 0L) it.copy(inReviewPlan = true, nextReviewAt = ReviewScheduler.nextLocalMidnight(now)) else it
         }
-        return dao.upsert(prepared)
+        return database.withTransaction {
+            val id = if (prepared.id > 0L) {
+                dao.update(prepared)
+                prepared.id
+            } else {
+                dao.upsert(prepared)
+            }
+            syncKnowledgePointsForMistake(prepared.copy(id = id))
+            id
+        }
     }
     suspend fun saveAll(mistakes: List<MistakeEntity>) = dao.upsertAll(mistakes)
     suspend fun softDelete(id: Long) = dao.softDelete(id, System.currentTimeMillis(), System.currentTimeMillis())
@@ -84,12 +100,93 @@ class MistakeRepository(private val dao: MistakeDao) {
         dao.setReviewPlan(id, enabled, now, now)
     }
 
+    /** Updates the learner state and records the response in one Room transaction. */
+    suspend fun recordReview(
+        mistakeId: Long,
+        grade: ReviewGrade,
+        now: Long = System.currentTimeMillis()
+    ): ReviewRecordEntity = database.withTransaction {
+        val before = requireNotNull(dao.findById(mistakeId)) { "错题不存在：$mistakeId" }
+        val preview = ReviewScheduler.preview(before, grade, now)
+        val after = before.copy(
+            mastery = preview.masteryAfter,
+            reviewCount = before.reviewCount + 1,
+            lastReviewedAt = now,
+            nextReviewAt = preview.nextReviewAt,
+            updatedAt = now
+        )
+        dao.update(after)
+        val record = ReviewRecordEntity(
+            mistakeId = before.id,
+            reviewedAt = now,
+            grade = grade.name,
+            masteryBefore = before.mastery,
+            masteryAfter = preview.masteryAfter,
+            intervalBeforeDays = ReviewScheduler.currentIntervalDays(before),
+            intervalAfterDays = preview.intervalDays,
+            previousNextReviewAt = before.nextReviewAt,
+            nextReviewAt = preview.nextReviewAt
+        )
+        val id = database.reviewRecordDao().insert(record)
+        record.copy(id = id)
+    }
+
+    /**
+     * Converts old free-form tags into stable, structured knowledge points.
+     * The caller marks completion only after this transaction succeeds, making
+     * a crash before the marker safe to retry.
+     */
+    suspend fun backfillLegacyTags(): Int = database.withTransaction {
+        var linked = 0
+        dao.listAll().forEach { mistake -> linked += syncKnowledgePointsForMistake(mistake) }
+        linked
+    }
+
+    private suspend fun syncKnowledgePointsForMistake(mistake: MistakeEntity): Int {
+        if (mistake.id <= 0L) return 0
+        val pointDao = database.knowledgePointDao()
+        val crossRefDao = database.mistakeKnowledgePointDao()
+        val pointsByStableId = pointDao.listAll().associateBy(KnowledgePointEntity::stableId).toMutableMap()
+        crossRefDao.deleteForMistake(mistake.id)
+        val subject = mistake.subject.trim().ifBlank { "未分类" }
+        var linked = 0
+        KnowledgePointNormalizer.parseTags(mistake.tags).forEach { name ->
+            val normalizedName = KnowledgePointNormalizer.normalizeName(name)
+            val stableId = KnowledgePointNormalizer.stableId(subject, normalizedName)
+            val point = pointsByStableId[stableId] ?: run {
+                val now = System.currentTimeMillis()
+                val candidate = KnowledgePointEntity(
+                    stableId = stableId,
+                    subject = subject,
+                    name = name,
+                    normalizedName = normalizedName,
+                    createdAt = now,
+                    updatedAt = now
+                )
+                val insertedId = pointDao.insertIgnore(candidate)
+                val localId = if (insertedId > 0L) insertedId
+                else pointDao.findByStableId(stableId)?.id
+                requireNotNull(localId) { "无法创建知识点：$name" }
+                candidate.copy(id = localId)
+            }
+            pointsByStableId[stableId] = point
+            crossRefDao.insert(MistakeKnowledgePointCrossRef(mistake.id, point.id))
+            linked += 1
+        }
+        return linked
+    }
+
     /** Removes every local mistake row and returns the image paths it referenced. */
     suspend fun resetAllData(): List<String> {
         val paths = dao.listAll()
             .flatMap(::referencedImagePaths)
             .distinct()
-        dao.deleteAll()
+        database.withTransaction {
+            dao.deleteAll()
+            database.reviewRecordDao().deleteAll()
+            database.mistakeKnowledgePointDao().deleteAll()
+            database.knowledgePointDao().deleteAll()
+        }
         return paths
     }
 

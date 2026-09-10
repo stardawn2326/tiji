@@ -6,10 +6,10 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.tiji.mistakes.data.AppDatabase
+import com.tiji.mistakes.data.AppPreferences
 import com.tiji.mistakes.data.MistakeEntity
 import com.tiji.mistakes.data.MistakeRepository
 import com.tiji.mistakes.domain.ReviewGrade
-import com.tiji.mistakes.domain.ReviewScheduler
 import com.tiji.mistakes.service.AiChatMessage
 import com.tiji.mistakes.service.AiChatStateStore
 import com.tiji.mistakes.service.AiFollowUpService
@@ -134,7 +134,9 @@ data class AiChatState(
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class MistakeViewModel(application: Application) : AndroidViewModel(application) {
-    private val repository = MistakeRepository(AppDatabase.get(application).mistakeDao())
+    private val database = AppDatabase.get(application)
+    private val preferences = AppPreferences(application)
+    private val repository = MistakeRepository(database)
     private val query = MutableStateFlow("")
     private val reviewClock = MutableStateFlow(System.currentTimeMillis())
     private var reviewClockJob: Job? = null
@@ -206,6 +208,12 @@ class MistakeViewModel(application: Application) : AndroidViewModel(application)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
     val dueCount: StateFlow<Int> = reviewClock.flatMapLatest(repository::observeDueCount)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+    val reviewRecords = repository.observeReviewRecords()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val knowledgePoints = repository.observeKnowledgePoints()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val knowledgePointLinks = repository.observeKnowledgePointLinks()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val aiSolve: StateFlow<AiSolveState> = _aiSolve.asStateFlow()
     val aiSolveHistory: StateFlow<List<AiSolveHistoryRecord>> = _aiSolveHistory.asStateFlow()
     val aiChat: StateFlow<AiChatState> = _aiChat.asStateFlow()
@@ -213,6 +221,12 @@ class MistakeViewModel(application: Application) : AndroidViewModel(application)
     val aiMistakeSave: StateFlow<AiMistakeSaveState> = _aiMistakeSave.asStateFlow()
 
     init {
+        viewModelScope.launch {
+            if (!preferences.isLegacyTagBackfillComplete()) {
+                repository.backfillLegacyTags()
+                preferences.markLegacyTagBackfillComplete()
+            }
+        }
         reviewClockJob = viewModelScope.launch {
             while (isActive) {
                 reviewClock.value = System.currentTimeMillis()
@@ -970,9 +984,10 @@ class MistakeViewModel(application: Application) : AndroidViewModel(application)
         ImageStorage.deleteAllPrivateFiles(getApplication())
     }
 
-    fun review(mistake: MistakeEntity, grade: ReviewGrade) = viewModelScope.launch {
-        repository.save(ReviewScheduler.schedule(mistake, grade))
+    fun review(mistake: MistakeEntity, grade: ReviewGrade, onRecorded: (() -> Unit)? = null) = viewModelScope.launch {
+        repository.recordReview(mistake.id, grade)
         refreshReviewClock()
+        onRecorded?.invoke()
     }
 
     override fun onCleared() {

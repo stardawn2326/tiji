@@ -46,7 +46,7 @@ class AiMistakeClassificationService : Service() {
     override fun onCreate() {
         super.onCreate()
         taskStore = AiMistakeSaveStore(this)
-        repository = MistakeRepository(AppDatabase.get(this).mistakeDao())
+        repository = MistakeRepository(AppDatabase.get(this))
         createNotificationChannel()
     }
 

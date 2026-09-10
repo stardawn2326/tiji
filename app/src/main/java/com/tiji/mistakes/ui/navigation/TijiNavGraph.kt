@@ -97,6 +97,8 @@ internal fun TijiNavGraph(
                         dueCount = state.dueCount,
                         reviewTotal = state.reviewPlanSnapshots[reviewDateKey()].orEmpty().size.takeIf { it > 0 } ?: state.dueCount,
                         reviewCompleted = state.reviewMastery[reviewDateKey()].orEmpty().keys.count { id -> id in state.reviewPlanSnapshots[reviewDateKey()].orEmpty() },
+                        reviewAnalytics = state.reviewAnalytics,
+                        weaknessInsights = state.weaknessInsights,
                         onSubject = { subject ->
                             onLibrarySubject(subject)
                             viewModel.setQuery("")
@@ -113,6 +115,7 @@ internal fun TijiNavGraph(
                         onSelectSubject = { subject -> onLibrarySubject(subject) },
                         viewModel = viewModel,
                         mistakes = state.mistakes,
+                        knowledgePointInsights = state.weaknessInsights,
                         exportOriginalImagesOnly = !state.aiExcludeSourceImageByDefault,
                         onOpen = { navController.navigate(TijiRoutes.detail(it)) },
                         onCreate = { navController.navigate(TijiRoutes.CAPTURE) }

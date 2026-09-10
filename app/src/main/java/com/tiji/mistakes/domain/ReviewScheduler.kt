@@ -21,7 +21,7 @@ object ReviewScheduler {
         grade: ReviewGrade,
         now: Long = System.currentTimeMillis()
     ): ReviewPreview {
-        val oldInterval = intervalDays(mistake)
+        val oldInterval = currentIntervalDays(mistake)
         val (interval, mastery) = when (grade) {
             ReviewGrade.FORGOT -> 1 to 0
             ReviewGrade.HARD -> maxOf(1, (oldInterval * 1.5).toInt()) to maxOf(1, mistake.mastery)
@@ -46,7 +46,7 @@ object ReviewScheduler {
         )
     }
 
-    private fun intervalDays(mistake: MistakeEntity): Int {
+    fun currentIntervalDays(mistake: MistakeEntity): Int {
         if (mistake.lastReviewedAt == null) return 1
         val start = localMidnightAfter(mistake.lastReviewedAt, 0)
         val end = localMidnightAfter(mistake.nextReviewAt, 0)
