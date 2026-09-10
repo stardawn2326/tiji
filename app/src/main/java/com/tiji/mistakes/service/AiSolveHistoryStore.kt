@@ -3,6 +3,7 @@ package com.tiji.mistakes.service
 import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 import java.util.UUID
 
 /** Solve history is retained for one week; the mistake library is independent. */
@@ -10,6 +11,14 @@ internal const val AI_SOLVE_HISTORY_RETENTION_DAYS = 7
 
 internal fun shouldPersistAiSolveHistory(state: PersistedAiSolveState): Boolean =
     state.status == AiSolveStatus.COMPLETED && !state.completeText.isNullOrBlank()
+
+internal fun unreferencedImagePaths(
+    candidates: Collection<String>,
+    referenced: Collection<String>
+): List<String> {
+    val retained = referenced.filter(String::isNotBlank).toSet()
+    return candidates.filter(String::isNotBlank).distinct().filterNot { it in retained }
+}
 
 internal fun trimAiSolveHistory(
     records: List<AiSolveHistoryRecord>,
@@ -76,15 +85,21 @@ data class AiSolveHistoryRecord(
     val modelName: String = "",
     val visualModelName: String = "",
     val imagePath: String? = null,
+    val imagePaths: List<String> = emptyList(),
     val graphicImagePath: String? = null,
     val contentBlocks: String = "",
     val recognitionWarning: String = "",
     val chatMessages: List<AiChatMessage> = emptyList()
 ) {
     fun referencedImagePaths(): List<String> = buildList {
+        addAll(imagePaths)
         imagePath?.takeIf(String::isNotBlank)?.let(::add)
         graphicImagePath?.takeIf(String::isNotBlank)?.let(::add)
-        addAll(QuestionContentBlockCodec.decode(contentBlocks).map { it.path })
+        QuestionContentBlockCodec.decode(contentBlocks).forEach { block ->
+            add(block.path)
+            block.sourcePath?.takeIf(String::isNotBlank)?.let(::add)
+        }
+        addAll(chatMessages.flatMap(AiChatMessage::imagePaths))
     }.distinct()
 
     fun removeContentBlock(path: String): Pair<AiSolveHistoryRecord, List<String>> {
@@ -102,10 +117,12 @@ data class AiSolveHistoryRecord(
         if (path.isBlank()) return this to emptyList()
         val blocks = QuestionContentBlockCodec.decode(contentBlocks)
         val removedBlocks = blocks.filter { it.path == path || it.sourcePath == path }
-        val changed = imagePath == path || graphicImagePath == path || removedBlocks.isNotEmpty()
+        val changed = imagePath == path || path in imagePaths || graphicImagePath == path || removedBlocks.isNotEmpty()
         if (!changed) return this to emptyList()
+        val remainingImages = imagePaths.filterNot { it == path }
         return copy(
-            imagePath = imagePath?.takeUnless { it == path },
+            imagePath = if (imagePath == path) remainingImages.firstOrNull() else imagePath,
+            imagePaths = remainingImages,
             graphicImagePath = graphicImagePath?.takeUnless { it == path },
             contentBlocks = QuestionContentBlockCodec.encode(
                 blocks.filterNot { it.path == path || it.sourcePath == path }
@@ -115,13 +132,52 @@ data class AiSolveHistoryRecord(
 }
 
 class AiSolveHistoryStore(context: Context) {
-    private val preferences = context.getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE)
+    private val appContext = context.applicationContext
+    private val preferences = appContext.getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE)
+
+    private fun withOwnedImages(record: AiSolveHistoryRecord, onlyPaths: Set<String>? = null): Pair<AiSolveHistoryRecord, List<String>> {
+        val originals = record.referencedImagePaths().filter { path -> onlyPaths == null || path in onlyPaths }
+        val created = mutableListOf<String>()
+        return try {
+            val mapping = originals.associateWith { original ->
+                require(File(original).isFile) { "解题记录图片不存在：${File(original).name}" }
+                ImageStorage.copyFileToPrivate(appContext, File(original), "history_${record.id.take(8)}")
+                    ?.also(created::add)
+                    ?: error("复制解题记录图片失败：${File(original).name}")
+            }
+            fun mapped(path: String?) = path?.let { mapping[it] ?: it }
+            val blocks = QuestionContentBlockCodec.decode(record.contentBlocks).map { block ->
+                block.copy(path = mapped(block.path)!!, sourcePath = mapped(block.sourcePath))
+            }
+            record.copy(
+                imagePath = mapped(record.imagePath),
+                imagePaths = record.imagePaths.mapNotNull(::mapped),
+                graphicImagePath = mapped(record.graphicImagePath),
+                contentBlocks = QuestionContentBlockCodec.encode(blocks),
+                chatMessages = record.chatMessages.map { message ->
+                    message.copy(imagePaths = message.imagePaths.mapNotNull(::mapped))
+                }
+            ) to created
+        } catch (error: Throwable) {
+            ImageStorage.deletePrivateFiles(appContext, created)
+            throw error
+        }
+    }
 
     @Synchronized
     fun read(): List<AiSolveHistoryRecord> {
         val decoded = decode(preferences.getString(KEY_RECORDS, "[]"))
         val retained = trimAiSolveHistory(decoded)
-        if (retained.size != decoded.size) write(retained)
+        if (retained.size != decoded.size) {
+            write(retained)
+            val retainedPaths = retained.flatMap(AiSolveHistoryRecord::referencedImagePaths).toSet()
+            ImageStorage.deletePrivateFiles(
+                appContext,
+                decoded.filterNot { expired -> retained.any { it.id == expired.id } }
+                    .flatMap(AiSolveHistoryRecord::referencedImagePaths)
+                    .filterNot { it in retainedPaths }
+            )
+        }
         return retained
     }
 
@@ -139,8 +195,7 @@ class AiSolveHistoryStore(context: Context) {
                 it.solveRunId == runId ||
                     (it.solveRunId.isBlank() && it.requestId == state.requestId && state.requestId > 0L)
             }) return existing
-        val next = listOf(
-            AiSolveHistoryRecord(
+        val rawRecord = AiSolveHistoryRecord(
                 requestId = state.requestId,
                 solveRunId = runId,
                 completedAt = state.updatedAt.takeIf { it > 0L } ?: System.currentTimeMillis(),
@@ -153,14 +208,19 @@ class AiSolveHistoryStore(context: Context) {
                 modelName = state.modelName,
                 visualModelName = state.visualModelName,
                 imagePath = state.imagePath,
+                imagePaths = state.imagePaths,
                 graphicImagePath = state.graphicImagePath,
                 contentBlocks = state.contentBlocks,
                 recognitionWarning = state.recognitionWarning,
                 chatMessages = chatMessages.takeLast(MAX_CHAT_MESSAGES)
             )
-        ) + existing
+        val (ownedRecord, created) = withOwnedImages(rawRecord)
+        val next = listOf(ownedRecord) + existing
         val trimmed = trimAiSolveHistory(next)
-        write(trimmed)
+        runCatching { write(trimmed) }.onFailure {
+            ImageStorage.deletePrivateFiles(appContext, created)
+            throw it
+        }
         return trimmed
     }
 
@@ -182,8 +242,13 @@ class AiSolveHistoryStore(context: Context) {
     @Synchronized
     fun update(record: AiSolveHistoryRecord): Boolean {
         val records = read()
-        if (records.none { it.id == record.id }) return false
-        write(records.map { if (it.id == record.id) record else it })
+        val previous = records.firstOrNull { it.id == record.id } ?: return false
+        val newPaths = record.referencedImagePaths().toSet() - previous.referencedImagePaths().toSet()
+        val (ownedRecord, created) = if (newPaths.isEmpty()) record to emptyList() else withOwnedImages(record, newPaths)
+        runCatching { write(records.map { if (it.id == ownedRecord.id) ownedRecord else it }) }.onFailure {
+            ImageStorage.deletePrivateFiles(appContext, created)
+            throw it
+        }
         return true
     }
 
@@ -210,6 +275,7 @@ class AiSolveHistoryStore(context: Context) {
         .put("modelName", record.modelName)
         .put("visualModelName", record.visualModelName)
         .put("imagePath", record.imagePath ?: JSONObject.NULL)
+        .put("imagePaths", JSONArray(record.imagePaths.filter(String::isNotBlank).distinct()))
         .put("graphicImagePath", record.graphicImagePath ?: JSONObject.NULL)
         .put("contentBlocks", record.contentBlocks)
         .put("recognitionWarning", record.recognitionWarning)
@@ -218,6 +284,7 @@ class AiSolveHistoryStore(context: Context) {
                 .put("prompt", message.prompt.take(MAX_CHAT_PROMPT_LENGTH))
                 .put("reply", message.reply.take(MAX_CHAT_REPLY_LENGTH))
                 .put("createdAt", message.createdAt)
+                .put("imagePaths", JSONArray(message.imagePaths.filter(String::isNotBlank).distinct()))
         }))
 
     private fun decode(raw: String?): List<AiSolveHistoryRecord> = runCatching {
@@ -243,6 +310,13 @@ class AiSolveHistoryStore(context: Context) {
                         modelName = item.optString("modelName"),
                         visualModelName = item.optString("visualModelName"),
                         imagePath = item.optString("imagePath").takeIf { it.isNotBlank() && it != "null" },
+                        imagePaths = item.optJSONArray("imagePaths")?.let { paths ->
+                            (0 until paths.length()).mapNotNull { pathIndex ->
+                                paths.optString(pathIndex).trim().takeIf(String::isNotBlank)
+                            }.distinct()
+                        }.orEmpty().ifEmpty {
+                            listOfNotNull(item.optString("imagePath").takeIf { it.isNotBlank() && it != "null" })
+                        },
                         graphicImagePath = item.optString("graphicImagePath").takeIf { it.isNotBlank() && it != "null" },
                         contentBlocks = item.optString("contentBlocks"),
                         recognitionWarning = item.optString("recognitionWarning"),
@@ -261,7 +335,12 @@ class AiSolveHistoryStore(context: Context) {
                 AiChatMessage(
                     prompt = item.optString("prompt").take(MAX_CHAT_PROMPT_LENGTH),
                     reply = item.optString("reply").take(MAX_CHAT_REPLY_LENGTH),
-                    createdAt = item.optLong("createdAt", 0L)
+                    createdAt = item.optLong("createdAt", 0L),
+                    imagePaths = item.optJSONArray("imagePaths")?.let { paths ->
+                        (0 until paths.length()).mapNotNull { pathIndex ->
+                            paths.optString(pathIndex).trim().takeIf(String::isNotBlank)
+                        }.distinct()
+                    }.orEmpty()
                 )
             )
         }

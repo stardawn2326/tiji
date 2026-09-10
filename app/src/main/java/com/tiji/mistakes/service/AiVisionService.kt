@@ -13,6 +13,32 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 
+internal fun isOutputLengthLimit(finishReason: String): Boolean =
+    finishReason.equals("length", ignoreCase = true) ||
+        finishReason.equals("max_tokens", ignoreCase = true)
+
+internal class AiOutputLimitException(
+    val partialContent: String
+) : IllegalStateException("AI 输出达到长度上限，回答可能未完成，请重新解题或重新追问")
+
+internal fun shouldOfferAiSettings(error: String?): Boolean {
+    val message = error.orEmpty().lowercase()
+    if (message.isBlank()) return false
+    return listOf(
+        "api key",
+        "接口地址",
+        "服务地址",
+        "模型名称",
+        "模型名",
+        "模型 id",
+        "当前模型",
+        "不支持图片",
+        "不支持含图",
+        "unauthorized",
+        "401"
+    ).any(message::contains)
+}
+
 data class AiRecognitionResult(
     val title: String,
     val question: String,
@@ -120,7 +146,7 @@ private fun structuredFormula(raw: String, display: Boolean): String? {
         source.startsWith("$$") && source.endsWith("$$") -> source.substring(2, source.length - 2)
         source.startsWith("$") && source.endsWith("$") -> source.substring(1, source.length - 1)
         else -> source
-    }.trim()
+    }.trim().replace(Regex("""\\\\(?=,)""")) { "\\" }
     return body.takeIf(String::isNotBlank)?.let {
         if (display) "\\[$it\\]" else "\\($it\\)"
     }
@@ -257,9 +283,9 @@ private fun repairVisualQuestionSegments(
             QUESTION_SEGMENT_BLANK,
             QUESTION_SEGMENT_LINE_BREAK,
             QUESTION_SEGMENT_PARAGRAPH_BREAK -> segment.copy(type = type, value = "")
-            QUESTION_SEGMENT_TEXT,
             QUESTION_SEGMENT_MATH,
-            QUESTION_SEGMENT_BLOCK -> segment.copy(type = type, value = normalizeRecognitionEscapes(segment.value))
+            QUESTION_SEGMENT_BLOCK -> segment.copy(type = type, value = segment.value)
+            QUESTION_SEGMENT_TEXT -> segment.copy(type = type, value = normalizeRecognitionEscapes(segment.value))
             else -> segment.copy(type = type, value = normalizeRecognitionEscapes(segment.value))
         }
         if (type != QUESTION_SEGMENT_TEXT) {
@@ -467,7 +493,7 @@ data class VisualEvidence(
             }
         }
         val segments = repairVisualQuestionSegments(
-            segments = questionSegments.ifEmpty { templateSegments },
+            segments = templateSegments.ifEmpty { questionSegments },
             fallbackQuestion = questionText
         )
         return RecognizedQuestion(
@@ -549,22 +575,90 @@ data class VisualAssistSolveResult(
     val evidence: VisualEvidence
 )
 
+internal fun combineVisualEvidence(pages: List<VisualEvidence>): VisualEvidence {
+    require(pages.isNotEmpty()) { "至少需要一页视觉证据" }
+    fun join(values: List<String>) = values.filter(String::isNotBlank).joinToString("\n")
+    fun joinSegments(selector: (VisualEvidence) -> List<QuestionSegment>): List<QuestionSegment> = buildList {
+        pages.forEach { page ->
+            val segments = selector(page)
+            if (segments.isNotEmpty()) {
+                if (isNotEmpty()) add(QuestionSegment(QUESTION_SEGMENT_PARAGRAPH_BREAK, ""))
+                addAll(segments)
+            }
+        }
+    }
+    return VisualEvidence(
+        questionText = join(pages.map(VisualEvidence::questionText)),
+        questionTemplate = join(pages.map(VisualEvidence::questionTemplate)),
+        formulas = pages.flatMap(VisualEvidence::formulas),
+        options = pages.flatMap(VisualEvidence::options),
+        answerText = join(pages.map(VisualEvidence::answerText)),
+        explanationText = join(pages.map(VisualEvidence::explanationText)),
+        diagramDescription = join(pages.map(VisualEvidence::diagramDescription)),
+        diagramLabels = pages.flatMap(VisualEvidence::diagramLabels).distinct(),
+        diagramRelations = pages.flatMap(VisualEvidence::diagramRelations).distinct(),
+        tableData = pages.flatMap(VisualEvidence::tableData),
+        uncertainItems = pages.flatMap(VisualEvidence::uncertainItems),
+        confidence = pages.map(VisualEvidence::confidence).filter { it > 0f }.average().takeIf { !it.isNaN() }?.toFloat() ?: 0f,
+        graphicSpecs = pages.flatMapIndexed { pageIndex, page -> page.graphicSpecs.map { it.copy(sourceIndex = pageIndex) } },
+        questionSegments = joinSegments(VisualEvidence::questionSegments),
+        answerSegments = joinSegments(VisualEvidence::answerSegments),
+        explanationSegments = joinSegments(VisualEvidence::explanationSegments)
+    )
+}
+
 private const val AI_TITLE_RULE = "title 允许根据完整题目总结为不超过 24 个汉字的题型或核心任务，例如“傅里叶变换模平方积分”“含参数级数敛散性判断”；禁止使用“录题”“AI识别”“图片题”“新题目”等无信息标题。"
 // Structured OCR math guidance is kept next to the shared response protocol.
 private val AI_SOLUTION_CLASSIFICATION_RULE = """
     教材照片中，题干后单独出现的“解”“解：”“解答”“解析”“证明”“分析”或“过程”（即使 OCR 把冒号或换行丢失，例如“解先考虑……”）都是解答区域的起点，不是题干的一部分。question/题目识别必须在该标记前结束；标记之后的全部内容都必须按内容分别归入解题思路、逐步推导或最终答案。若原文只有解答过程而没有单独写最终答案，请根据原文过程提取最后结论到最终答案，不能因此把解答过程塞回题目。
 """.trimIndent()
 private val AI_INLINE_FORMULA_RULE = """
-    所有数学公式和符号必须保持为一个连续的单行数学表达式。公式统一使用可渲染的单行 LaTeX，并用 \( ... \) 或“$$ ... $$”包围；不要返回裸的“∑_{...}”“1/(...)”这类混合符号，也不要把 Unicode 数学符号和半截 LaTeX 混用。禁止在公式、上下标、分式、根式、积分、求和或等式内部插入换行、Markdown 换行、LaTeX 双反斜杠换行标记或 aligned/matrix 多行环境。即使公式很长也保持一行，由应用负责横向滚动或屏幕显示；中文正文可以按自然段分行。
+    普通公式和符号必须保持为连续的单行标准 LaTeX，并用 \( ... \) 或 $$ ... $$ 包围；不要返回裸的“∑_{...}”“1/(...)”这类混合符号，也不要把 Unicode 数学符号和半截 LaTeX 混用。普通分式、根式、积分、求和、极限和单行等式内部不得插入物理换行或 Markdown 换行；即使很长也保持一个完整公式，由应用负责横向滚动。
+    原图本身是多行数学结构时不得压平成一行：矩阵必须使用 matrix、pmatrix、bmatrix、Bmatrix、vmatrix 或 Vmatrix；方程组和分段函数必须使用 aligned、array 或 cases。列之间使用 &，每一行之间必须使用标准 LaTeX 行分隔 \\。可见 Markdown 中的标准示例为 \(A=\begin{pmatrix}a&b\\c&d\end{pmatrix}\) 和 \(\left\{\begin{aligned}x&=1\\y&=2\\z&=3\end{aligned}\right.\)。
+    在 JSON 的 latex 字符串中必须按 JSON 标准转义反斜杠：LaTeX 命令的一个反斜杠写成两个字符，例如 "\\begin"；LaTeX 行分隔的两个反斜杠写成四个字符。矩阵片段的 JSON 示例必须形如 {"type":"block","latex":"\\begin{pmatrix}a&b\\\\c&d\\end{pmatrix}"}。禁止把矩阵行分隔写成单个反斜杠，也禁止用空格代替行分隔。
+""".trimIndent()
+private val AI_FOLLOW_UP_FORMULA_RULE = """
+    普通变量、函数、等式、不等式和单行公式在结构化回复中必须使用 math segment，并提供不带定界符的标准 LaTeX；不要把 LaTeX 命令或 Markdown 公式标记写进 text。
+    只有回复内容本身确实需要矩阵、方程组、分段函数或独立多行公式时才使用 block segment。不要为了展示格式而生成额外公式，不要复制协议说明中的占位内容。
+    如果整份回复回退为 Markdown，普通公式使用 \( 与 \) 包围，多行数学结构使用标准显示公式定界符；公式保持在原句语义位置，不要把普通行内公式单独提出。
 """.trimIndent()
 private val AI_MATH_SEGMENT_RULE = """
     只要片段在题目中具有数学语义，就必须返回为独立的 math segment（latex 字段），而不是混在 text 字符串里。关系式、条件和函数整体作为一个片段，例如 a=1、p>1、0<p\\le 1、p\\le 0、f(t)、F(j\\omega)=R(\\omega)+jX(\\omega)；单独作为变量使用的 a、n、p 也用 math segment。中文正文保持 text segment，不能把整句中文包进公式。英文单词、单位（如 cm、Hz 在表示单位时）、题号、选项标签和普通缩写保持 text；只有上下文明确表示变量或函数时才使用 math。
     例如“当 a=1 时，且 0<p≤1”应返回 [{"type":"text","text":"当"},{"type":"math","latex":"a=1"},{"type":"text","text":"时，且"},{"type":"math","latex":"0<p\\le 1"}]；不要把整句中文包进同一个公式，也不要只把复杂积分转成 math 而遗漏正文中的变量、函数和不等式。
-    片段类型还允许 text、math、blank、lineBreak、paragraphBreak、block。lineBreak 只表示有语义的单换行（选项、分点或小题），paragraphBreak 表示有语义的段落空行，block 只表示模型明确识别为独立的块级公式；OCR 因页面宽度产生的物理换行必须合并进相邻 text/math，不能自动生成换行片段。math 和 block 的 latex 不要带重复转义或连续反斜杠。
+    片段类型还允许 text、math、blank、lineBreak、paragraphBreak、block。lineBreak 只表示有语义的单换行（选项、分点或小题），paragraphBreak 表示有语义的段落空行；矩阵、方程组、分段函数和原图中独立的多行公式必须作为一个完整 block，不能拆成多个 math 或 text。OCR 因页面宽度产生的物理换行必须合并进相邻 text/math，不能自动生成换行片段。math 和 block 的 latex 不带定界符；除矩阵、aligned、array、cases 等结构中必需的 \\ 行分隔外，不要产生无意义的重复反斜杠。
+""".trimIndent()
+private val AI_STRUCTURED_SOLUTION_RULE = """
+    最终解答必须使用 schemaVersion 2 的机器可读结构，不得输出 Markdown 标题、Markdown 加粗符号或结构外的可见文字。严格放在以下标记之间：
+    [[TIJI_SOLUTION_V2_START]]
+    {"schemaVersion":2,"sections":[{"id":"recognition","segments":[{"type":"text","text":"完整原题"}]},{"id":"approach","segments":[{"type":"text","text":"解题方法"}]},{"id":"derivation","segments":[{"type":"text","text":"1. "},{"type":"math","latex":"P^2=E"},{"type":"lineBreak"},{"type":"block","latex":"\\begin{aligned}P^4&=(P^2)^2\\\\&=E\\end{aligned}"}]},{"id":"finalAnswer","segments":[{"type":"text","text":"A"}]}]}
+    [[TIJI_SOLUTION_V2_END]]
+    sections 必须且只能依次包含 recognition、approach、derivation、finalAnswer。recognition 忠实放完整原题；approach 说明方法；derivation 给出必要推导；finalAnswer 放最终结论。每个 section 的完整内容都必须放在 segments 中，禁止遗漏到结构外。
+    recognition 必须逐字保留原题可见内容，不得概括、改写、补写或删减。只调整题目自身的结构：原题包含多个小题时，在第二个及后续小题编号前使用一个 lineBreak，使 (1)(2)、①②、（Ⅰ）（Ⅱ）等小题各自起行；小题编号必须与该小题正文保持在同一行。不得把屏幕宽度造成的折行写成 lineBreak。
+    approach、derivation、finalAnswer 按实际解答自然返回，不要求按题目小题拆分，也不要为了排版重新组织、改写或重复已经生成的文字。
+    segments 只允许 text、math、block、lineBreak、paragraphBreak、blank。中文正文、编号、列表标签和标点使用 text；普通单行公式使用 math；矩阵、方程组、分段函数、独立公式和多行推导使用一个完整 block。不要使用 Markdown 的 #、**、``` 或列表语法表达排版。
+    如果你无法保证 schemaVersion 2 JSON 完整、合法且包含四个 section，禁止输出残缺 JSON；改用旧版四分区文本结构，严格依次输出“题目识别”“解题思路”“逐步推导”“最终答案”四个标题及完整正文。旧版回退中不要输出 TIJI_SOLUTION_V2 标记、JSON、schemaVersion、sections 或 segments。
+    math/block 的 latex 字段不带 $、$$、\\(、\\)、\\[、\\] 定界符。JSON 中 LaTeX 命令的反斜杠必须正确转义；矩阵和 aligned 的每个 LaTeX 行分隔必须在 JSON 字符串中编码为四个反斜杠字符。不要把多行数学结构拆成多个 text/math，也不要用物理换行代替结构片段。
 """.trimIndent()
 private val AI_SEMANTIC_LINE_BREAK_RULE = """
-    题目分点和分题的语义换行必须由结构表达：选择题的 A./B./C./D.、①②③、(1)(2) 以及罗马数字序号（Ⅰ）（Ⅱ）（Ⅲ）、(Ⅰ)(Ⅱ)(Ⅲ)、Ⅰ./Ⅱ./Ⅲ.、Ⅰ、/Ⅱ、/Ⅲ、或 Ⅰ：/Ⅱ：/Ⅲ：都使用 lineBreak；序号必须与其后的题干保持同一行。只有同一道题中至少出现两个按顺序递增的罗马数字序号时才按分题处理，单独的 I、V、X 或普通英文不要拆分。普通文字因图片宽度产生的物理换行必须合并，公式、LaTeX、数学变量和同一段文字不能在内部断行；已有语义换行不得重复添加。
+    只在 recognition（题目识别）中表达原题自身的语义换行：选择题的 A./B./C./D.、①②③、(1)(2) 以及罗马数字序号（Ⅰ）（Ⅱ）（Ⅲ）、(Ⅰ)(Ⅱ)(Ⅲ)、Ⅰ./Ⅱ./Ⅲ.、Ⅰ、/Ⅱ、/Ⅲ、或 Ⅰ：/Ⅱ：/Ⅲ：使用 lineBreak；序号必须与其后的题干保持同一行。只有同一道题中至少出现两个按顺序递增的罗马数字序号时才按分题处理，单独的 I、V、X 或普通英文不要拆分。普通文字因图片宽度产生的物理换行必须合并，公式、LaTeX、数学变量和同一段文字不能在内部断行；已有语义换行不得重复添加。不要把这条小题拆分规则套用到 approach、derivation 或 finalAnswer，也不要据此改写解答正文。
 """.trimIndent()
+
+private val AI_SOLUTION_FORMAT_RULE = """
+    解题部分的中文正文使用自然的中文标点；数学公式环境内部只使用半角西文符号和标准 LaTeX。变量保持斜体，函数名和运算符使用标准命令（如 \sin、\cos、\ln、\log、\lim），求和与积分使用 \sum、\int。独立公式末尾的标点放在公式外侧。
+    不要用纯文本斜杠替代分式。除内部元数据、题目标记、题目 segments 和规定的 schemaVersion 2 解答 JSON 外，不要输出其他 JSON、分类分析或解释性尾注。
+""".trimIndent()
+
+/** Exact solve-output mode recovered from the user-provided v50 APK. */
+internal fun structuredSolveOutputInstruction(): String = """
+    请直接解题，并严格按 schemaVersion 2 输出结构化解答。
+    $AI_STRUCTURED_SOLUTION_RULE
+    $AI_INLINE_FORMULA_RULE
+    $AI_MATH_SEGMENT_RULE
+    $AI_SEMANTIC_LINE_BREAK_RULE
+    $AI_RECOGNITION_PROTOCOL_RULE
+    $AI_SOLUTION_FORMAT_RULE
+""".trimIndent()
+
 private val AI_RECOGNITION_PROTOCOL_RULE = """
     统一识别结构至少包含 question、printedAnswer、printedExplanation、uncertainItems、confidence、formulas/segments、diagramEvidence、graphicSpecs。question 只能来自图片中实际印刷的原题；printedAnswer 和 printedExplanation 只抄录图片中明确存在的对应区域，没有就留空。uncertainItems 记录原始片段、候选修正和无法确认原因；confidence 为 0 到 1。diagramEvidence 只作为隐藏图形证据，graphicSpecs 只记录可靠图形边界，二者不得拼接进 question。识别整张图片，不能只看题目顶部，也不能把解题模型新生成的内容当作图片原文。
 """.trimIndent()
@@ -592,16 +686,25 @@ private fun AiRecognitionResult.normalizeRecognitionFields(): AiRecognitionResul
     explanation = normalizeRecognitionEscapes(explanation),
     visibleTextLines = visibleTextLines.map(::normalizeRecognitionEscapes),
     diagramEvidence = normalizeRecognitionEscapes(diagramEvidence),
-    questionSegments = questionSegments.map {
-        it.copy(value = if (normalizedSegmentType(it.type) == QUESTION_SEGMENT_BLANK) "" else normalizeRecognitionEscapes(it.value))
-    },
-    answerSegments = answerSegments.map {
-        it.copy(value = if (normalizedSegmentType(it.type) == QUESTION_SEGMENT_BLANK) "" else normalizeRecognitionEscapes(it.value))
-    },
-    explanationSegments = explanationSegments.map {
-        it.copy(value = if (normalizedSegmentType(it.type) == QUESTION_SEGMENT_BLANK) "" else normalizeRecognitionEscapes(it.value))
-    }
+    questionSegments = questionSegments.map(::normalizeRecognitionSegment),
+    answerSegments = answerSegments.map(::normalizeRecognitionSegment),
+    explanationSegments = explanationSegments.map(::normalizeRecognitionSegment)
 )
+
+private fun normalizeRecognitionSegment(segment: QuestionSegment): QuestionSegment {
+    val type = normalizedSegmentType(segment.type)
+    val value = when (type) {
+        QUESTION_SEGMENT_BLANK,
+        QUESTION_SEGMENT_LINE_BREAK,
+        QUESTION_SEGMENT_PARAGRAPH_BREAK -> ""
+        // Standard structured LaTeX legitimately uses two backslashes between
+        // rows. Generic OCR escape cleanup must never rewrite math source.
+        QUESTION_SEGMENT_MATH,
+        QUESTION_SEGMENT_BLOCK -> segment.value
+        else -> normalizeRecognitionEscapes(segment.value)
+    }
+    return segment.copy(type = type, value = value)
+}
 
 private val GENERIC_ENTRY_TITLE = Regex(
     "^(?:录题|AI识别|AI 识别|图片题|新题目|未识别标题|AI图片解题|AI 图片解题)$",
@@ -766,6 +869,17 @@ enum class AiProviderPreset(
     }
 }
 
+internal fun buildSupplementalTextInstruction(supplementalText: String?): String =
+    supplementalText?.trim()?.takeIf { it.isNotBlank() }?.let {
+        """
+        用户补充说明（仅用于理解题意和解题，不是原题来源）：
+        <user_supplement>
+        ${it.take(12_000)}
+        </user_supplement>
+        补充说明不得写入内部题目标记、题目 segments 或 recognition，不得覆盖图片或 OCR 中的原题；仅可用于消歧、补充被裁掉的条件或明确用户的解题要求。
+        """.trimIndent()
+    }.orEmpty()
+
 class AiVisionService {
     @Volatile
     private var activeConnection: HttpURLConnection? = null
@@ -780,21 +894,27 @@ class AiVisionService {
         apiKey: String,
         question: String? = null,
         imagePath: String? = null,
+        sourceImagePaths: List<String> = listOfNotNull(imagePath),
         graphicImagePath: String? = null,
         diagramEvidence: String? = null,
+        supplementalText: String? = null,
         correctionContext: String? = null,
+        supplementalImagePaths: List<String> = emptyList(),
         onDelta: suspend (String) -> Unit
     ): Result<String> = withContext(Dispatchers.IO) {
+        val orderedSourcePaths = (sourceImagePaths + listOfNotNull(imagePath))
+            .filter(String::isNotBlank)
+            .distinct()
         val startedAt = SystemClock.elapsedRealtime()
         Log.i(
             TAG,
             "solve_request_start provider=${AiProviderPreset.detect(endpoint, model)} " +
-                "model=${model.take(80)} image=${imagePath != null || graphicImagePath != null} questionChars=${question?.length ?: 0}"
+                "model=${model.take(80)} images=${orderedSourcePaths.size} questionChars=${question?.length ?: 0}"
         )
         val result = runCatching {
             requireConfig(endpoint, model, apiKey)
-            require(!question.isNullOrBlank() || imagePath != null || graphicImagePath != null) { "请提供题目文字或图片" }
-            if (imagePath != null || graphicImagePath != null) {
+            require(!question.isNullOrBlank() || orderedSourcePaths.isNotEmpty() || graphicImagePath != null || supplementalImagePaths.isNotEmpty()) { "请提供题目文字或图片" }
+            if (orderedSourcePaths.isNotEmpty() || graphicImagePath != null || supplementalImagePaths.isNotEmpty()) {
                 require(AiProviderPreset.detect(endpoint, model).supportsVisionFor(model)) {
                     "当前模型不支持含图题视觉识别/解题；请切换到视觉模型"
                 }
@@ -808,13 +928,14 @@ class AiVisionService {
                 这些文字及坐标不得复制、改写或追加到题目识别；题目识别只能来自原题正文。需要使用时只能体现在解题思路、逐步推导或最终答案中。
                 """.trimIndent()
             }.orEmpty()
-            val directVisualQuestionSegmentsInstruction = if (imagePath != null) {
+            val supplementalTextInstruction = buildSupplementalTextInstruction(supplementalText)
+            val directVisualQuestionSegmentsInstruction = if (orderedSourcePaths.isNotEmpty()) {
                 """
                 这是直接视觉解题链。除普通题目标记外，必须额外输出一份机器可读的原题片段，放在以下两个隐藏标记之间：
                 [[TIJI_QUESTION_SEGMENTS_START]]
-                {"segments":[{"type":"text","text":"中文正文"},{"type":"math","latex":"f(x)=x^2"},{"type":"blank"}]}
+                {"segments":[{"type":"text","text":"中文正文"},{"type":"math","latex":"f(x)=x^2"},{"type":"block","latex":"\\begin{pmatrix}a&b\\\\c&d\\end{pmatrix}"},{"type":"blank"}]}
                 [[TIJI_QUESTION_SEGMENTS_END]]
-                segments 必须按原图阅读顺序完整覆盖题干；中文和标点使用 text，数学表达式使用 math 的 latex，题目中的横线/填空位置使用 blank，语义换行使用 lineBreak。不要把空白位置写成连续反斜杠、下划线或短横线。该结构化片段是程序保存题干的唯一优先来源；不要把答案、解析或模型新生成的内容放进 segments。
+                segments 必须按原图阅读顺序完整覆盖题干；中文和标点使用 text，普通单行数学表达式使用 math，矩阵/方程组/分段函数/独立多行公式使用一个完整 block，题目中的横线/填空位置使用 blank，语义换行使用 lineBreak。不要把空白位置写成连续反斜杠、下划线或短横线。JSON 中 LaTeX 命令反斜杠必须转义，结构化公式的 \\ 行分隔必须编码为四个反斜杠字符。该结构化片段是程序保存题干的唯一优先来源；不要把答案、解析或模型新生成的内容放进 segments。
                 """.trimIndent()
             } else {
                 ""
@@ -822,41 +943,48 @@ class AiVisionService {
             val instruction = """
                 输出的第一行必须严格为 [[TIJI_META:{"difficulty":0,"subject":"","questionType":"","title":"简短题型总结","graphic":{"present":false}}]]。解题阶段不得判断或填写科目、题型、知识点、标签、难度；这些分类元数据必须保持空值/0，由题目保存成功后的独立分类任务完成。$AI_TITLE_RULE 该行是程序内部元数据，用户界面会隐藏，不要重复该标记。
                 $AI_GRAPHIC_RULES
-                $AI_RECOGNITION_PROTOCOL_RULE
                 $hiddenDiagramInstruction
+                $supplementalTextInstruction
                 元数据行之后输出内部题目标记：[[TIJI_QUESTION_START]]，下一行输出还原后的完整原题，随后输出 [[TIJI_QUESTION_END]]。这两个标记和其中的原题也会被程序隐藏，不要在解答正文中重复。
                 $directVisualQuestionSegmentsInstruction
                 允许模型在内部进行思考，但最终可见输出只能是规定的解答内容；禁止输出思考过程、草稿、OCR 分析、识别不确定性、置信度、识别说明、“注：”“说明：”“可能是……”或任何元话语。
-                 请直接解题，并严格按以下四个固定分段标题输出 Markdown：题目识别、解题思路、逐步推导、最终答案。题目识别只放还原后的完整原题；解题思路说明采用的方法；逐步推导给出必要的计算过程；最终答案只给出最后结论。不要增加其他一级分段标题，也不要把几个部分合并成一段。
+                ${structuredSolveOutputInstruction()}
                 内部题目标记中的原题只输出还原后的完整原题本身，不要写识别过程、题意分析、解题想法、“根据图片可知”等说明。输入为图片时直接忠实转写原图；输入为文字时，该文字可能来自本地 OCR，请结合题目上下文只纠正明确的 OCR 错字、断行或公式编码错误。不得省略、补充、概括、改写条件、问题、选项或公式；无法确认的字符使用 □，禁止猜测。明显误识别成 A。或 A、的选项标签可纠正为 A.，其余原题标点尽量保留。
                 本地 OCR 文本已经按照片坐标从上到下、从左到右合并，纠错时必须保持原有片段的相对顺序；不得依据题型、解题思路或常见题目样式重新排列、交换、补写或删去任何片段。只能在原顺序内纠正能够明确确认的字符、标点和 LaTeX 编码。
                 图片识别必须按原图的阅读顺序从上到下、从左到右还原；同一道题中被拍摄排版分成多行、左右两列或正文与公式分开的内容，要合并成原来的完整句子和公式，不要把每个词、单字、数字或公式碎片当成独立题目。题号、括号、选项标号必须紧跟它后面的题干内容；不要把公式右侧、下一行或同一题另一列的内容漏掉。
                 内部题目标记中的原题尽量使用一个连续的行内段落，不要主动插入换行符；只有选择题的 A.、B.、C.、D. 选项、多小题、表格或原图中确实独立的结构才允许换行。屏幕宽度造成的换行交给界面处理，不要为了排版拆散句子、词语、数字或公式。
                 $AI_SOLUTION_CLASSIFICATION_RULE
                 如果图片同时包含题目、答案、解析或解答区域，必须全文识别并分别归类：题目识别只放题目，解题思路和逐步推导放入解析，最终答案放入最终答案。解题阶段不要输出任何分类判断；保存成功后会把完整题目、答案和解析交给独立分类任务处理。即使原图是教材页，也必须继续读取题干下方的“解”及其全部后续内容，不能只返回顶部例题。
-                四个固定分段标题必须保留，标题下使用完整句子和自然段。
+                四个 section 必须完整保留；正文使用完整句子，段落和步骤通过 segments 表达。
                 数学公式使用可读 LaTeX：分式、根式、积分、求和使用标准命令；包围高公式的括号使用 \left 与 \right 自动伸缩；微分项前使用 \, 保留规范间距。
                 正文保持完整句子和自然段，让界面自动换行；不要为了排版拆分句子或把同一句强制分行，也不要在中文词语、英文单词、数字或 LaTeX 命令内部插入空格或换行。
-                 $AI_INLINE_FORMULA_RULE
-                 $AI_MATH_SEGMENT_RULE
-                 $AI_SEMANTIC_LINE_BREAK_RULE
-                 解题部分的中文正文使用自然的中文标点；数学公式环境内部只使用半角西文符号和标准 LaTeX。变量保持斜体，函数名和运算符使用标准命令（如 \sin、\cos、\ln、\log、\lim），求和与积分使用 \sum、\int。独立公式末尾的标点放在公式外侧。
-                不要用纯文本斜杠替代分式。除内部元数据和题目标记外，不要输出 JSON、额外的分类分析或任何解释性尾注。
             """.trimIndent() + correctionInstruction(correctionContext, structuredSolve = true)
             // The complete source image already contains the diagram. Sending a
             // second crop here duplicated the Base64 payload and made the direct
             // visual path substantially slower and more memory hungry than OCR.
             // Crops remain persisted/displayed; they are not needed for this
             // model request because the model receives the complete page.
-            val visualPaths = listOfNotNull(imagePath).distinct()
+            val visualPaths = (orderedSourcePaths + supplementalImagePaths)
+                .filter(String::isNotBlank)
+                .distinct()
             Log.i(TAG, "vision_solve_start model=${model.take(80)} images=${visualPaths.size}")
             val content: Any = if (visualPaths.isNotEmpty()) {
-                JSONArray().put(JSONObject().put("type", "text").put("text", instruction)).also { parts ->
+                val instructionWithTextSource = if (!question.isNullOrBlank()) {
+                    "$instruction\n\n原题文字：\n${question.take(12_000)}"
+                } else instruction
+                JSONArray().put(JSONObject().put("type", "text").put("text", instructionWithTextSource)).also { parts ->
                     visualPaths.forEachIndexed { index, path ->
                         val image = prepareVisionUpload(path, "solve_${index + 1}")
                         Log.i(TAG, "vision_upload_ready model=${model.take(80)} index=$index bytes=${image.size}")
                         parts.put(
-                            JSONObject().put("type", "text").put("text", if (index == 0) "以上为完整原题图。" else "以上为题目图形裁剪辅助图，必须结合完整原题图使用。")
+                            JSONObject().put("type", "text").put(
+                                "text",
+                                if (path in orderedSourcePaths) {
+                                    "以上为完整原题图第 ${orderedSourcePaths.indexOf(path) + 1}/${orderedSourcePaths.size} 张，必须按图片顺序连续阅读为同一道题。"
+                                } else {
+                                    "以上为用户纠错时补充并处理后的图片，必须作为纠正依据。"
+                                }
+                            )
                         ).put(
                             JSONObject().put("type", "image_url").put("image_url", JSONObject().put("url", "data:image/jpeg;base64,${Base64.encodeToString(image, Base64.NO_WRAP)}"))
                         )
@@ -898,7 +1026,7 @@ class AiVisionService {
         }
         result.exceptionOrNull()?.let { if (it is CancellationException) throw it }
         result.exceptionOrNull()?.let { error ->
-            Log.e(TAG, "视觉解题请求失败 model=${model.take(80)} image=${imagePath != null}", error)
+            Log.e(TAG, "视觉解题请求失败 model=${model.take(80)} images=${orderedSourcePaths.size}", error)
         }
         Log.i(TAG, "solve_request_end model=${model.take(80)} elapsedMs=${SystemClock.elapsedRealtime() - startedAt} success=${result.isSuccess}")
         result
@@ -1029,13 +1157,18 @@ class AiVisionService {
         context: String,
         prompt: String,
         imagePath: String? = null,
+        sourceImagePaths: List<String> = listOfNotNull(imagePath),
         graphicImagePath: String? = null,
+        followUpImagePaths: List<String> = emptyList(),
         onDelta: suspend (String) -> Unit = {}
     ): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
             requireConfig(endpoint, model, apiKey)
             require(prompt.isNotBlank()) { "请输入追问内容" }
-            val requestedVisualPaths = listOfNotNull(imagePath, graphicImagePath).distinct()
+            val orderedSourcePaths = (sourceImagePaths + listOfNotNull(imagePath)).filter(String::isNotBlank).distinct()
+            val requestedVisualPaths = (orderedSourcePaths + listOfNotNull(graphicImagePath) + followUpImagePaths)
+                .filter(String::isNotBlank)
+                .distinct()
             val supportsVision = AiProviderPreset.detect(endpoint, model).supportsVisionFor(model)
             // Text-only models can still answer a follow-up from the OCR/AI
             // text already included in context. Do not send unsupported image
@@ -1046,37 +1179,28 @@ class AiVisionService {
             } else {
                 ""
             }
-            val instruction = """
-                你正在延续一道题的解题对话。请直接回答用户追问，不要输出 JSON。
-                $textOnlyFallbackNote
-                不要使用“答案”“解题思路”“逐步推导”等固定分段标题；先给出明确结论，再按需要说明理由并展示必要的推导过程，不要只给一句结论。
-                如果用户要求纠正前面的解答，请直接给出完整、可替换的纠正内容，不要只描述哪里错了。
-                使用清晰的 Markdown；保持完整句子和自然段，不要为了排版拆分句子，也不要在词语、英文单词、数字或 LaTeX 命令内部插入空格或换行。
-               行内公式使用 \( ... \)，独立公式使用 \[ ... \]；分式、根式、积分、求和使用标准 LaTeX，包围高公式的括号使用 \left 与 \right 自动伸缩，微分项前使用 \,。
-                $AI_INLINE_FORMULA_RULE
-                $AI_MATH_SEGMENT_RULE
-                 $AI_SEMANTIC_LINE_BREAK_RULE
-                中文正文使用中文全角标点；数学公式环境内部只使用半角西文符号和标准 LaTeX。变量保持斜体，函数名和运算符使用标准命令（如 \sin、\cos、\ln、\log、\lim），求和与积分使用 \sum、\int。条目编号和选择题选项使用半角括号 (1)、(2)、(A)、(B)。独立公式末尾的句点放在公式外侧，正文句末使用中文句号“。”。
-                如果题目上下文含图，必须结合输入图片中的图形、标注、坐标、刻度、单位和图例回答；不要假装已经识别不存在的图形。
-
-                已有题目与解答：
-                ${context.take(24_000)}
-
-                用户追问：
-                $prompt
-            """.trimIndent()
+            val instruction = buildFollowUpPrompt(
+                context = context,
+                prompt = prompt,
+                textOnlyFallbackNote = textOnlyFallbackNote
+            )
             val messageContent: Any = if (visualPaths.isEmpty()) instruction else JSONArray().put(
                 JSONObject().put("type", "text").put("text", instruction)
             ).also { parts ->
                 visualPaths.forEachIndexed { index, path ->
                     val image = ImageProcessor.prepareForUpload(path).getOrThrow()
-                    parts.put(JSONObject().put("type", "text").put("text", if (index == 0) "完整原题图：" else "图形裁剪辅助图："))
+                    val label = when {
+                        path in orderedSourcePaths -> "完整原题图第 ${orderedSourcePaths.indexOf(path) + 1}/${orderedSourcePaths.size} 张："
+                        path == graphicImagePath -> "图形裁剪辅助图："
+                        else -> "用户本次追问补充的图片 ${index + 1}："
+                    }
+                    parts.put(JSONObject().put("type", "text").put("text", label))
                         .put(JSONObject().put("type", "image_url").put("image_url", JSONObject().put("url", "data:image/jpeg;base64,${Base64.encodeToString(image, Base64.NO_WRAP)}")))
                 }
             }
             val body = JSONObject()
                 .put("model", model)
-                .put("max_tokens", 2_000)
+                .put("max_tokens", 4_000)
                 .put("stream", true)
                 .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", messageContent)))
             applyDeepSeekTextOptions(body, endpoint, model)
@@ -1089,6 +1213,30 @@ class AiVisionService {
                 }
         }
     }
+
+    internal fun buildFollowUpPrompt(
+        context: String,
+        prompt: String,
+        textOnlyFallbackNote: String = ""
+    ): String = """
+        你正在延续一道题的解题对话。请直接、自然地回答用户本次追问，像正常对话一样说明必要的依据；不要重新输出整份解题文档，不要拆成“题目识别、解题思路、逐步推导、最终答案”等分区，也不要为了套格式强行分步骤。
+        $textOnlyFallbackNote
+        $AI_FOLLOW_UP_FORMULA_RULE
+        $AI_SEMANTIC_LINE_BREAK_RULE
+        优先把完整自然回复作为一个单正文结构输出，严格放在以下标记之间：
+        $TIJI_FOLLOW_UP_V1_START
+        一个 schemaVersion 为 1、segments 为数组的合法 JSON 对象
+        $TIJI_FOLLOW_UP_V1_END
+        根对象只能包含 schemaVersion 和 segments，不得包含 sections、recognition、approach、derivation 或 finalAnswer。segments 只允许 text、math、block、lineBreak、paragraphBreak、blank；text 的字段名是 text，math 和 block 的字段名是 latex，换行片段不带内容字段。普通公式、变量、函数、等式和不等式必须使用 math，不能把 LaTeX 命令或数学表达式塞进 text；只有回复本身确实需要矩阵、方程组、分段函数等多行数学结构时才使用 block。结构化 segments 内禁止使用 Markdown 的 #、**、代码围栏、列表标记或链接语法。正文必须仍是自然对话，不要添加协议说明，也不要复制本提示中的字段说明或任何示例内容。
+        如果无法保证上述 JSON 完整合法，则完全不要输出 TIJI 标记、JSON 或代码围栏，直接回退为普通 Markdown 自然回复；Markdown 中公式仍使用规定的 LaTeX 定界符。
+        如果题目上下文含图，必须结合输入图片中的图形、标注、坐标、刻度、单位和图例回答；不要假装已经识别不存在的图形。
+
+        已有题目与解答：
+        ${context.take(24_000)}
+
+        用户追问：
+        $prompt
+    """.trimIndent()
 
     suspend fun analyzeSolvedContent(
         endpoint: String,
@@ -1182,8 +1330,8 @@ class AiVisionService {
                 你是视觉证据提取器，不是解题器。只忠实读取图片，不要计算答案、解释题意、补充缺失条件或猜测模糊内容。
                 必须扫描整张图片，从顶部到底部识别真实存在的题目、印刷答案、解析/解答/证明/分析/过程和图形，不要只截取题目区域。
                 只返回一个 JSON 文档，不要 Markdown、TIJI 解题标记、思考过程或额外文字。格式必须遵循：
-                {"title":"","question":{"segments":[{"type":"text","text":"原题文字"},{"type":"math","latex":"f(t)=t^2"},{"type":"blank"}]},"printedAnswer":{"segments":[]},"printedExplanation":{"segments":[]},"diagramEvidence":{"description":"","labels":[],"relations":[]},"graphicSpecs":[]}
-                 segments 必须按原图阅读顺序排列，只允许 text、math、blank。填空横线必须使用独立的 blank，禁止用连续反斜杠表示。math 的 latex 不带定界符，由应用统一包装；不要把图形观察写入 question segments。
+                {"title":"","question":{"segments":[{"type":"text","text":"原题文字"},{"type":"math","latex":"f(t)=t^2"},{"type":"block","latex":"\\begin{pmatrix}a&b\\\\c&d\\end{pmatrix}"},{"type":"blank"}]},"printedAnswer":{"segments":[]},"printedExplanation":{"segments":[]},"diagramEvidence":{"description":"","labels":[],"relations":[]},"graphicSpecs":[]}
+                 segments 必须按原图阅读顺序排列，允许 text、math、blank、lineBreak、paragraphBreak、block。填空横线必须使用独立的 blank，禁止用连续反斜杠表示。普通单行公式使用 math；矩阵、方程组、分段函数和独立多行公式使用一个完整 block。math/block 的 latex 不带定界符，由应用统一包装；JSON 中结构化公式的 \\ 行分隔必须编码为四个反斜杠字符。不要把图形观察写入 question segments。
                 printedAnswer 和 printedExplanation 只抄录图片中明确出现的对应区域；图片没有就返回空 segments，禁止自行求解、补答案或生成解析。graphicSpecs 只返回可靠图形边界，图形内文字放 diagramEvidence 隐藏字段。
                  $AI_INLINE_FORMULA_RULE
                 $AI_MATH_SEGMENT_RULE
@@ -1302,13 +1450,35 @@ class AiVisionService {
         visualModel: String,
         visualApiKey: String,
         imagePath: String,
+        imagePaths: List<String> = listOf(imagePath),
+        supplementalText: String? = null,
         correctionContext: String? = null,
+        supplementalImagePaths: List<String> = emptyList(),
         onDelta: suspend (String) -> Unit = {}
     ): Result<VisualAssistSolveResult> = withContext(Dispatchers.IO) {
         runCatching {
             // The visual helper is an internal evidence pass. Only the text-model
             // solution should be exposed through the solve stream.
-            val evidence = recognizeVisualEvidence(visualEndpoint, visualModel, visualApiKey, imagePath).getOrThrow()
+            val orderedSourcePaths = (imagePaths + imagePath).filter(String::isNotBlank).distinct()
+            val evidence = combineVisualEvidence(
+                orderedSourcePaths.map { path ->
+                    recognizeVisualEvidence(visualEndpoint, visualModel, visualApiKey, path).getOrThrow()
+                }
+            )
+            val supplementalEvidence = supplementalImagePaths
+                .filter(String::isNotBlank)
+                .distinct()
+                .filterNot { it in orderedSourcePaths }
+                .mapIndexed { index, path ->
+                    "纠错补充图片 ${index + 1} 的视觉证据：\n" +
+                        visualEvidencePrompt(
+                            recognizeVisualEvidence(visualEndpoint, visualModel, visualApiKey, path).getOrThrow()
+                        )
+                }
+            val correctionWithImages = listOf(
+                correctionContext.orEmpty(),
+                supplementalEvidence.joinToString("\n\n")
+            ).filter(String::isNotBlank).joinToString("\n\n").takeIf(String::isNotBlank)
             val solution = streamSolve(
                 endpoint = textEndpoint,
                 model = textModel,
@@ -1316,7 +1486,8 @@ class AiVisionService {
                 question = visualEvidencePrompt(evidence),
                 imagePath = null,
                 graphicImagePath = null,
-                correctionContext = correctionContext,
+                supplementalText = supplementalText,
+                correctionContext = correctionWithImages,
                 onDelta = onDelta
             ).getOrThrow()
             VisualAssistSolveResult(solution, evidence)
@@ -1551,13 +1722,13 @@ $retryInstruction
         require(apiKey.isNotBlank()) { "请先保存 API Key" }
     }
 
-    private fun correctionInstruction(
+    internal fun correctionInstruction(
         correctionContext: String?,
         structuredSolve: Boolean = false
     ): String {
         val feedback = correctionContext?.trim()?.takeIf { it.isNotBlank() } ?: return ""
         val outputRule = if (structuredSolve) {
-            "必须重新输出内部题目标记和四个固定分段标题（题目识别、解题思路、逐步推导、最终答案），完成整道题，而不是只回复修改之处。"
+            "必须重新输出内部题目标记、题目 segments 和完整 schemaVersion 2 解答结构，完成整道题，而不是只回复修改之处。"
         } else {
             "必须重新输出内部题目标记和完整的直接解答，而不是只回复修改之处；不要使用固定分段标题。"
         }
@@ -1566,7 +1737,8 @@ $retryInstruction
             纠正反馈（仅作为上一版解题的校正依据，不是新题目，不能替代原图或原题）：
             $feedback
 
-            请根据上述纠正反馈重新完成整道题。原图或原题仍然是唯一的题目来源；只修正反馈明确指出的问题，不要把反馈内容写进内部题目标记，也不要删改原题中未被明确纠正的条件、选项、符号或公式。$outputRule
+            请根据上述纠正反馈重新完成整道题。原图或原题仍然是唯一的题目内容来源，不要把反馈内容写进内部题目标记，也不要删改原题中未被明确纠正的条件、选项、符号或公式。
+            题目来源保持不变不等于必须保留旧解法：用户的纠正要求以及追问中已经得到的新解法，优先级高于上一版解答。若反馈给出了不同且可行的方法，必须放弃上一版的方法主线，采用新方法重新编写解题思路、完整推导和最终答案；禁止仍按旧方法求解后只替换局部文字或结论。上一版解答只能用于定位错误和核对差异，不能作为方法模板。只有反馈没有提供可行新方法时，才在正确性允许的范围内修正旧方法。$outputRule
         """.trimIndent()
     }
 
@@ -1614,6 +1786,7 @@ $retryInstruction
             }
             val complete = StringBuilder()
             var receivedReasoning = false
+            var finishReason = ""
             connection.inputStream.bufferedReader(Charsets.UTF_8).useLines { lines ->
                 lines.forEach { line ->
                     currentCoroutineContext().ensureActive()
@@ -1625,8 +1798,11 @@ $retryInstruction
                             }.getOrNull().orEmpty()
                             if (apiError.isNotBlank()) error(apiError)
                             val delta = runCatching {
-                                val deltaObject = JSONObject(data).optJSONArray("choices")?.optJSONObject(0)
-                                    ?.optJSONObject("delta")
+                                val choice = JSONObject(data).optJSONArray("choices")?.optJSONObject(0)
+                                choice?.optString("finish_reason")
+                                    ?.takeIf { it.isNotBlank() && it != "null" }
+                                    ?.let { finishReason = it }
+                                val deltaObject = choice?.optJSONObject("delta")
                                 receivedReasoning = receivedReasoning || jsonText(deltaObject, "reasoning_content").isNotBlank()
                                 jsonText(deltaObject, "content")
                             }.getOrDefault("")
@@ -1634,6 +1810,9 @@ $retryInstruction
                         }
                     }
                 }
+            }
+            if (isOutputLengthLimit(finishReason)) {
+                throw AiOutputLimitException(complete.toString())
             }
             complete.toString().also {
                 require(it.isNotBlank()) {
@@ -1663,7 +1842,8 @@ $retryInstruction
         if (choices == null || choices.length() == 0) {
             error("服务商未返回 choices：请检查接口地址与模型名称是否匹配")
         }
-        val message = choices.optJSONObject(0)?.optJSONObject("message")
+        val firstChoice = choices.optJSONObject(0)
+        val message = firstChoice?.optJSONObject("message")
             ?: error("服务商响应缺少 message：请检查模型是否支持 chat completions")
         val contentValue = message.opt("content")
         val content = when (contentValue) {
@@ -1673,6 +1853,9 @@ $retryInstruction
             }.joinToString("")
             else -> ""
         }.trim()
+        if (isOutputLengthLimit(firstChoice.optString("finish_reason"))) {
+            throw AiOutputLimitException(content)
+        }
         if (content.isNotBlank()) return content
         val reasoning = message.optString("reasoning_content").trim()
         if (reasoning.isNotBlank()) {
@@ -1984,7 +2167,7 @@ $retryInstruction
 
     internal fun parseStructuredSolveRecognition(
         raw: String,
-        repairDirectVisualUnderline: Boolean = false
+        repairDirectVisualUnderline: Boolean = true
     ): AiRecognitionResult {
         val questionMarker = Regex(
             "(?s)\\[\\[TIJI_QUESTION_START\\]\\]\\s*(.*?)\\s*\\[\\[TIJI_QUESTION_END\\]\\]"

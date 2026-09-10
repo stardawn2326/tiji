@@ -12,18 +12,25 @@ import android.graphics.BitmapFactory
 import android.graphics.pdf.PdfRenderer
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.ParcelFileDescriptor
+import android.os.SystemClock
 import android.util.Log
 import android.widget.Toast
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import com.tiji.mistakes.BuildConfig
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.tween
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Image as ComposeImage
 import androidx.compose.foundation.background
@@ -70,6 +77,7 @@ import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Lightbulb
 import androidx.compose.material.icons.outlined.PictureAsPdf
+import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Replay
 import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.material.icons.outlined.Search
@@ -113,6 +121,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -126,6 +135,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -157,6 +167,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import coil.compose.AsyncImage
+import coil.request.CachePolicy
+import coil.request.ImageRequest
 import com.tiji.mistakes.data.AiProfile
 import com.tiji.mistakes.data.AiVisualProfile
 import com.tiji.mistakes.data.AppPreferences
@@ -170,12 +182,19 @@ import com.tiji.mistakes.service.HtmlPdfExportService
 import com.tiji.mistakes.service.AiVisionService
 import com.tiji.mistakes.service.AiProviderPreset
 import com.tiji.mistakes.service.AiChatMessage
+import com.tiji.mistakes.service.PersistedAiChatState
+import com.tiji.mistakes.service.hasAiChatActivity
+import com.tiji.mistakes.service.replaceImageAtSamePosition
 import com.tiji.mistakes.service.AiRecognitionMode
 import com.tiji.mistakes.service.AiRecognitionResult
 import com.tiji.mistakes.service.AiRecognitionStatus
 import com.tiji.mistakes.service.AiSolveStatus
 import com.tiji.mistakes.service.AiSolveHistoryRecord
 import com.tiji.mistakes.service.AiDrawingRenderer
+import com.tiji.mistakes.service.AiStructuredSolutionCodec
+import com.tiji.mistakes.service.stripAiProtocolForDisplay
+import com.tiji.mistakes.service.buildStructuredCorrectionContext
+import com.tiji.mistakes.service.followUpReplyForDisplay
 import com.tiji.mistakes.service.ContentBlockRole
 import com.tiji.mistakes.service.ImageOperation
 import com.tiji.mistakes.service.ImageProcessor
@@ -187,7 +206,8 @@ import com.tiji.mistakes.service.OCR_USER_WARNING
 import com.tiji.mistakes.service.QuestionContentBlockCodec
 import com.tiji.mistakes.service.ContentBlockKind
 import com.tiji.mistakes.service.SecureKeyStore
-import com.tiji.mistakes.service.splitQuestionOptionsForLayout
+import com.tiji.mistakes.service.normalizeQuestionForDisplayLayout
+import com.tiji.mistakes.service.shouldOfferAiSettings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -211,6 +231,28 @@ private fun bottomRouteIndex(route: String?): Int {
     return bottomRouteOrder.indexOf(baseRoute).takeIf { it >= 0 } ?: 0
 }
 
+private fun isSecondaryRoute(route: String?): Boolean =
+    route?.substringBefore('/')?.let { it !in bottomRouteOrder } ?: false
+
+private fun pageSlideDirection(
+    initialRoute: String?,
+    targetRoute: String?,
+    popping: Boolean
+): AnimatedContentTransitionScope.SlideDirection {
+    if (isSecondaryRoute(initialRoute) || isSecondaryRoute(targetRoute)) {
+        return if (popping) {
+            AnimatedContentTransitionScope.SlideDirection.Left
+        } else {
+            AnimatedContentTransitionScope.SlideDirection.Right
+        }
+    }
+    return if (bottomRouteIndex(targetRoute) >= bottomRouteIndex(initialRoute)) {
+        AnimatedContentTransitionScope.SlideDirection.Left
+    } else {
+        AnimatedContentTransitionScope.SlideDirection.Right
+    }
+}
+
 private fun cameraUri(context: Context, file: File): Result<Uri> = runCatching {
     FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
 }
@@ -218,8 +260,31 @@ private fun cameraUri(context: Context, file: File): Result<Uri> = runCatching {
 private enum class MistakeOrder(val label: String) { NEWEST("最新"), OLDEST("最早"), UPDATED("最近修改") }
 private val weekLabels = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
 
-private enum class CropDragMode { MOVE, LEFT_TOP, RIGHT_TOP, LEFT_BOTTOM, RIGHT_BOTTOM }
+private enum class CropDragMode {
+    MOVE,
+    LEFT,
+    TOP,
+    RIGHT,
+    BOTTOM,
+    LEFT_TOP,
+    RIGHT_TOP,
+    LEFT_BOTTOM,
+    RIGHT_BOTTOM
+}
 private data class CropSelection(val left: Float, val top: Float, val right: Float, val bottom: Float)
+private fun initialCropSelection() = CropSelection(0.05f, 0.05f, 0.95f, 0.95f)
+
+/** Every visible instance of one in-place replaced file observes this key. */
+private val imageReloadVersions = mutableStateMapOf<String, Int>()
+
+private fun notifyImageReplaced(path: String) {
+    imageReloadVersions[path] = (imageReloadVersions[path] ?: 0) + 1
+}
+
+private fun imageRequestRevision(path: String, version: Int): String {
+    val file = File(path)
+    return "$path#$version#${file.lastModified()}#${file.length()}"
+}
 
 private fun formatUploadTime(value: Long): String = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(value))
 
@@ -289,16 +354,7 @@ private fun streamingAiMeta(value: String): StreamingAiMeta? {
 }
 
 private fun visibleAiSolution(value: String): String {
-    var visible = value.trimStart()
-    if (visible.startsWith("[[TIJI_META:")) {
-        val end = visible.indexOf("]]" )
-        visible = if (end < 0) "" else visible.substring(end + 2).trimStart()
-    }
-    val questionBlock = Regex(
-        "(?s)\\[\\[TIJI_QUESTION_START\\]\\].*?\\[\\[TIJI_QUESTION_END\\]\\]"
-    )
-    visible = visible.replace(questionBlock, "").trim()
-    return AiDrawingRenderer.stripMarkers(visible.replace("[[TIJI_QUESTION_START]]", "").trim())
+    return AiDrawingRenderer.stripMarkers(stripAiProtocolForDisplay(value))
 }
 
 private data class AiSolutionSections(
@@ -307,10 +363,22 @@ private data class AiSolutionSections(
     val derivation: String,
     val finalAnswer: String,
     val raw: String,
-    val structured: Boolean
+    val structured: Boolean,
+    val schemaVersion: Int = 1
 )
 
 private fun parseAiSolutionSections(value: String): AiSolutionSections {
+    AiStructuredSolutionCodec.parse(value)?.let { solution ->
+        return AiSolutionSections(
+            recognition = solution.section("recognition")?.displaySource().orEmpty(),
+            approach = solution.section("approach")?.displaySource().orEmpty(),
+            derivation = solution.section("derivation")?.displaySource().orEmpty(),
+            finalAnswer = solution.section("finalAnswer")?.displaySource().orEmpty(),
+            raw = solution.copyText(),
+            structured = true,
+            schemaVersion = solution.schemaVersion
+        )
+    }
     val text = visibleAiSolution(value).trim()
     if (text.isBlank()) return AiSolutionSections("", "", "", "", "", false)
 
@@ -526,8 +594,9 @@ fun TijiApp() {
     val reviewMastery by preferences.reviewMastery.collectAsStateWithLifecycle(emptyMap())
     val reviewPlanSnapshots by preferences.reviewPlanSnapshots.collectAsStateWithLifecycle(emptyMap())
     val mistakes by viewModel.mistakes.collectAsStateWithLifecycle()
+    val allMistakes by viewModel.allMistakes.collectAsStateWithLifecycle()
+    var librarySubject by rememberSaveable { mutableStateOf<String?>(null) }
     val dueMistakes by viewModel.dueMistakes.collectAsStateWithLifecycle()
-    val totalCount by viewModel.totalCount.collectAsStateWithLifecycle()
     val dueCount by viewModel.dueCount.collectAsStateWithLifecycle()
     val navController = rememberNavController()
     val scope = rememberCoroutineScope()
@@ -535,6 +604,7 @@ fun TijiApp() {
     val backStack by navController.currentBackStackEntryAsState()
     val route = backStack?.destination?.route
     var solveVisitToken by remember { mutableIntStateOf(0) }
+    var homeVisitToken by remember { mutableIntStateOf(0) }
     LaunchedEffect(route) {
         if (route == "solve") solveVisitToken += 1
     }
@@ -543,9 +613,9 @@ fun TijiApp() {
         listOf(
             BottomDestination("home", "首页") { Icon(Icons.Outlined.Home, null) },
             BottomDestination("library", "错题") { Icon(Icons.AutoMirrored.Outlined.MenuBook, null) },
-            BottomDestination("solve", "解题") { Icon(Icons.Outlined.AutoAwesome, null) },
+            BottomDestination("solve", "AI解题") { Icon(Icons.Outlined.AutoAwesome, null) },
             BottomDestination("review", "复习") { Icon(Icons.Outlined.Replay, null) },
-            BottomDestination("settings", "设置") { Icon(Icons.Outlined.Settings, null) }
+            BottomDestination("settings", "我的") { Icon(Icons.Outlined.Person, null) }
         )
     }
 
@@ -554,13 +624,14 @@ fun TijiApp() {
             snackbarHost = { SnackbarHost(snackbarHostState) },
             bottomBar = {
                 if (route != "capture" && route != "ai-chat-history" && route != "ai-solve-history" && route?.startsWith("visual-config") != true) {
-                    NavigationBar(modifier = Modifier.navigationBarsPadding()) {
+                    NavigationBar(containerColor = MaterialTheme.colorScheme.surface, modifier = Modifier.navigationBarsPadding()) {
                         destinations.forEach { destination ->
                             NavigationBarItem(
                                 selected = route == destination.route ||
                                     (destination.route == "library" && route == "detail/{id}") ||
                                     (destination.route == "review" && (route == "review-calendar" || route == "review-detail/{id}/{ids}")),
                                 onClick = {
+                                    if (destination.route == "home") homeVisitToken += 1
                                     if (route != destination.route) {
                                         navController.navigate(destination.route) {
                                             popUpTo(navController.graph.findStartDestination().id) { saveState = false }
@@ -582,30 +653,57 @@ fun TijiApp() {
                 startDestination = "home",
                 modifier = Modifier.padding(padding),
                 enterTransition = {
-                    val direction = if (bottomRouteIndex(targetState.destination.route) >= bottomRouteIndex(initialState.destination.route)) {
-                        AnimatedContentTransitionScope.SlideDirection.Left
-                    } else AnimatedContentTransitionScope.SlideDirection.Right
-                    slideIntoContainer(direction, tween(260))
+                    if (isSecondaryRoute(initialState.destination.route) || isSecondaryRoute(targetState.destination.route)) {
+                        slideIntoContainer(
+                            pageSlideDirection(initialState.destination.route, targetState.destination.route, popping = false),
+                            tween(220)
+                        )
+                    } else fadeIn(tween(180))
                 },
                 exitTransition = {
-                    val direction = if (bottomRouteIndex(targetState.destination.route) >= bottomRouteIndex(initialState.destination.route)) {
-                        AnimatedContentTransitionScope.SlideDirection.Left
-                    } else AnimatedContentTransitionScope.SlideDirection.Right
-                    slideOutOfContainer(direction, tween(260))
+                    if (isSecondaryRoute(initialState.destination.route) || isSecondaryRoute(targetState.destination.route)) {
+                        slideOutOfContainer(
+                            pageSlideDirection(initialState.destination.route, targetState.destination.route, popping = false),
+                            tween(220)
+                        )
+                    } else fadeOut(tween(180))
                 },
-                popEnterTransition = { slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Right, tween(260)) },
-                popExitTransition = { slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.Right, tween(260)) }
+                popEnterTransition = {
+                    if (isSecondaryRoute(initialState.destination.route) || isSecondaryRoute(targetState.destination.route)) {
+                        slideIntoContainer(
+                            pageSlideDirection(initialState.destination.route, targetState.destination.route, popping = true),
+                            tween(220)
+                        )
+                    } else fadeIn(tween(180))
+                },
+                popExitTransition = {
+                    if (isSecondaryRoute(initialState.destination.route) || isSecondaryRoute(targetState.destination.route)) {
+                        slideOutOfContainer(
+                            pageSlideDirection(initialState.destination.route, targetState.destination.route, popping = true),
+                            tween(220)
+                        )
+                    } else fadeOut(tween(180))
+                }
             ) {
                 composable("home") {
                     HomeScreen(
-                        mistakes = mistakes,
-                        totalCount = totalCount,
+                        mistakes = allMistakes,
                         dueCount = dueCount,
+                        reviewTotal = reviewPlanSnapshots[reviewDateKey()].orEmpty().size.takeIf { it > 0 } ?: dueCount,
+                        reviewCompleted = reviewMastery[reviewDateKey()].orEmpty().keys.count { id -> id in reviewPlanSnapshots[reviewDateKey()].orEmpty() },
+                        onSubject = { subject ->
+                            librarySubject = subject
+                            viewModel.setQuery("")
+                            navController.navigate("library")
+                        },
+                        resetScrollToken = homeVisitToken,
                         onNavigate = navController::navigate
                     )
                 }
                 composable("library") {
                     LibraryScreen(
+                        selectedSubject = librarySubject,
+                        onSelectSubject = { subject -> librarySubject = subject },
                         viewModel = viewModel,
                         mistakes = mistakes,
                         exportOriginalImagesOnly = !aiExcludeSourceImageByDefault,
@@ -837,10 +935,45 @@ fun TijiApp() {
     }
 }
 
-private enum class EntryMode(val label: String) { PHOTO("照片录入"), MANUAL("文本录入"), AI("AI录入") }
+private enum class EntryMode(val label: String) { PHOTO("拍照录题"), AI("AI 识题"), MANUAL("手动录入") }
+
+@Composable
+private fun EntryModeSegmented(
+    selected: EntryMode,
+    enabled: Boolean,
+    onSelected: (EntryMode) -> Unit
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(Modifier.padding(4.dp)) {
+            EntryMode.entries.forEach { mode ->
+                val isSelected = selected == mode
+                Surface(
+                    color = if (isSelected) MaterialTheme.colorScheme.surface else Color.Transparent,
+                    contentColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    shape = RoundedCornerShape(9.dp),
+                    shadowElevation = if (isSelected) 1.dp else 0.dp,
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 40.dp)
+                        .clip(RoundedCornerShape(9.dp))
+                        .clickable(enabled = enabled) { onSelected(mode) }
+                        .semantics { contentDescription = mode.label }
+                ) {
+                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                        Text(mode.label, style = MaterialTheme.typography.labelLarge, maxLines = 1)
+                    }
+                }
+            }
+        }
+    }
+}
+
 private val stringListSaver = listSaver<List<String>, String>(save = { it }, restore = { it })
 private enum class PhotoRole(val label: String, val prefix: String) { QUESTION("题目照片", "question"), ANSWER("答案照片", "answer"), EXPLANATION("解析照片", "explanation") }
-private enum class PdfExportKind { QUESTIONS, ANSWERS }
 private enum class AiInputMode(val label: String) {
     VISION("视觉模型"),
     LOCAL_OCR("OCR + 文本模型"),
@@ -878,11 +1011,9 @@ private fun AiInputModeSelector(
 }
 private object PendingPdfExportStore {
     var libraryIds = longArrayOf()
-    var libraryKind = PdfExportKind.QUESTIONS
     var libraryPreviewPath = ""
     var libraryFilename = ""
     var reviewIds = longArrayOf()
-    var reviewKind = PdfExportKind.QUESTIONS
     var reviewPreviewPath = ""
     var reviewFilename = ""
 }
@@ -1052,6 +1183,9 @@ private fun NewCaptureScreen(
 ) {
     val context = LocalContext.current
     val secureStore = remember { SecureKeyStore(context) }
+    var saving by remember { mutableStateOf(false) }
+    var showSupplementImages by rememberSaveable { mutableStateOf(false) }
+    var showCaptureConfiguration by rememberSaveable { mutableStateOf(false) }
     var modeName by rememberSaveable { mutableStateOf(EntryMode.PHOTO.name) }
     val mode = EntryMode.entries.firstOrNull { it.name == modeName } ?: EntryMode.PHOTO
     var title by rememberSaveable { mutableStateOf("") }; var question by rememberSaveable { mutableStateOf("") }
@@ -1063,6 +1197,7 @@ private fun NewCaptureScreen(
     var answerImage by rememberSaveable { mutableStateOf<String?>(null) }
     var explanationImage by rememberSaveable { mutableStateOf<String?>(null) }
     var aiRecognitionImages by rememberSaveable(stateSaver = stringListSaver) { mutableStateOf(emptyList()) }
+    var aiRecognitionEditingOriginalPath by rememberSaveable { mutableStateOf<String?>(null) }
     var aiInputModeName by rememberSaveable { mutableStateOf(initialAiInputMode) }
     val aiInputMode = AiInputMode.entries.firstOrNull { it.name == aiInputModeName } ?: AiInputMode.VISION
     var selectedRole by rememberSaveable { mutableStateOf(PhotoRole.QUESTION) }
@@ -1115,7 +1250,10 @@ private fun NewCaptureScreen(
     fun acceptProcessed(path: String) {
         if (mode == EntryMode.AI && selectedRole == PhotoRole.QUESTION) {
             viewModel.clearAiRecognition()
-            aiRecognitionImages = (aiRecognitionImages + path).distinct()
+            val original = aiRecognitionEditingOriginalPath
+            aiRecognitionImages = replaceImageAtSamePosition(aiRecognitionImages, original, path)
+            if (original != null && original != path) viewModel.deleteImagesIfUnreferenced(listOf(original))
+            aiRecognitionEditingOriginalPath = null
             aiFilled = false
             pendingRecognition = null
             contentBlocksJson = ""
@@ -1139,6 +1277,7 @@ private fun NewCaptureScreen(
     fun load(path: String?, role: PhotoRole) {
         if (path != null) {
             selectedRole = role
+            aiRecognitionEditingOriginalPath = null
             editingPath = path
         }
     }
@@ -1260,7 +1399,12 @@ private fun NewCaptureScreen(
     }
 
     editingPath?.let { path ->
-        StandaloneImageEditor(path, selectedRole.label, onCancel = { editingPath = null }, onConfirm = ::acceptProcessed)
+        StandaloneImageEditor(
+            path,
+            selectedRole.label,
+            onCancel = { editingPath = null; aiRecognitionEditingOriginalPath = null },
+            onConfirm = ::acceptProcessed
+        )
         return
     }
 
@@ -1319,6 +1463,7 @@ private fun NewCaptureScreen(
                         cleanedQuestion.ifBlank { "未识别题目" },
                         preserveReturnedLayout = true,
                         preserveSourceExactly = true,
+                        compactQuestionLayout = true,
                     )
                     ContentBlockImages(
                         result.diagramBlocks.mapIndexedNotNull { index, block -> block.toContentBlock(index) },
@@ -1378,6 +1523,46 @@ private fun NewCaptureScreen(
     }
 
     Scaffold(
+        bottomBar = {
+            Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 1.dp) {
+                Column(Modifier.imePadding().padding(horizontal = 16.dp, vertical = 10.dp)) {
+                Button(
+                    enabled = !saving && !aiRecognitionState.running && (mode == EntryMode.MANUAL && question.isNotBlank() ||
+                        (mode == EntryMode.PHOTO && photoQuestionImage != null) ||
+                        (mode == EntryMode.AI && aiRecognitionImages.isNotEmpty() && aiFilled)),
+                    onClick = {
+                        saving = true
+                        val sourceImages = buildList {
+                            if (mode == EntryMode.AI) addAll(aiRecognitionImages) else photoQuestionImage?.let(::add)
+                        }
+                        val sourceImagePaths = org.json.JSONArray().apply { sourceImages.forEach(::put) }.toString()
+                        viewModel.save(MistakeEntity(
+                            title = title.ifBlank { "未命名错题" },
+                            questionText = question,
+                            answerText = answer,
+                            explanation = explanation,
+                            note = note,
+                            subject = subject,
+                            questionType = questionType,
+                            tags = tags,
+                            difficulty = difficulty,
+                            includeSourceImageInPdf = mode != EntryMode.AI || !aiExcludeSourceImageByDefault,
+                            imagePath = activeQuestionImage,
+                            sourceImagePaths = sourceImagePaths,
+                            contentBlocks = if (mode == EntryMode.AI) contentBlocksJson else "",
+                            answerImagePath = answerImage,
+                            explanationImagePath = explanationImage
+                        ), onSaved = { saving = false; onBack() }, onFailure = {
+                            saving = false
+                            captureMessage = "保存失败：${it.message ?: "请重试"}"
+                        })
+                    },
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
+                ) { Text(if (aiRecognitionState.running) "正在识别…" else if (saving) "正在保存…" else "保存错题") }
+                }
+            }
+        },
         topBar = {
             TopAppBar(
                 title = { Text("录入错题") },
@@ -1387,20 +1572,40 @@ private fun NewCaptureScreen(
         }
     ) { padding ->
         LazyColumn(Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            item { Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { EntryMode.entries.forEach { value -> FilterChip(selected = mode == value, onClick = { switchMode(value) }, label = { Text(value.label) }) } } }
+            item {
+                EntryModeSegmented(
+                    selected = mode,
+                    enabled = !saving && !aiRecognitionState.running,
+                    onSelected = ::switchMode
+                )
+            }
+            if (mode != EntryMode.AI && captureMessage.isNotBlank()) {
+                item { Text(captureMessage, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            }
             if (mode == EntryMode.PHOTO) {
-                item { Text("分别拍摄或选择题目、答案和解析图片。每张图片都会先进入独立处理页。", color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                PhotoRole.entries.forEach { role ->
+                item { Text("先添加题目图片，答案和解析可以稍后补充。", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                item {
+                    TextButton(onClick = { showSupplementImages = !showSupplementImages }) {
+                        Text(if (showSupplementImages) "收起答案与解析图片" else "添加答案 / 解析图片（选填）")
+                    }
+                }
+                PhotoRole.entries.filter { it == PhotoRole.QUESTION || showSupplementImages }.forEach { role ->
                     item {
                         val path = when (role) {
                             PhotoRole.QUESTION -> photoQuestionImage
                             PhotoRole.ANSWER -> answerImage
                             PhotoRole.EXPLANATION -> explanationImage
                         }
-                        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer), modifier = Modifier.fillMaxWidth()) {
+                        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), modifier = Modifier.fillMaxWidth()) {
                             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text(role.label, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                                path?.let { ImagePreview(it) }
+                                if (path == null) {
+                                    TijiUploadPlaceholder(
+                                        icon = if (role == PhotoRole.QUESTION) Icons.Outlined.AddAPhoto else Icons.Outlined.Image,
+                                        title = "添加${role.label}",
+                                        subtitle = "拍照或从相册选择"
+                                    )
+                                } else ImagePreview(path)
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                                     OutlinedButton(onClick = { selectedRole = role; galleryLauncher.launch("image/*") }, modifier = Modifier.weight(1f)) {
                                         Icon(Icons.Outlined.Image, contentDescription = null)
@@ -1435,7 +1640,7 @@ private fun NewCaptureScreen(
                 }
             } else if (mode == EntryMode.AI) {
                 item {
-                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer), modifier = Modifier.fillMaxWidth()) {
+                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), modifier = Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Outlined.AutoAwesome, null, tint = MaterialTheme.colorScheme.primary)
@@ -1443,6 +1648,10 @@ private fun NewCaptureScreen(
                                 Text("AI 识题", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                             }
                             Text("选择 AI 配置后，可分多次拍摄或选择题目、答案、解析图片，AI 会合并识别结果。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            TextButton(onClick = { showCaptureConfiguration = !showCaptureConfiguration }) {
+                                Text(if (showCaptureConfiguration) "收起识别设置" else "识别设置 · ${aiProfiles.firstOrNull { it.id == activeAiProfileId }?.name ?: aiModel}")
+                            }
+                            if (showCaptureConfiguration) {
                             Text("当前 AI 配置", style = MaterialTheme.typography.labelLarge)
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 items(aiProfiles, key = { it.id }) { profile ->
@@ -1458,13 +1667,23 @@ private fun NewCaptureScreen(
                                 onSelected = { aiInputModeName = it.name; onAiInputMode(it) },
                                 title = "识别与处理方式"
                             )
+                            }
                             if (aiRecognitionImages.isEmpty()) {
                                 Text("还没有添加图片", color = MaterialTheme.colorScheme.onSurfaceVariant)
                             } else {
-                                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    items(aiRecognitionImages) { path ->
-                                        ClickableImageThumbnail(path, onDelete = { removeAiRecognitionImage(path) })
-                                    }
+                                Text("题目图片 ${aiRecognitionImages.size} 张（按显示顺序提交）", style = MaterialTheme.typography.labelLarge)
+                                aiRecognitionImages.forEachIndexed { index, path ->
+                                    Text("第 ${index + 1} 张", style = MaterialTheme.typography.bodySmall)
+                                    ImagePreview(
+                                        path = path,
+                                        onDelete = { removeAiRecognitionImage(path) },
+                                        overlayActionLabel = "重新处理",
+                                        onOverlayAction = {
+                                            selectedRole = PhotoRole.QUESTION
+                                            aiRecognitionEditingOriginalPath = path
+                                            editingPath = path
+                                        }
+                                    )
                                 }
                                 Text("已添加 ${aiRecognitionImages.size} 张图片，可继续添加；点击图片可放大或删除", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                             }
@@ -1509,14 +1728,6 @@ private fun NewCaptureScreen(
                                         color = MaterialTheme.colorScheme.onPrimaryContainer
                                     )
                                 }
-                            }
-                            if (aiRecognitionImages.isNotEmpty() && !aiRecognitionState.running) {
-                                TextButton(onClick = {
-                                    viewModel.clearAiRecognition()
-                                    aiRecognitionImages = emptyList()
-                                    aiFilled = false
-                                    pendingRecognition = null
-                                }) { Text("清空图片") }
                             }
                         }
                     }
@@ -1585,47 +1796,23 @@ private fun NewCaptureScreen(
                     MistakeFields(title, question, answer, explanation, note, subject, tags, difficulty, {title=it},{question=it},{answer=it},{explanation=it},{note=it},{subject=it},{tags=it},{difficulty=it},questionType,{questionType=it})
                 }
             }
-            item {
-                Button(
-                    enabled = mode == EntryMode.MANUAL ||
-                        (mode == EntryMode.PHOTO && photoQuestionImage != null) ||
-                        (mode == EntryMode.AI && aiRecognitionImages.isNotEmpty() && aiFilled),
-                    onClick = {
-                        val sourceImages = buildList {
-                            if (mode == EntryMode.AI) addAll(aiRecognitionImages) else photoQuestionImage?.let(::add)
-                        }
-                        val sourceImagePaths = org.json.JSONArray().apply { sourceImages.forEach(::put) }.toString()
-                        viewModel.save(MistakeEntity(
-                            title = title.ifBlank { "未命名错题" },
-                            questionText = question,
-                            answerText = answer,
-                            explanation = explanation,
-                            note = note,
-                            subject = subject,
-                            questionType = questionType,
-                            tags = tags,
-                            difficulty = difficulty,
-                            includeSourceImageInPdf = mode != EntryMode.AI || !aiExcludeSourceImageByDefault,
-                            imagePath = activeQuestionImage,
-                            sourceImagePaths = sourceImagePaths,
-                            contentBlocks = if (mode == EntryMode.AI) contentBlocksJson else "",
-                            answerImagePath = answerImage,
-                            explanationImagePath = explanationImage
-                        ), onSaved = { onBack() })
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) { Text("保存错题") }
-            }
+
         }
     }
 }
 
 @Composable
-private fun StandaloneImageEditor(initialPath: String, title: String, onCancel: () -> Unit, onConfirm: (String) -> Unit) {
+private fun StandaloneImageEditor(
+    initialPath: String,
+    title: String,
+    onCancel: () -> Unit,
+    onDiscard: (Collection<String>) -> Unit = {},
+    onConfirm: (String) -> Unit
+) {
     val context = LocalContext.current; val scope = rememberCoroutineScope()
     var path by remember(initialPath) { mutableStateOf(initialPath) }; var history by remember(initialPath) { mutableStateOf(listOf(initialPath)) }
     var message by remember { mutableStateOf("") }
-    var cropSelection by remember(initialPath) { mutableStateOf(CropSelection(0f, 0f, 1f, 1f)) }
+    var cropSelection by remember(initialPath) { mutableStateOf(initialCropSelection()) }
     var processing by remember { mutableStateOf(false) }
     var imageAspect by remember(initialPath) { mutableFloatStateOf(1f) }
     val configuration = LocalConfiguration.current
@@ -1651,9 +1838,10 @@ private fun StandaloneImageEditor(initialPath: String, title: String, onCancel: 
         }
     }
     fun resetOriginal() {
+        onDiscard(history.drop(1))
         path = initialPath
         history = listOf(initialPath)
-        cropSelection = CropSelection(0f, 0f, 1f, 1f)
+        cropSelection = initialCropSelection()
         message = "已恢复原图"
     }
     fun confirmProcessedImage() {
@@ -1662,6 +1850,7 @@ private fun StandaloneImageEditor(initialPath: String, title: String, onCancel: 
         val isFullImage = selection.left <= 0.002f && selection.top <= 0.002f &&
             selection.right >= 0.998f && selection.bottom >= 0.998f
         if (isFullImage) {
+            onDiscard(history.filterNot { it == path })
             onConfirm(path)
             return
         }
@@ -1683,12 +1872,13 @@ private fun StandaloneImageEditor(initialPath: String, title: String, onCancel: 
                 history = history + cropped
                 cropSelection = CropSelection(0f, 0f, 1f, 1f)
                 message = "图片处理完成"
+                onDiscard((history + cropped).filterNot { it == cropped })
                 onConfirm(cropped)
             }.onFailure { message = "裁剪失败：${it.message ?: "未知错误"}" }
             processing = false
         }
     }
-    Scaffold(topBar={TopAppBar(title={Text("处理$title")},navigationIcon={IconButton(onClick=onCancel){Icon(Icons.AutoMirrored.Outlined.ArrowBack,null)}})}) { padding ->
+    Scaffold(topBar={TopAppBar(title={Text("处理$title")},navigationIcon={IconButton(onClick={ onDiscard(history); onCancel() }){Icon(Icons.AutoMirrored.Outlined.ArrowBack,null)}})}) { padding ->
         Column(
             Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)
                 .navigationBarsPadding(),
@@ -1717,12 +1907,19 @@ private fun StandaloneImageEditor(initialPath: String, title: String, onCancel: 
                                     current = latestCropSelection.value
                                     val x = ((start.x - imageLeft) / imageWidth).coerceIn(0f, 1f)
                                     val y = ((start.y - imageTop) / imageHeight).coerceIn(0f, 1f)
-                                    val threshold = 0.08f
+                                    val threshold = 0.065f
+                                    val centerThreshold = 0.18f
+                                    val centerX = (current.left + current.right) / 2f
+                                    val centerY = (current.top + current.bottom) / 2f
                                     mode = when {
                                         kotlin.math.abs(x - current.left) < threshold && kotlin.math.abs(y - current.top) < threshold -> CropDragMode.LEFT_TOP
                                         kotlin.math.abs(x - current.right) < threshold && kotlin.math.abs(y - current.top) < threshold -> CropDragMode.RIGHT_TOP
                                         kotlin.math.abs(x - current.left) < threshold && kotlin.math.abs(y - current.bottom) < threshold -> CropDragMode.LEFT_BOTTOM
                                         kotlin.math.abs(x - current.right) < threshold && kotlin.math.abs(y - current.bottom) < threshold -> CropDragMode.RIGHT_BOTTOM
+                                        kotlin.math.abs(x - current.left) < threshold && kotlin.math.abs(y - centerY) < centerThreshold -> CropDragMode.LEFT
+                                        kotlin.math.abs(x - current.right) < threshold && kotlin.math.abs(y - centerY) < centerThreshold -> CropDragMode.RIGHT
+                                        kotlin.math.abs(y - current.top) < threshold && kotlin.math.abs(x - centerX) < centerThreshold -> CropDragMode.TOP
+                                        kotlin.math.abs(y - current.bottom) < threshold && kotlin.math.abs(x - centerX) < centerThreshold -> CropDragMode.BOTTOM
                                         else -> CropDragMode.MOVE
                                     }
                                 },
@@ -1738,6 +1935,18 @@ private fun StandaloneImageEditor(initialPath: String, title: String, onCancel: 
                                             val top = (current.top + dy).coerceIn(0f, 1f - h)
                                             CropSelection(left, top, left + w, top + h)
                                         }
+                                        CropDragMode.LEFT -> current.copy(
+                                            left = (current.left + dx).coerceIn(0f, current.right - minSize)
+                                        )
+                                        CropDragMode.TOP -> current.copy(
+                                            top = (current.top + dy).coerceIn(0f, current.bottom - minSize)
+                                        )
+                                        CropDragMode.RIGHT -> current.copy(
+                                            right = (current.right + dx).coerceIn(current.left + minSize, 1f)
+                                        )
+                                        CropDragMode.BOTTOM -> current.copy(
+                                            bottom = (current.bottom + dy).coerceIn(current.top + minSize, 1f)
+                                        )
                                         CropDragMode.LEFT_TOP -> current.copy(
                                             left = (current.left + dx).coerceIn(0f, current.right - minSize),
                                             top = (current.top + dy).coerceIn(0f, current.bottom - minSize)
@@ -1779,15 +1988,23 @@ private fun StandaloneImageEditor(initialPath: String, title: String, onCancel: 
                             drawCircle(Color.White, handle / 2f, point)
                             drawCircle(handleColor, handle / 2f - 3f, point)
                         }
+                        val edgeHandleLength = 52f
+                        val edgeHandleWidth = 9f
+                        val centerX = (left + right) / 2f
+                        val centerY = (top + bottom) / 2f
+                        drawLine(handleColor, Offset(centerX - edgeHandleLength / 2f, top), Offset(centerX + edgeHandleLength / 2f, top), edgeHandleWidth)
+                        drawLine(handleColor, Offset(centerX - edgeHandleLength / 2f, bottom), Offset(centerX + edgeHandleLength / 2f, bottom), edgeHandleWidth)
+                        drawLine(handleColor, Offset(left, centerY - edgeHandleLength / 2f), Offset(left, centerY + edgeHandleLength / 2f), edgeHandleWidth)
+                        drawLine(handleColor, Offset(right, centerY - edgeHandleLength / 2f), Offset(right, centerY + edgeHandleLength / 2f), edgeHandleWidth)
                     }
                 }
             }
-            Text("拖动框内区域移动，拖动四角调整裁剪范围", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("拖动框内区域移动；拖动四角或四边中间的粗线调整裁剪范围", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             LazyRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                 item { OutlinedButton(enabled = !processing, onClick={scope.launch { processing=true; ImageProcessor.cropNormalized(context, path, cropSelection.left, cropSelection.top, cropSelection.right, cropSelection.bottom).onSuccess { path=it; history=history+it; cropSelection=CropSelection(0f,0f,1f,1f); message="裁剪完成" }.onFailure { message="裁剪失败：${it.message ?: "未知错误"}" }; processing=false }}) { Text("裁剪") } }
                 items(listOf(ImageOperation.ROTATE, ImageOperation.ENHANCE, ImageOperation.GRAYSCALE, ImageOperation.BINARY)) { op -> OutlinedButton(enabled = !processing, onClick={apply(op)}) { Text(op.label) } }
                 item { OutlinedButton(enabled = !processing, onClick=::resetOriginal) { Text("原图") } }
-                item { OutlinedButton(enabled=history.size>1 && !processing,onClick={history=history.dropLast(1);path=history.last()}) { Text("撤销") } }
+                item { OutlinedButton(enabled=history.size>1 && !processing,onClick={onDiscard(listOf(history.last()));history=history.dropLast(1);path=history.last()}) { Text("撤销") } }
             }
             if(message.isNotBlank()) Text(message,color=MaterialTheme.colorScheme.primary)
             Button(enabled = !processing, onClick = ::confirmProcessedImage, modifier=Modifier.fillMaxWidth()) {
@@ -1801,56 +2018,190 @@ private fun StandaloneImageEditor(initialPath: String, title: String, onCancel: 
 @Composable
 private fun HomeScreen(
     mistakes: List<MistakeEntity>,
-    totalCount: Int,
     dueCount: Int,
+    reviewTotal: Int,
+    reviewCompleted: Int,
+    onSubject: (String?) -> Unit,
+    resetScrollToken: Int,
     onNavigate: (String) -> Unit
 ) {
-    val recentMistakes = remember(mistakes) {
-        val threeDaysAgo = System.currentTimeMillis() - 3L * 24L * 60L * 60L * 1_000L
-        mistakes.filter { it.uploadedAt >= threeDaysAgo }.sortedByDescending { it.uploadedAt }
+    val subjects = remember(mistakes) { subjectCounts(mistakes) }
+    val weakPoints = remember(mistakes) {
+        mistakes.asSequence()
+            .flatMap { mistake ->
+                mistake.tags
+                    .split(',', '，', ';', '；', '|')
+                    .map(String::trim)
+                    .filter(String::isNotBlank)
+                    .map { it to mistake.mastery }
+            }
+            .filter { (_, mastery) -> mastery < 2 }
+            .groupingBy { it.first }
+            .eachCount()
+            .entries
+            .sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key })
+            .take(3)
+            .map { it.key }
+    }
+    val recentMistakes = remember(mistakes) { mistakes.sortedByDescending { it.updatedAt }.take(2) }
+    val listState = rememberLazyListState()
+    LaunchedEffect(resetScrollToken) {
+        if (resetScrollToken > 0) listState.scrollToItem(0)
     }
     LazyColumn(
-        contentPadding = PaddingValues(20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        state = listState,
+        contentPadding = PaddingValues(horizontal = TijiDimens.pagePadding, vertical = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(TijiDimens.sectionGap),
         modifier = Modifier.fillMaxSize()
     ) {
         item {
-            ScreenHeading("题迹", "把做错的题，变成下一次会做的题。")
-        }
-        item {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-                StatCard("错题总数", totalCount.toString(), Icons.AutoMirrored.Outlined.MenuBook, Modifier.weight(1f))
-                StatCard("今日待复习", dueCount.toString(), Icons.Outlined.CalendarMonth, Modifier.weight(1f))
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("题迹", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                Text("晚上好，", style = MaterialTheme.typography.headlineSmall)
+                Text("让每一次错误都成为进步的痕迹。", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         item {
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
-                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("快速开始", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                        QuickButton("录入错题", Icons.Outlined.AddAPhoto, Modifier.weight(1f)) { onNavigate("capture") }
-                        QuickButton("AI 解题", Icons.Outlined.AutoAwesome, Modifier.weight(1f)) { onNavigate("solve") }
+            TijiSurfaceCard {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer
+                    ) {
+                        Icon(
+                            Icons.Outlined.CalendarMonth,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(10.dp).size(22.dp)
+                        )
                     }
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("今日复习", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            if (reviewTotal > 0) "先完成今天的复习队列" else "暂时没有待复习题",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Text(
+                        "${reviewCompleted}/${reviewTotal}",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                LinearProgressIndicator(
+                    progress = { (reviewCompleted.toFloat() / reviewTotal.coerceAtLeast(1)).coerceIn(0f, 1f) },
+                    modifier = Modifier.fillMaxWidth().height(7.dp),
+                    trackColor = MaterialTheme.colorScheme.primaryContainer
+                )
+                Button(
+                    onClick = { onNavigate("review") },
+                    enabled = reviewTotal > 0 || dueCount > 0,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                ) {
+                    Text(if (reviewCompleted > 0) "继续复习" else "开始今日复习")
                 }
             }
         }
         item {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                Text("最近错题", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("按科目查看", style = MaterialTheme.typography.titleLarge)
                 Spacer(Modifier.weight(1f))
-                TextButton(onClick = { onNavigate("library") }) { Text("查看全部") }
+                TextButton(onClick = { onSubject(null) }) { Text("全部错题") }
             }
         }
-        if (recentMistakes.isEmpty()) {
-            item { EmptyState("近 3 天没有新错题", "录入新题后会显示在这里，全部记录仍可在错题库查看。") }
+        if (subjects.isEmpty()) {
+            item { EmptyState("还没有保存错题", "拍照录入或让 AI 解题，保存后会在这里形成你的错题库。") }
         } else {
-            items(recentMistakes, key = { it.id }) { mistake -> MistakeCard(mistake) { onNavigate("detail/${mistake.id}") } }
+            items(subjects.chunked(2)) { row ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    row.forEach { (subject, count) ->
+                        TijiSurfaceCard(
+                            onClick = { onSubject(subject) },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.primaryContainer) {
+                                    Text(
+                                        subjectGlyph(subject),
+                                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 7.dp),
+                                        color = MaterialTheme.colorScheme.primary,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                Spacer(Modifier.weight(1f))
+                                Text(count.toString(), style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
+                            }
+                            Text(subject, style = MaterialTheme.typography.titleSmall)
+                            Text("道错题", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    repeat(2 - row.size) { Spacer(Modifier.weight(1f)) }
+                }
+            }
+        }
+        item {
+            TijiSurfaceCard {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text("薄弱知识点", style = MaterialTheme.typography.titleLarge)
+                        Text("用几分钟，补上最容易忘记的地方。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Icon(Icons.Outlined.Lightbulb, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary)
+                }
+                if (weakPoints.isEmpty()) {
+                    Text("保存带有标签的错题后，这里会显示需要巩固的知识点。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else {
+                    weakPoints.forEach { point ->
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Surface(shape = RoundedCornerShape(999.dp), color = MaterialTheme.colorScheme.tertiaryContainer) {
+                                Text("重点", modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                            }
+                            Text(point, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                }
+            }
+        }
+        if (recentMistakes.isNotEmpty()) {
+            item {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("最近记录", style = MaterialTheme.typography.titleLarge)
+                    Spacer(Modifier.weight(1f))
+                    TextButton(onClick = { onSubject(null) }) { Text("打开错题库") }
+                }
+            }
+            items(recentMistakes, key = { it.id }) { mistake ->
+                TijiSurfaceCard(onClick = { onNavigate("detail/${mistake.id}") }) {
+                    Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                "${normalizedSubject(mistake.subject)} · ${mistake.title.ifBlank { "未命名错题" }}",
+                                style = MaterialTheme.typography.titleSmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text(
+                                mistake.questionText.ifBlank { "照片题目，点击查看详情" },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        TijiStatusBadge(mistake.mastery)
+                    }
+                }
+            }
         }
     }
 }
 
 @Composable
 private fun LibraryScreen(
+    selectedSubject: String?,
+    onSelectSubject: (String?) -> Unit,
     viewModel: MistakeViewModel,
     mistakes: List<MistakeEntity>,
     exportOriginalImagesOnly: Boolean,
@@ -1865,9 +2216,11 @@ private fun LibraryScreen(
     var selectionMode by remember { mutableStateOf(false) }
     var selectedIds by remember { mutableStateOf(emptySet<Long>()) }
     var showBatchDeleteDialog by remember { mutableStateOf(false) }
+    var showFilterDialog by remember { mutableStateOf(false) }
+    var masteryFilter by remember { mutableStateOf<Int?>(null) }
+    var difficultyFilter by remember { mutableStateOf<Int?>(null) }
     var visibleLimit by remember { mutableIntStateOf(40) }
     var pendingExportIds by rememberSaveable { mutableStateOf(longArrayOf()) }
-    var pendingExportKindKey by rememberSaveable { mutableStateOf(PdfExportKind.QUESTIONS.name) }
     var previewPath by rememberSaveable {
         mutableStateOf(PendingPdfExportStore.libraryPreviewPath.takeIf { File(it).isFile }.orEmpty())
     }
@@ -1878,9 +2231,6 @@ private fun LibraryScreen(
         val requestedIds = pendingExportIds.takeIf { it.isNotEmpty() } ?: PendingPdfExportStore.libraryIds
         val idSet = requestedIds.toSet()
         val exportItems = mistakes.filter { it.id in idSet }
-        val exportKind = if (pendingExportIds.isNotEmpty()) {
-            runCatching { PdfExportKind.valueOf(pendingExportKindKey) }.getOrDefault(PdfExportKind.QUESTIONS)
-        } else PendingPdfExportStore.libraryKind
         Log.d("TijiExportFlow", "library callback uri=${uri != null}, ids=${requestedIds.size}, items=${exportItems.size}")
         if (uri != null && exportItems.isNotEmpty()) {
             val sourcePreview = sequenceOf(previewPath, PendingPdfExportStore.libraryPreviewPath)
@@ -1896,10 +2246,7 @@ private fun LibraryScreen(
             launchDurablePdfExport {
                 val result = if (sourcePreview != null) {
                     HtmlPdfExportService.copyPreviewToUri(context, sourcePreview, uri)
-                } else when (exportKind) {
-                    PdfExportKind.QUESTIONS -> HtmlPdfExportService.writeQuestionPdf(context, uri, exportItems, exportOriginalImagesOnly = exportOriginalImagesOnly)
-                    PdfExportKind.ANSWERS -> HtmlPdfExportService.writeAnswerPdf(context, uri, exportItems, exportOriginalImagesOnly = exportOriginalImagesOnly)
-                }
+                } else HtmlPdfExportService.writeQuestionPdf(context, uri, exportItems, exportOriginalImagesOnly = exportOriginalImagesOnly)
                 if (result.isSuccess) sourcePreview?.let { discardPdfPreview(it.absolutePath) }
                 Toast.makeText(
                     context,
@@ -1911,28 +2258,41 @@ private fun LibraryScreen(
             Toast.makeText(context, "PDF 导出失败：未能恢复待导出题目", Toast.LENGTH_LONG).show()
         }
     }
-    val visibleMistakes = remember(mistakes, order) {
-        val filtered = mistakes
+    val subjectTabs = remember(mistakes, selectedSubject) {
+        buildList {
+            add("全部")
+            addAll(listOf("数学", "英语", "物理", "化学"))
+            addAll(subjectCounts(mistakes).map { it.first }.filterNot { it in this })
+            if (selectedSubject != null && selectedSubject !in this) add(selectedSubject)
+        }
+    }
+    val visibleMistakes = remember(mistakes, order, selectedSubject, masteryFilter, difficultyFilter) {
+        val filtered = mistakes.filter {
+            (selectedSubject == null || normalizedSubject(it.subject) == selectedSubject) &&
+                (masteryFilter == null || it.mastery == masteryFilter) &&
+                (difficultyFilter == null || when (difficultyFilter) {
+                    1 -> it.difficulty in 1..2
+                    2 -> it.difficulty == 3
+                    else -> it.difficulty in 4..5
+                })
+        }
         when(order) { MistakeOrder.NEWEST -> filtered.sortedByDescending { it.uploadedAt }; MistakeOrder.OLDEST -> filtered.sortedBy { it.uploadedAt }; MistakeOrder.UPDATED -> filtered.sortedByDescending { it.updatedAt } }
     }
-    LaunchedEffect(query, order) {
+    LaunchedEffect(query, order, selectedSubject, masteryFilter, difficultyFilter) {
+        selectedIds = emptySet()
+        selectionMode = false
         visibleLimit = 40
         mistakeListState.scrollToItem(0)
     }
     val displayedMistakes = remember(visibleMistakes, visibleLimit) { visibleMistakes.take(visibleLimit) }
-    fun requestPreview(kind: PdfExportKind, filename: String) {
-        pendingExportKindKey = kind.name
+    fun requestPreview(filename: String) {
         pendingExportIds = visibleMistakes.filter { it.id in selectedIds }.map { it.id }.toLongArray()
-        PendingPdfExportStore.libraryKind = kind
         PendingPdfExportStore.libraryIds = pendingExportIds.copyOf()
         val exportItems = visibleMistakes.filter { it.id in selectedIds }
         if (exportItems.isEmpty()) return
         isPreparingPreview = true
         scope.launch {
-            val result = when (kind) {
-                PdfExportKind.QUESTIONS -> HtmlPdfExportService.createQuestionPreview(context, exportItems, exportOriginalImagesOnly = exportOriginalImagesOnly)
-                PdfExportKind.ANSWERS -> HtmlPdfExportService.createAnswerPreview(context, exportItems, exportOriginalImagesOnly = exportOriginalImagesOnly)
-            }
+            val result = HtmlPdfExportService.createQuestionPreview(context, exportItems, exportOriginalImagesOnly = exportOriginalImagesOnly)
             isPreparingPreview = false
             result.fold(
                 onSuccess = { file ->
@@ -2001,6 +2361,38 @@ private fun LibraryScreen(
             dismissButton = { TextButton(onClick = { showBatchDeleteDialog = false }) { Text("取消") } }
         )
     }
+    if (showFilterDialog) {
+        AlertDialog(
+            onDismissRequest = { showFilterDialog = false },
+            title = { Text("筛选错题") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("掌握状态", style = MaterialTheme.typography.titleSmall)
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        item {
+                            FilterChip(selected = masteryFilter == null, onClick = { masteryFilter = null }, label = { Text("全部") })
+                        }
+                        items(listOf(0 to "未掌握", 1 to "复习中", 2 to "基本掌握", 3 to "已掌握")) { (value, label) ->
+                            FilterChip(selected = masteryFilter == value, onClick = { masteryFilter = value }, label = { Text(label) })
+                        }
+                    }
+                    Text("难度", style = MaterialTheme.typography.titleSmall)
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        item {
+                            FilterChip(selected = difficultyFilter == null, onClick = { difficultyFilter = null }, label = { Text("全部") })
+                        }
+                        items(listOf(1 to "简单", 2 to "中等", 3 to "困难")) { (value, label) ->
+                            FilterChip(selected = difficultyFilter == value, onClick = { difficultyFilter = value }, label = { Text(label) })
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showFilterDialog = false }) { Text("完成") } },
+            dismissButton = {
+                TextButton(onClick = { masteryFilter = null; difficultyFilter = null; showFilterDialog = false }) { Text("清除筛选") }
+            }
+        )
+    }
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
@@ -2026,7 +2418,7 @@ private fun LibraryScreen(
                             label = "导出 PDF",
                             enabled = selectedIds.isNotEmpty(),
                             modifier = Modifier.weight(0.9f),
-                            onClick = { requestPreview(PdfExportKind.QUESTIONS, "题迹选中题目.pdf") }
+                            onClick = { requestPreview("题迹选中题目.pdf") }
                         )
                         BatchBarAction(
                             label = "删除",
@@ -2045,13 +2437,19 @@ private fun LibraryScreen(
             )
         },
         floatingActionButton = {
-            ExtendedFloatingActionButton(onClick = onCreate, icon = { Icon(Icons.Outlined.AddAPhoto, null) }, text = { Text("录入错题") })
+            ExtendedFloatingActionButton(
+                onClick = onCreate,
+                icon = { Icon(Icons.Outlined.AddAPhoto, contentDescription = null) },
+                text = { Text("录入错题") },
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.primary
+            )
         }
     ) { padding ->
-        Column(Modifier.padding(padding).padding(horizontal = 20.dp, vertical = 20.dp).fillMaxSize()) {
+        Column(Modifier.padding(padding).padding(horizontal = TijiDimens.pagePadding, vertical = 20.dp).fillMaxSize()) {
             ScreenHeading(
                 title = "错题库",
-                subtitle = "把每一次错题，整理成完整的错题库。"
+                subtitle = "按科目、状态和难度，找到下一道要解决的题。"
             ) {
                 if (!selectionMode) {
                     TextButton(
@@ -2065,18 +2463,43 @@ private fun LibraryScreen(
             OutlinedTextField(
                 value = query,
                 onValueChange = viewModel::setQuery,
-                leadingIcon = { Icon(Icons.Outlined.Search, null) },
-                placeholder = { Text("搜索关键词，以“，”隔开") },
+                leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
+                placeholder = { Text("搜索题目、答案、解析、标签或 OCR 文本") },
                 singleLine = true,
-                modifier = Modifier.fillMaxWidth()
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
             )
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(10.dp))
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(MistakeOrder.entries) { value -> FilterChip(selected = order == value, onClick = { order = value }, label = { Text(value.label) }) }
+                items(subjectTabs) { value ->
+                    val selected = if (value == "全部") selectedSubject == null else selectedSubject == value
+                    FilterChip(
+                        selected = selected,
+                        onClick = { onSelectSubject(value.takeUnless { it == "全部" }) },
+                        modifier = Modifier.height(36.dp),
+                        label = { Text(value) }
+                    )
+                }
             }
             Spacer(Modifier.height(8.dp))
-            Text("查询到 ${visibleMistakes.size} 道题", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.height(8.dp))
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                item {
+                    FilterChip(
+                        selected = masteryFilter != null || difficultyFilter != null,
+                        onClick = { showFilterDialog = true },
+                        modifier = Modifier.height(36.dp),
+                        label = { Text(if (masteryFilter != null || difficultyFilter != null) "筛选已启用" else "筛选") }
+                    )
+                }
+                items(MistakeOrder.entries) { value ->
+                    FilterChip(selected = order == value, onClick = { order = value }, modifier = Modifier.height(36.dp), label = { Text(value.label) })
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp, bottom = 8.dp)) {
+                Text("${visibleMistakes.size} 道错题", style = MaterialTheme.typography.titleSmall)
+                Spacer(Modifier.weight(1f))
+                if (selectedSubject != null) Text("当前：$selectedSubject", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             if (visibleMistakes.isEmpty()) EmptyState("没有匹配的错题", "换个关键词或点击右下角录入新题。")
             else LazyColumn(
                 state = mistakeListState,
@@ -2156,7 +2579,6 @@ private fun ReviewScreen(
     val completedToday = planned.count { it.id in reviewStatuses }
     val canCheckIn = planned.isNotEmpty() && completedToday == planned.size
     var pendingExportIds by rememberSaveable { mutableStateOf(longArrayOf()) }
-    var pendingExportKindKey by rememberSaveable { mutableStateOf(PdfExportKind.QUESTIONS.name) }
     var previewPath by rememberSaveable {
         mutableStateOf(PendingPdfExportStore.reviewPreviewPath.takeIf { File(it).isFile }.orEmpty())
     }
@@ -2166,9 +2588,6 @@ private fun ReviewScreen(
         val requestedIds = pendingExportIds.takeIf { it.isNotEmpty() } ?: PendingPdfExportStore.reviewIds
         val idSet = requestedIds.toSet()
         val exportItems = planned.filter { it.id in idSet }
-        val exportKind = if (pendingExportIds.isNotEmpty()) {
-            runCatching { PdfExportKind.valueOf(pendingExportKindKey) }.getOrDefault(PdfExportKind.QUESTIONS)
-        } else PendingPdfExportStore.reviewKind
         Log.d("TijiExportFlow", "review callback uri=${uri != null}, ids=${requestedIds.size}, items=${exportItems.size}")
         if (uri != null && exportItems.isNotEmpty()) {
             val sourcePreview = sequenceOf(previewPath, PendingPdfExportStore.reviewPreviewPath)
@@ -2184,22 +2603,13 @@ private fun ReviewScreen(
             launchDurablePdfExport {
                 val result = if (sourcePreview != null) {
                     HtmlPdfExportService.copyPreviewToUri(context, sourcePreview, uri)
-                } else when (exportKind) {
-                    PdfExportKind.QUESTIONS -> HtmlPdfExportService.writeQuestionPdf(
-                        context,
-                        uri,
-                        exportItems,
-                        documentTitle = "今日复习题",
-                        exportOriginalImagesOnly = exportOriginalImagesOnly
-                    )
-                    PdfExportKind.ANSWERS -> HtmlPdfExportService.writeAnswerPdf(
-                        context,
-                        uri,
-                        exportItems,
-                        documentTitle = "今日复习解析",
-                        exportOriginalImagesOnly = exportOriginalImagesOnly
-                    )
-                }
+                } else HtmlPdfExportService.writeQuestionPdf(
+                    context,
+                    uri,
+                    exportItems,
+                    documentTitle = "今日复习题",
+                    exportOriginalImagesOnly = exportOriginalImagesOnly
+                )
                 if (result.isSuccess) sourcePreview?.let { discardPdfPreview(it.absolutePath) }
                 Toast.makeText(
                     context,
@@ -2211,28 +2621,18 @@ private fun ReviewScreen(
             Toast.makeText(context, "复习 PDF 导出失败：未能恢复今日复习题", Toast.LENGTH_LONG).show()
         }
     }
-    fun requestReviewPreview(kind: PdfExportKind, filename: String) {
+    fun requestReviewPreview(filename: String) {
         pendingExportIds = planned.map { it.id }.toLongArray()
-        pendingExportKindKey = kind.name
         PendingPdfExportStore.reviewIds = pendingExportIds.copyOf()
-        PendingPdfExportStore.reviewKind = kind
         if (planned.isEmpty()) return
         isPreparingPreview = true
         scope.launch {
-            val result = when (kind) {
-                PdfExportKind.QUESTIONS -> HtmlPdfExportService.createQuestionPreview(
-                    context,
-                    planned,
-                    documentTitle = "今日复习题",
-                    exportOriginalImagesOnly = exportOriginalImagesOnly
-                )
-                PdfExportKind.ANSWERS -> HtmlPdfExportService.createAnswerPreview(
-                    context,
-                    planned,
-                    documentTitle = "今日复习解析",
-                    exportOriginalImagesOnly = exportOriginalImagesOnly
-                )
-            }
+            val result = HtmlPdfExportService.createQuestionPreview(
+                context,
+                planned,
+                documentTitle = "今日复习题",
+                exportOriginalImagesOnly = exportOriginalImagesOnly
+            )
             isPreparingPreview = false
             result.fold(
                 onSuccess = { file ->
@@ -2289,7 +2689,7 @@ private fun ReviewScreen(
         }
         item {
             OutlinedButton(
-                onClick = { requestReviewPreview(PdfExportKind.QUESTIONS, "今日复习题.pdf") },
+                onClick = { requestReviewPreview("今日复习题.pdf") },
                 enabled = planned.isNotEmpty(),
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -2329,14 +2729,10 @@ private fun ReviewScreen(
 private fun ReviewProgressCard(completed: Int, total: Int, randomMode: Boolean) {
     val complete = total > 0 && completed >= total
     val progress = if (complete) 1f else (completed.toFloat() / total.coerceAtLeast(1)).coerceIn(0f, 1f)
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    TijiSurfaceCard {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.weight(1f)) {
-                    Text("复习进度", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text("复习进度", style = MaterialTheme.typography.titleLarge)
                     Text("已完成 $completed / $total 题", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Column(horizontalAlignment = Alignment.End) {
@@ -2350,7 +2746,6 @@ private fun ReviewProgressCard(completed: Int, total: Int, randomMode: Boolean) 
                 trackColor = MaterialTheme.colorScheme.surfaceVariant,
                 modifier = Modifier.fillMaxWidth().height(8.dp)
             )
-        }
     }
 }
 
@@ -2824,7 +3219,7 @@ private fun SettingsScreen(
     }
     LazyColumn(contentPadding = PaddingValues(horizontal = 20.dp, vertical = 20.dp), verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.fillMaxSize()) {
         item {
-            ScreenHeading("设置", "所有错题默认只保存在本机应用私有目录。")
+            ScreenHeading("我的", "管理复习计划、AI 配置和题迹数据。")
         }
         item {
             SettingCard("外观", Icons.Outlined.Style) {
@@ -3113,6 +3508,8 @@ private fun AiSolveScreen(
     onAiInputMode: (AiInputMode) -> Unit,
     solveVisitToken: Int
 ) {
+    var showSolveInputs by rememberSaveable { mutableStateOf(false) }
+    var showSolveConfiguration by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val secureStore = remember { SecureKeyStore(context) }
@@ -3121,6 +3518,9 @@ private fun AiSolveScreen(
     val aiChatState by viewModel.aiChat.collectAsStateWithLifecycle()
     val aiMistakeSaveState by viewModel.aiMistakeSave.collectAsStateWithLifecycle()
     var imagePath by remember { mutableStateOf<String?>(null) }
+    var imagePaths by remember { mutableStateOf(emptyList<String>()) }
+    var pendingImagePaths by remember { mutableStateOf(emptyList<String>()) }
+    var editingOriginalPath by remember { mutableStateOf<String?>(null) }
     var imageHistory by remember { mutableStateOf(emptyList<String>()) }
     var questionDraft by remember { mutableStateOf("") }
     var title by remember { mutableStateOf("") }
@@ -3138,6 +3538,7 @@ private fun AiSolveScreen(
     var showFollowUpDialog by remember { mutableStateOf(false) }
     var aiSolutionExpanded by rememberSaveable { mutableStateOf(false) }
     var latestChatExpanded by rememberSaveable { mutableStateOf(false) }
+    var keepChatCollapsedAfterRetry by rememberSaveable { mutableStateOf(false) }
     var aiChatAttemptedForSolve by rememberSaveable { mutableStateOf(false) }
     var aiChatStatusOverride by rememberSaveable { mutableStateOf("") }
     var solutionBaselineVisitToken by remember { mutableIntStateOf(-1) }
@@ -3145,6 +3546,10 @@ private fun AiSolveScreen(
     var solutionBaselineCompleteText by remember { mutableStateOf("") }
     var handledChatVisitToken by remember { mutableIntStateOf(-1) }
     var followUpDraft by remember { mutableStateOf("") }
+    var followUpImagePaths by remember { mutableStateOf(emptyList<String>()) }
+    var followUpPendingImagePaths by remember { mutableStateOf(emptyList<String>()) }
+    var followUpEditingPath by remember { mutableStateOf<String?>(null) }
+    var followUpCameraFile by remember { mutableStateOf(ImageStorage.cameraFile(context)) }
     var imageEditing by remember { mutableStateOf(false) }
     var cameraFile by remember { mutableStateOf(ImageStorage.cameraFile(context)) }
     var aiInputModeName by rememberSaveable { mutableStateOf(initialAiInputMode) }
@@ -3175,14 +3580,30 @@ private fun AiSolveScreen(
     val followUpLoading = aiChatState.running
     val chatMessages = aiChatState.messages
     val latestChat = chatMessages.lastOrNull()
-    val hasAiChatActivity = aiChatAttemptedForSolve || aiChatState.requestId > 0L
+    val hasAiChatActivity = hasAiChatActivity(
+        PersistedAiChatState(
+            requestId = aiChatState.requestId,
+            running = aiChatState.running,
+            currentPrompt = aiChatState.currentPrompt,
+            progress = aiChatState.progress,
+            streamedText = aiChatState.streamedText,
+            currentImagePaths = aiChatState.currentImagePaths,
+            lastPrompt = aiChatState.lastPrompt,
+            lastImagePaths = aiChatState.lastImagePaths,
+            status = aiChatState.status,
+            messages = aiChatState.messages,
+            error = aiChatState.error
+        ),
+        aiChatAttemptedForSolve
+    )
 
     LaunchedEffect(aiSolveState.requestId) {
         aiChatAttemptedForSolve = false
         aiChatStatusOverride = ""
         if (aiSolveState.requestId > 0L) {
             imagePath = aiSolveState.imagePath
-            imageHistory = aiSolveState.imagePath?.let(::listOf).orEmpty()
+            imagePaths = aiSolveState.imagePaths.ifEmpty { listOfNotNull(aiSolveState.imagePath) }
+            imageHistory = imagePaths
             aiInputModeName = when (aiSolveState.mode) {
                 AiRecognitionMode.LOCAL_OCR -> AiInputMode.LOCAL_OCR.name
                 AiRecognitionMode.VISUAL_ASSISTED -> AiInputMode.VISUAL_ASSISTED.name
@@ -3218,8 +3639,13 @@ private fun AiSolveScreen(
             handledChatVisitToken = solveVisitToken
             latestChatExpanded = false
         } else if (!aiChatState.running && latestChat != null) {
-            // Keep a conversation completed on this page open.
-            latestChatExpanded = true
+            if (keepChatCollapsedAfterRetry) {
+                latestChatExpanded = false
+                keepChatCollapsedAfterRetry = false
+            } else {
+                // Open a newly completed first follow-up on this page.
+                latestChatExpanded = true
+            }
         }
     }
 
@@ -3244,12 +3670,18 @@ private fun AiSolveScreen(
             .filter(String::isNotBlank)
             .joinToString("\n\n")
         message = aiSolveState.historyWriteError.ifBlank {
-            "解题完成。即使切换页面，AI 任务也已在后台继续完成。"
+            if (aiSolveState.status == AiSolveStatus.FAILED) {
+                "AI 解题失败，已保留当前收到的部分内容，可继续追问修正。"
+            } else {
+                "解题完成。即使切换页面，AI 任务也已在后台继续完成。"
+            }
         }
     }
 
     LaunchedEffect(aiSolveState.requestId, aiSolveState.status, aiSolveState.error) {
-        if (aiSolveState.status == AiSolveStatus.FAILED || aiSolveState.status == AiSolveStatus.CANCELED) {
+        if ((aiSolveState.status == AiSolveStatus.FAILED || aiSolveState.status == AiSolveStatus.CANCELED) &&
+            aiSolveState.completeText.isNullOrBlank()
+        ) {
             title = ""
             question = ""
             answer = ""
@@ -3284,10 +3716,28 @@ private fun AiSolveScreen(
     fun selectImage(path: String?) {
         if (path != null) {
             imagePath = path
-            imageHistory = listOf(path)
             imageEditing = true
             message = "图片已载入，请先完成内部裁剪和增强"
         } else message = "图片读取失败，请重新选择或拍摄"
+    }
+    fun queueImages(paths: List<String>) {
+        val accepted = paths.filter(String::isNotBlank).distinct()
+            .filterNot { it in imagePaths || it in pendingImagePaths || (it == imagePath && imageEditing) }
+        if (accepted.isEmpty()) return
+        if (!imageEditing) {
+            editingOriginalPath = null
+            selectImage(accepted.first())
+            pendingImagePaths = pendingImagePaths + accepted.drop(1)
+        } else {
+            pendingImagePaths = pendingImagePaths + accepted
+        }
+    }
+    fun openNextImage() {
+        val next = pendingImagePaths.firstOrNull()
+        pendingImagePaths = pendingImagePaths.drop(1)
+        editingOriginalPath = null
+        imageEditing = next != null
+        imagePath = next ?: imagePaths.firstOrNull()
     }
     fun applyImageOperation(operation: ImageOperation) {
         val path = imagePath ?: return
@@ -3302,7 +3752,7 @@ private fun AiSolveScreen(
         }
     }
     fun runSolve() {
-        if (imagePath != null && imageEditing) {
+        if (imageEditing || pendingImagePaths.isNotEmpty()) {
             message = "请先确认图片处理结果，再开始 AI 解题"
             return
         }
@@ -3323,6 +3773,8 @@ private fun AiSolveScreen(
             configurationId = activeAiProfileId,
             question = questionDraft.trim().takeIf { imagePath == null && it.isNotBlank() },
             imagePath = imagePath,
+            imagePaths = imagePaths,
+            supplementalText = questionDraft.trim().takeIf { imagePath != null && it.isNotBlank() },
             graphicImagePath = solveGraphicPath,
             mode = when (aiInputMode) {
                 AiInputMode.LOCAL_OCR -> AiRecognitionMode.LOCAL_OCR
@@ -3342,7 +3794,7 @@ private fun AiSolveScreen(
             message = "请先完成一次纠正对话"
             return
         }
-        if (imagePath != null && imageEditing) {
+        if (imageEditing || pendingImagePaths.isNotEmpty()) {
             message = "请先确认图片处理结果，再开始 AI 解题"
             return
         }
@@ -3350,12 +3802,11 @@ private fun AiSolveScreen(
             message = ""
             return
         }
-        val correctionContext = buildString {
-            append("用户纠正/追问：\n")
-            append(chat.prompt)
-            append("\n\nAI 对该纠正的回复：\n")
-            append(chat.reply)
-        }.take(24_000)
+        val correctionContext = buildStructuredCorrectionContext(
+            previousSolution = completeSolution,
+            prompt = chat.prompt,
+            reply = followUpReplyForDisplay(chat.reply)
+        )
         aiChatAttemptedForSolve = false
         aiChatStatusOverride = ""
         message = "正在根据纠正对话重新 AI 解题…"
@@ -3367,6 +3818,8 @@ private fun AiSolveScreen(
             configurationId = activeAiProfileId,
             question = questionDraft.trim().takeIf { imagePath == null && it.isNotBlank() },
             imagePath = imagePath,
+            imagePaths = imagePaths,
+            supplementalText = questionDraft.trim().takeIf { imagePath != null && it.isNotBlank() },
             graphicImagePath = solveGraphicPath,
             mode = when (aiInputMode) {
                 AiInputMode.LOCAL_OCR -> AiRecognitionMode.LOCAL_OCR
@@ -3374,6 +3827,7 @@ private fun AiSolveScreen(
                 else -> AiRecognitionMode.VISION
             },
             correctionContext = correctionContext,
+            correctionImagePaths = chat.imagePaths,
             visualEndpoint = visualAssistProfile?.endpoint,
             visualModel = visualAssistProfile?.model,
             visualApiKey = visualApiKey,
@@ -3388,27 +3842,61 @@ private fun AiSolveScreen(
     }
 
     fun askFollowUp() {
-        val prompt = followUpDraft.trim()
-        if (prompt.isBlank() || followUpLoading) return
+        val prompt = followUpDraft.trim().ifBlank {
+            if (followUpImagePaths.isNotEmpty()) "请分析我补充的图片。" else return
+        }
+        if (followUpLoading) return
+        keepChatCollapsedAfterRetry = false
         aiChatAttemptedForSolve = true
         val apiKey = secureStore.read(activeAiProfileId)
         if (apiKey.isBlank()) {
             aiChatStatusOverride = "AI 对话失败：请先保存当前 AI 配置的 API Key"
             showFollowUpDialog = false
+            viewModel.deleteImagesIfUnreferenced(followUpImagePaths)
+            followUpImagePaths = emptyList()
             return
         }
         viewModel.startAiFollowUp(
             endpoint = aiEndpoint,
             model = aiModel,
             apiKey = apiKey,
-            baseContext = "原题：$question\n\n已有 AI 解答：$explanation",
+            baseContext = "原题：$question\n\n已有 AI 解答：${visibleAiSolution(completeSolution)}",
             prompt = prompt,
             imagePath = imagePath.takeUnless { aiInputMode == AiInputMode.VISUAL_ASSISTED },
-            graphicImagePath = solveGraphicPath.takeUnless { aiInputMode == AiInputMode.VISUAL_ASSISTED }
+            sourceImagePaths = imagePaths.takeUnless { aiInputMode == AiInputMode.VISUAL_ASSISTED }.orEmpty(),
+            graphicImagePath = solveGraphicPath.takeUnless { aiInputMode == AiInputMode.VISUAL_ASSISTED },
+            followUpImagePaths = followUpImagePaths
         )
         followUpDraft = ""
+        followUpImagePaths = emptyList()
         showFollowUpDialog = false
         aiChatStatusOverride = ""
+    }
+
+    fun retryLastFollowUp() {
+        val prompt = aiChatState.lastPrompt.ifBlank { latestChat?.prompt.orEmpty() }
+        val retryImages = aiChatState.lastImagePaths.ifEmpty { latestChat?.imagePaths.orEmpty() }
+        if (prompt.isBlank() || followUpLoading) return
+        val apiKey = secureStore.read(activeAiProfileId)
+        if (apiKey.isBlank()) {
+            aiChatStatusOverride = "AI 对话失败：请先保存当前 AI 配置的 API Key"
+            return
+        }
+        aiChatAttemptedForSolve = true
+        aiChatStatusOverride = ""
+        latestChatExpanded = false
+        keepChatCollapsedAfterRetry = true
+        viewModel.startAiFollowUp(
+            endpoint = aiEndpoint,
+            model = aiModel,
+            apiKey = apiKey,
+            baseContext = "原题：$question\n\n已有 AI 解答：${visibleAiSolution(completeSolution)}",
+            prompt = prompt,
+            imagePath = imagePath,
+            sourceImagePaths = imagePaths,
+            graphicImagePath = solveGraphicPath,
+            followUpImagePaths = retryImages
+        )
     }
 
     fun saveSolvedMistake() {
@@ -3428,7 +3916,7 @@ private fun AiSolveScreen(
             tags = tags,
             difficulty = difficulty,
             imagePath = imagePath,
-            sourceImagePaths = org.json.JSONArray().apply { imagePath?.let(::put) }.toString(),
+            sourceImagePaths = org.json.JSONArray().apply { imagePaths.forEach(::put) }.toString(),
             contentBlocks = aiSolveState.contentBlocks,
             includeSourceImageInPdf = !aiExcludeSourceImageByDefault
         )
@@ -3442,12 +3930,12 @@ private fun AiSolveScreen(
         )
     }
 
-    val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri != null) selectImage(ImageStorage.copyToPrivate(context, uri, "ai_question"))
+    val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
+        queueImages(uris.mapNotNull { uri -> ImageStorage.copyToPrivate(context, uri, "ai_question") })
     }
     val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
         if (success) {
-            selectImage(ImageStorage.copyFileToPrivate(context, cameraFile, "ai_question"))
+            ImageStorage.copyFileToPrivate(context, cameraFile, "ai_question")?.let { queueImages(listOf(it)) }
         } else {
             message = "拍照未完成，请重试"
         }
@@ -3459,12 +3947,29 @@ private fun AiSolveScreen(
     }
 
     if (imageEditing && imagePath != null) {
-        StandaloneImageEditor(imagePath!!, "AI 题目图片", onCancel = { imageEditing = false; imagePath = null }, onConfirm = { processed ->
-            imagePath = processed
-            imageHistory = imageHistory + processed
-            imageEditing = false
-            message = "图片处理完成，点击“开始 AI 解题”后才会上传并解题"
-        })
+        val editingPath = imagePath!!
+        StandaloneImageEditor(
+            editingPath,
+            "AI 题目图片",
+            onCancel = {
+                if (editingOriginalPath == null) viewModel.deleteImagesIfUnreferenced(listOf(editingPath))
+                openNextImage()
+            },
+            onDiscard = viewModel::deleteImagesIfUnreferenced,
+            onConfirm = { processed ->
+                val original = editingOriginalPath
+                val updated = if (original == null) {
+                    (imagePaths + processed).distinct()
+                } else {
+                    imagePaths.map { if (it == original) processed else it }.distinct()
+                }
+                imagePaths = updated
+                imageHistory = updated
+                if (original != null && original != processed) viewModel.deleteImagesIfUnreferenced(listOf(original))
+                openNextImage()
+                message = if (pendingImagePaths.isEmpty()) "图片处理完成，点击“开始 AI 解题”后才会上传并解题" else "继续处理下一张图片"
+            }
+        )
         return
     }
 
@@ -3478,35 +3983,167 @@ private fun AiSolveScreen(
         )
     }
 
+    fun queueFollowUpImages(paths: List<String>) {
+        val accepted = paths.filter(String::isNotBlank).distinct()
+        if (accepted.isEmpty()) return
+        if (followUpEditingPath == null) {
+            followUpEditingPath = accepted.first()
+            followUpPendingImagePaths = followUpPendingImagePaths + accepted.drop(1)
+        } else {
+            followUpPendingImagePaths = followUpPendingImagePaths + accepted
+        }
+    }
+
+    fun openNextFollowUpImage() {
+        followUpEditingPath = followUpPendingImagePaths.firstOrNull()
+        followUpPendingImagePaths = followUpPendingImagePaths.drop(1)
+    }
+
+    val followUpGalleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
+        val copied = uris.mapNotNull { uri ->
+            ImageStorage.copyToPrivate(context, uri, "ai_follow_up")
+        }
+        queueFollowUpImages(copied)
+    }
+    val followUpCameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+        if (success) {
+            ImageStorage.copyFileToPrivate(context, followUpCameraFile, "ai_follow_up")?.let { path ->
+                queueFollowUpImages(listOf(path))
+            }
+        } else {
+            aiChatStatusOverride = "拍照未完成，请重试"
+        }
+        runCatching { followUpCameraFile.delete() }
+    }
+    val followUpPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) cameraUri(context, followUpCameraFile).onSuccess { followUpCameraLauncher.launch(it) }
+            .onFailure { aiChatStatusOverride = "无法打开相机：${it.message ?: "请检查应用权限"}" }
+        else aiChatStatusOverride = "相机权限未授予，无法拍照"
+    }
+
+    fun openFollowUpCamera() {
+        followUpCameraFile = ImageStorage.cameraFile(context)
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            cameraUri(context, followUpCameraFile).onSuccess { followUpCameraLauncher.launch(it) }
+                .onFailure { aiChatStatusOverride = "无法打开相机：${it.message ?: "请检查应用权限"}" }
+        } else {
+            followUpPermissionLauncher.launch(Manifest.permission.CAMERA)
+        }
+    }
+
+    fun dismissFollowUpDialog() {
+        showFollowUpDialog = false
+        viewModel.deleteImagesIfUnreferenced(followUpImagePaths + followUpPendingImagePaths + listOfNotNull(followUpEditingPath))
+        followUpImagePaths = emptyList()
+        followUpPendingImagePaths = emptyList()
+        followUpEditingPath = null
+    }
+
+    if (followUpEditingPath != null) {
+        StandaloneImageEditor(
+            initialPath = followUpEditingPath!!,
+            title = "追问图片",
+            onCancel = ::openNextFollowUpImage,
+            onDiscard = viewModel::deleteImagesIfUnreferenced,
+            onConfirm = { processed ->
+                followUpImagePaths = (followUpImagePaths + processed).distinct()
+                openNextFollowUpImage()
+            }
+        )
+        return
+    }
+
     if (showFollowUpDialog) {
         AlertDialog(
-            onDismissRequest = { showFollowUpDialog = false },
+            onDismissRequest = ::dismissFollowUpDialog,
             title = { Text("追问 AI") },
             text = {
-                OutlinedTextField(
-                    value = followUpDraft,
-                    onValueChange = { followUpDraft = it },
-                    label = { Text("输入你的追问") },
-                    placeholder = { Text("例如：请换一种方法解释第二步") },
-                    minLines = 3,
-                    enabled = !followUpLoading
-                )
+                Column(
+                    Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedTextField(
+                        value = followUpDraft,
+                        onValueChange = { followUpDraft = it },
+                        label = { Text("输入你的追问") },
+                        placeholder = { Text("可输入问题，也可以只发送图片") },
+                        minLines = 3,
+                        enabled = !followUpLoading,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = { followUpGalleryLauncher.launch("image/*") },
+                            enabled = !followUpLoading
+                        ) {
+                            Icon(Icons.Outlined.Image, contentDescription = null)
+                            Text("相册")
+                        }
+                        OutlinedButton(
+                            onClick = ::openFollowUpCamera,
+                            enabled = !followUpLoading
+                        ) {
+                            Icon(Icons.Outlined.CameraAlt, contentDescription = null)
+                            Text("拍照")
+                        }
+                    }
+                    followUpImagePaths.forEach { path ->
+                        ImagePreview(path, onDelete = {
+                            followUpImagePaths = followUpImagePaths - path
+                            viewModel.deleteImagesIfUnreferenced(listOf(path))
+                        })
+                    }
+                }
             },
             confirmButton = {
-                Button(onClick = ::askFollowUp, enabled = followUpDraft.isNotBlank() && !followUpLoading) {
+                Button(
+                    onClick = ::askFollowUp,
+                    enabled = (followUpDraft.isNotBlank() || followUpImagePaths.isNotEmpty()) && !followUpLoading
+                ) {
                     Text(if (followUpLoading) "发送中…" else "发送")
                 }
             },
-            dismissButton = { TextButton(onClick = { showFollowUpDialog = false }) { Text("取消") } }
+            dismissButton = { TextButton(onClick = ::dismissFollowUpDialog) { Text("取消") } }
         )
     }
 
-    Scaffold { padding ->
+    val hasSolution = completeSolution.isNotBlank() && !isLoading
+    val savedCurrent = aiMistakeSaveState.requestId == aiSolveState.requestId && aiMistakeSaveState.mistakeId != null
+    Scaffold(
+        bottomBar = {
+            if (hasSolution) Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 1.dp) {
+                Column(Modifier.imePadding().padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = followUpDraft, onValueChange = { followUpDraft = it },
+                        placeholder = { Text("继续追问…") }, maxLines = 3, shape = RoundedCornerShape(14.dp),
+                        enabled = !followUpLoading, modifier = Modifier.fillMaxWidth(),
+                        leadingIcon = { IconButton(onClick = { showFollowUpDialog = true }, enabled = !followUpLoading) {
+                            Icon(Icons.Outlined.Image, contentDescription = "添加追问图片")
+                        } },
+                        trailingIcon = { TextButton(onClick = { if (followUpLoading) viewModel.stopAiFollowUp() else askFollowUp() },
+                            enabled = followUpLoading || followUpDraft.isNotBlank()) {
+                            Text(if (followUpLoading) "停止" else "发送")
+                        } }
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = { if (aiUploadConsent) runSolve() else showPrivacyDialog = true },
+                            shape = RoundedCornerShape(14.dp), enabled = !followUpLoading, modifier = Modifier.weight(1f).heightIn(min = 50.dp)) { Text("重新解题") }
+                        Button(onClick = ::saveSolvedMistake, shape = RoundedCornerShape(14.dp),
+                            enabled = !aiMistakeSaveState.running && !savedCurrent,
+                            modifier = Modifier.weight(1.4f).heightIn(min = 50.dp)) {
+                            Text(if (savedCurrent) "已保存到错题库" else if (aiMistakeSaveState.running) "正在保存…" else "保存为错题")
+                        }
+                    }
+                    if (savedMessage.isNotBlank()) Text(savedMessage, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                }
+            }
+        }
+    ) { padding ->
         LazyColumn(contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.padding(padding).fillMaxSize()) {
             item {
                 ScreenHeading(
                     title = "AI 解题",
-                    subtitle = "拍题、选图或直接输入文字，AI 只在你主动点击时联网。结果不会自动进入错题库。",
+                    subtitle = if (hasSolution) "查看分步解析，继续追问或保存为错题。" else "拍照、选图或输入文字，确认后开始解题。",
                     action = {
                         TextButton(onClick = onOpenSolveHistory) {
                             Text("解题记录", color = MaterialTheme.colorScheme.primary)
@@ -3514,6 +4151,16 @@ private fun AiSolveScreen(
                     }
                 )
             }
+            if (hasSolution) item {
+                TextButton(onClick = { showSolveInputs = !showSolveInputs }) { Text(if (showSolveInputs) "收起原题与设置" else "查看原题 / 修改输入") }
+            }
+            if (!hasSolution || showSolveInputs) {
+            item {
+                TextButton(onClick = { showSolveConfiguration = !showSolveConfiguration }) {
+                    Text(if (showSolveConfiguration) "收起解题设置" else "解题设置 · ${aiProfiles.firstOrNull { it.id == activeAiProfileId }?.name ?: aiModel}")
+                }
+            }
+            if (showSolveConfiguration) {
             item {
                 Text("当前 AI 配置", style = MaterialTheme.typography.labelLarge)
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -3533,6 +4180,7 @@ private fun AiSolveScreen(
                     title = "当前解题方式"
                 )
             }
+            }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                     OutlinedButton(onClick = { galleryLauncher.launch("image/*") }, modifier = Modifier.weight(1f)) { Icon(Icons.Outlined.Image, null); Spacer(Modifier.size(5.dp)); Text("相册") }
@@ -3549,45 +4197,41 @@ private fun AiSolveScreen(
                 OutlinedTextField(
                     questionDraft,
                     { questionDraft = it },
-                    label = { Text("或输入题目文字") },
+                    label = { Text("补充或输入题目文字") },
                     minLines = 3,
                     maxLines = 5,
                     modifier = Modifier.fillMaxWidth().heightIn(max = 168.dp)
                 )
             }
-            if (imagePath != null) {
+            if (imagePaths.isNotEmpty()) {
                 item {
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        ImagePreview(imagePath!!)
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            OutlinedButton(
-                                onClick = { imageEditing = true },
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text("重新处理")
-                            }
-                            OutlinedButton(
-                                onClick = {
-                                    val removedPath = imagePath
-                                    imagePath = null
-                                    imageHistory = emptyList()
-                                    imageEditing = false
-                                    removedPath?.let(viewModel::removeAiSolveImage)
-                                    message = "已移除图片，可输入文字后重新解题"
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("题目图片 ${imagePaths.size} 张（按显示顺序提交）", style = MaterialTheme.typography.labelLarge)
+                        imagePaths.forEachIndexed { index, path ->
+                            Text("第 ${index + 1} 张", style = MaterialTheme.typography.bodySmall)
+                            ImagePreview(
+                                path = path,
+                                onDelete = {
+                                    imagePaths = imagePaths - path
+                                    imageHistory = imagePaths
+                                    imagePath = imagePaths.firstOrNull()
+                                    viewModel.removeAiSolveImage(path)
+                                    message = "已删除第 ${index + 1} 张图片"
                                 },
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text("移除图片")
-                            }
-                        }
+                                overlayActionLabel = "重新处理",
+                                onOverlayAction = {
+                                    editingOriginalPath = path
+                                    imagePath = path
+                                    imageEditing = true
+                                }
+                            )
                     }
                 }
             }
+            }
+            }
             item {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                if (!hasSolution || showSolveInputs) Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                     Button(
                         enabled = !isLoading,
                         onClick = { if (aiUploadConsent) runSolve() else showPrivacyDialog = true },
@@ -3639,7 +4283,7 @@ private fun AiSolveScreen(
                 }
                 if (statusMessage.isNotBlank()) {
                     val failed = aiSolveState.error != null
-                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer), modifier = Modifier.fillMaxWidth()) {
+                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), modifier = Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             if (isLoading) {
                                 LinearProgressIndicator(
@@ -3652,7 +4296,7 @@ private fun AiSolveScreen(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = if (failed) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onPrimaryContainer
                             )
-                            if (failed) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (failed && shouldOfferAiSettings(aiSolveState.error)) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 TextButton(onClick = onOpenSettings) { Text("打开设置") }
                             }
                         }
@@ -3660,10 +4304,10 @@ private fun AiSolveScreen(
                 }
             }
             if (completeSolution.isNotBlank() && !isLoading) item {
-                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer), modifier = Modifier.fillMaxWidth()) {
+                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), modifier = Modifier.fillMaxWidth()) {
                     Column(
-                        Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                        Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -3677,23 +4321,44 @@ private fun AiSolveScreen(
                         }
                         if (aiSolutionExpanded) {
                             if (solutionSections.structured) {
-                                AiSolutionSection("题目识别", question.ifBlank { solutionSections.recognition })
+                                AiSolutionSection(
+                                    "题目识别",
+                                    if (solutionSections.schemaVersion >= 2) {
+                                        solutionSections.recognition
+                                    } else {
+                                        question.ifBlank { solutionSections.recognition }
+                                    },
+                                    preserveSourceExactly = solutionSections.schemaVersion >= 2
+                                )
                                 ContentBlockImages(
                                     solveContentBlocks.filter { it.role == ContentBlockRole.QUESTION },
                                     onDelete = { block -> viewModel.removeAiSolveContentBlock(block.path) }
                                 )
-                                AiSolutionSection("解题思路", solutionSections.approach)
-                                AiSolutionSection("逐步推导", solutionSections.derivation)
+                                AiSolutionSection(
+                                    "解题思路",
+                                    solutionSections.approach,
+                                    preserveSourceExactly = solutionSections.schemaVersion >= 2
+                                )
+                                AiSolutionSection(
+                                    "逐步推导",
+                                    solutionSections.derivation,
+                                    preserveSourceExactly = solutionSections.schemaVersion >= 2
+                                )
                                 ContentBlockImages(
                                     solveContentBlocks.filter { it.role == ContentBlockRole.EXPLANATION },
                                     onDelete = { block -> viewModel.removeAiSolveContentBlock(block.path) }
                                 )
-                                AiSolutionSection("最终答案", solutionSections.finalAnswer)
+                                AiSolutionSection(
+                                    "最终答案",
+                                    solutionSections.finalAnswer,
+                                    preserveSourceExactly = solutionSections.schemaVersion >= 2
+                                )
                             } else {
                                 MathText(
                                     visibleAiSolution(completeSolution),
                                     normalizeTerminalPeriod = true,
-                                    preserveReturnedLayout = true
+                                    preserveReturnedLayout = true,
+                                    compactVerticalSpacing = true
                                 )
                                 ContentBlockImages(
                                     solveContentBlocks.filter { it.role == ContentBlockRole.QUESTION },
@@ -3724,7 +4389,15 @@ private fun AiSolveScreen(
                         }
                     }
                 }
-                if (latestChat != null) {
+                val aiChatStatusMessage = when {
+                    aiChatStatusOverride.isNotBlank() -> aiChatStatusOverride
+                    hasAiChatActivity && aiChatState.running -> "AI 正在后台回答追问，切换页面不会中断…"
+                    hasAiChatActivity && aiChatState.error != null -> "AI 对话失败：${aiChatState.error?.trimEnd('。', '.')}。"
+                    hasAiChatActivity && aiChatState.status == "STOPPED" -> "已停止回答，可重新追问。"
+                    hasAiChatActivity && aiChatState.status == "COMPLETED" -> "追问回答完成。"
+                    else -> ""
+                }
+                if (latestChat != null || hasAiChatActivity) {
                     Card(
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                         modifier = Modifier.fillMaxWidth()
@@ -3736,61 +4409,48 @@ private fun AiSolveScreen(
                             ) {
                                 Text("最新对话", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                                 Spacer(Modifier.weight(1f))
-                                TextButton(onClick = { latestChatExpanded = !latestChatExpanded }) {
-                                    Text(if (latestChatExpanded) "收起" else "展开")
+                                if (latestChat != null && !followUpLoading) {
+                                    TextButton(onClick = { latestChatExpanded = !latestChatExpanded }) {
+                                        Text(if (latestChatExpanded) "收起" else "展开")
+                                    }
                                 }
                             }
-                            if (latestChatExpanded) {
-                                Text("你", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-                                MathText(latestChat.prompt, preserveReturnedLayout = true)
-                                Text("AI 解答", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-                                AiConversationReply(latestChat.reply)
-                                TextButton(onClick = { copyAiText(latestChat.reply) }) { Text("复制回复") }
-                                OutlinedButton(
-                                    onClick = ::rerunSolveWithCorrection,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) { Text("用纠正对话重新 AI 解题") }
-                            }
-                        }
-                    }
-                }
-                val aiChatStatusMessage = when {
-                    aiChatStatusOverride.isNotBlank() -> aiChatStatusOverride
-                    hasAiChatActivity && aiChatState.running -> "AI 正在后台回答追问，切换页面不会中断…"
-                    hasAiChatActivity && aiChatState.error != null -> "AI 对话失败：${aiChatState.error?.trimEnd('。', '.')}。"
-                    else -> ""
-                }
-                if (aiChatStatusMessage.isNotBlank()) {
-                    val chatFailed = aiChatStatusMessage.startsWith("AI 对话失败：")
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             if (followUpLoading) {
                                 LinearProgressIndicator(
                                     progress = { aiChatState.progress.coerceIn(0f, 1f) },
                                     modifier = Modifier.fillMaxWidth()
                                 )
                             }
-                            Text(
-                                aiChatStatusMessage,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = if (chatFailed) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                            if (chatFailed) {
-                                TextButton(onClick = onOpenSettings) { Text("打开设置") }
+                            if (latestChat != null && latestChatExpanded && !followUpLoading) {
+                                Text("你", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                                MathText(latestChat.prompt, preserveReturnedLayout = true)
+                                latestChat.imagePaths.forEach { path -> ImagePreview(path) }
+                                Text("AI 解答", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                                AiConversationReply(latestChat.reply)
+                            }
+                            if (latestChat != null && !followUpLoading) {
+                                TextButton(onClick = { copyAiText(followUpReplyForDisplay(latestChat.reply)) }) { Text("复制回复") }
+                                OutlinedButton(
+                                    onClick = ::rerunSolveWithCorrection,
+                                    enabled = !followUpLoading,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) { Text("用纠正对话重新 AI 解题") }
+                                OutlinedButton(
+                                    onClick = ::retryLastFollowUp,
+                                    enabled = !followUpLoading,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) { Text("重新追问") }
+                            }
+                            if (aiChatStatusMessage.isNotBlank()) {
+                                val chatFailed = aiChatStatusMessage.startsWith("AI 对话失败：")
+                                Text(
+                                    aiChatStatusMessage,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (chatFailed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
                         }
                     }
-                }
-                Button(
-                    enabled = !aiMistakeSaveState.running,
-                    onClick = ::saveSolvedMistake,
-                    modifier = Modifier.fillMaxWidth()
-                ) { Text("加入错题") }
-                if (savedMessage.isNotBlank()) {
-                    Text(savedMessage, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                 }
                 if (aiMistakeSaveState.requestId == aiSolveState.requestId && aiMistakeSaveState.canRetry) {
                     OutlinedButton(
@@ -3817,18 +4477,32 @@ private fun aiChatTitle(prompt: String): String {
 }
 
 @Composable
-private fun AiSolutionSection(label: String, content: String) {
+private fun AiSolutionSection(
+    label: String,
+    content: String,
+    preserveSourceExactly: Boolean = false
+) {
     if (content.isBlank()) return
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text(label, fontWeight = FontWeight.Bold)
+    Surface(
+        color = if (label == "最终答案") MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, if (label == "最终答案") MaterialTheme.colorScheme.tertiary.copy(alpha = 0.32f) else MaterialTheme.colorScheme.outlineVariant),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+    ) {
+    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(label, fontWeight = FontWeight.Bold, color = if (label == "最终答案") MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.primary)
         MathText(
             content,
             normalizeTerminalPeriod = label == "最终答案",
             preserveReturnedLayout = true,
-            naturalQuestionWrap = label == "题目识别"
+            preserveSourceExactly = preserveSourceExactly,
+            naturalQuestionWrap = label == "题目识别",
+            compactQuestionLayout = label == "题目识别",
+            compactVerticalSpacing = true
         )
     }
 }
+    }
 
 @Composable
 private fun ContentBlockImages(
@@ -3840,7 +4514,11 @@ private fun ContentBlockImages(
             // A persisted crop is already the result of the one-time materialize
             // pipeline. Never clean/crop it again during recomposition or detail
             // rendering; doing so creates a new, progressively smaller image.
-            ImagePreview(block.path, onDelete = { onDelete(block) })
+            ImagePreview(
+                block.path,
+                onDelete = { onDelete(block) },
+                isGraphicCrop = block.kind == ContentBlockKind.GRAPHIC
+            )
         }
     }
 }
@@ -3854,7 +4532,11 @@ private fun removeContentBlockPath(raw: String, path: String): String {
 
 @Composable
 private fun AiConversationReply(reply: String) {
-    MathText(visibleAiSolution(reply), preserveReturnedLayout = true)
+    MathText(
+        followUpReplyForDisplay(reply),
+        preserveReturnedLayout = true,
+        compactVerticalSpacing = true
+    )
 }
 
 @Composable
@@ -3868,7 +4550,7 @@ private fun AiChatHistoryScreen(
 
     fun copyReply(reply: String) {
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-        clipboard?.setPrimaryClip(ClipData.newPlainText("AI 回复", reply))
+        clipboard?.setPrimaryClip(ClipData.newPlainText("AI 回复", followUpReplyForDisplay(reply)))
     }
 
     Scaffold(
@@ -3925,17 +4607,18 @@ private fun AiChatHistoryScreen(
                             if (expanded) {
                                 Text("追问内容", fontWeight = FontWeight.Bold)
                                 MathText(chat.prompt, preserveReturnedLayout = true)
+                                chat.imagePaths.forEach { path -> ImagePreview(path) }
                                 Text("AI 解答", fontWeight = FontWeight.Bold)
                                 AiConversationReply(chat.reply)
                                 TextButton(onClick = { copyReply(chat.reply) }) { Text("复制回复") }
                             }
+                        }
                         }
                     }
                 }
             }
         }
     }
-}
 
 private fun aiSolveModeLabel(mode: AiRecognitionMode): String = when (mode) {
     AiRecognitionMode.VISION -> "视觉模型"
@@ -4300,24 +4983,74 @@ private fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long)
         if (editing) detailListState.scrollToItem(0)
     }
     Scaffold(
-topBar = { TopAppBar(title = { Text(normalizeAsciiPunctuation(title.ifBlank { "未命名错题" }), maxLines = 1, overflow = TextOverflow.Ellipsis) }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, null) } }, actions = { IconButton(onClick = { onDelete(id); onBack() }) { Icon(Icons.Outlined.Delete, null) } }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)) }
+        topBar = {
+            TopAppBar(
+                title = { Text("错题详情") },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回错题库") } },
+                actions = {
+                    IconButton(onClick = { onDelete(id); onBack() }) {
+                        Icon(Icons.Outlined.Delete, contentDescription = "删除错题")
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
+            )
+        }
     ) { padding ->
-        LazyColumn(state = detailListState, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(padding).fillMaxSize()) {
+        LazyColumn(
+            state = detailListState,
+            contentPadding = PaddingValues(horizontal = TijiDimens.pagePadding, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(TijiDimens.cardGap),
+            modifier = Modifier.padding(padding).fillMaxSize()
+        ) {
             if (!editing) {
                 item {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        originalQuestionImages.forEachIndexed { index, path ->
-                            Text(if (originalQuestionImages.size == 1) "题目图片" else "题目图片 ${index + 1}", fontWeight = FontWeight.Bold)
-                            ImagePreview(path, onDelete = { removeDetailImage(PhotoRole.QUESTION, path) })
+                    Column(verticalArrangement = Arrangement.spacedBy(TijiDimens.cardGap)) {
+                        TijiSurfaceCard {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                    Text(
+                                        "${normalizedSubject(subject)}${questionType.trim().takeIf(String::isNotBlank)?.let { " · $it" } ?: ""}",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        title.ifBlank { if (photoOnly) "照片错题" else "未命名错题" },
+                                        style = MaterialTheme.typography.titleLarge,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                TijiStatusBadge(current.mastery)
+                            }
+                            Text(
+                                "上传于 ${formatUploadTime(current.uploadedAt)}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
-                        answerImage?.let { Text("答案图片", fontWeight = FontWeight.Bold); ImagePreview(it, onDelete = { removeDetailImage(PhotoRole.ANSWER, it) }) }
-                        explanationImage?.let { Text("解析图片", fontWeight = FontWeight.Bold); ImagePreview(it, onDelete = { removeDetailImage(PhotoRole.EXPLANATION, it) }) }
-                        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer), modifier = Modifier.fillMaxWidth()) {
-                            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                MathText(title.ifBlank { if (photoOnly) "照片错题" else "错题详情" }, emphasized = true)
-                                if (photoOnly) Text("照片错题以图片为主，点击图片可放大查看。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        originalQuestionImages.forEachIndexed { index, path ->
+                            TijiSurfaceCard {
+                                Text(if (originalQuestionImages.size == 1) "题目图片" else "题目图片 ${index + 1}", style = MaterialTheme.typography.titleSmall)
+                                ImagePreview(path, onDelete = { removeDetailImage(PhotoRole.QUESTION, path) })
                             }
                         }
+                        answerImage?.let {
+                            TijiSurfaceCard {
+                                Text("答案图片", style = MaterialTheme.typography.titleSmall)
+                                ImagePreview(it, onDelete = { removeDetailImage(PhotoRole.ANSWER, it) })
+                            }
+                        }
+                        explanationImage?.let {
+                            TijiSurfaceCard {
+                                Text("解析图片", style = MaterialTheme.typography.titleSmall)
+                                ImagePreview(it, onDelete = { removeDetailImage(PhotoRole.EXPLANATION, it) })
+                            }
+                        }
+                        if (photoOnly) {
+                            Text("照片错题以图片为主，点击图片可放大查看。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
                     }
                 }
             }
@@ -4367,20 +5100,41 @@ topBar = { TopAppBar(title = { Text(normalizeAsciiPunctuation(title.ifBlank { "�
             if (!editing && !photoOnly && (question.isNotBlank() || answer.isNotBlank() || explanation.isNotBlank())) item {
                 RenderedMistakeContentCard(question, answer, explanation, detailContentBlocks, ::removeDetailContentBlock)
             }
-            if (!editing) item {
-                OutlinedButton(onClick = { editing = true; saveMessage = "" }, modifier = Modifier.fillMaxWidth()) { Text("编辑信息") }
+            if (!editing && note.isNotBlank()) item {
+                TijiSurfaceCard {
+                    Text("我的总结", style = MaterialTheme.typography.titleMedium)
+                    Text(note, style = MaterialTheme.typography.bodyLarge)
+                }
             }
-            item { Text("复习次数：${current.reviewCount}    掌握状态：${masteryLabel(current.mastery)}", color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            item { Text("上传时间：${formatUploadTime(current.uploadedAt)}", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            if (!editing) item {
+                Row(horizontalArrangement = Arrangement.spacedBy(TijiDimens.controlGap), modifier = Modifier.fillMaxWidth()) {
+                    OutlinedButton(onClick = { editing = true; saveMessage = "" }, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("编辑信息") }
+                    Button(
+                        onClick = {
+                            val enabled = !inReviewPlan
+                            viewModel.setReviewPlan(id, enabled)
+                            inReviewPlan = enabled
+                        },
+                        modifier = Modifier.weight(1.2f).heightIn(min = 48.dp)
+                    ) {
+                        Icon(if (inReviewPlan) Icons.Outlined.CheckCircle else Icons.Outlined.CalendarMonth, contentDescription = null)
+                        Spacer(Modifier.size(6.dp))
+                        Text(if (inReviewPlan) "移出复习" else "加入复习")
+                    }
+                }
+            }
             item {
-                OutlinedButton(onClick = {
-                    val enabled = !inReviewPlan
-                    viewModel.setReviewPlan(id, enabled)
-                    inReviewPlan = enabled
-                }, modifier = Modifier.fillMaxWidth()) {
-                    Icon(if (inReviewPlan) Icons.Outlined.CheckCircle else Icons.Outlined.CalendarMonth, null)
-                    Spacer(Modifier.size(6.dp))
-                    Text(if (inReviewPlan) "移出复习计划" else "加入后续复习计划")
+                TijiSurfaceCard {
+                    Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text("复习次数", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(current.reviewCount.toString(), style = MaterialTheme.typography.titleLarge)
+                        }
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text("掌握状态", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(masteryLabel(current.mastery), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                        }
+                    }
                 }
             }
             if (editing) item {
@@ -4401,7 +5155,18 @@ private fun CaptureFields(
     onTitle: (String) -> Unit, onNote: (String) -> Unit, onSubject: (String) -> Unit,
     onQuestionType: (String) -> Unit, onTags: (String) -> Unit, onDifficulty: (Int) -> Unit
 ) {
+    var showDetails by rememberSaveable { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            OutlinedTextField(subject, onSubject, label = { Text("科目") }, singleLine = true, modifier = Modifier.weight(1f))
+            OutlinedTextField(questionType, onQuestionType, label = { Text("题目类型") }, singleLine = true, modifier = Modifier.weight(1f))
+        }
+        OutlinedTextField(tags, onTags, label = { Text("分类 / 知识点标签") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        DifficultyPicker(difficulty, onDifficulty)
+        TextButton(onClick = { showDetails = !showDetails }) {
+            Text(if (showDetails) "收起标题与注释" else "补充标题与注释（选填）")
+        }
+        if (showDetails) {
         OutlinedTextField(
             title,
             onTitle,
@@ -4411,12 +5176,7 @@ private fun CaptureFields(
         )
         FormulaPreview(title)
         OutlinedTextField(note, onNote, label = { Text("注释") }, minLines = 2, modifier = Modifier.fillMaxWidth())
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            OutlinedTextField(subject, onSubject, label = { Text("科目") }, singleLine = true, modifier = Modifier.weight(1f))
-            OutlinedTextField(questionType, onQuestionType, label = { Text("题目类型") }, singleLine = true, modifier = Modifier.weight(1f))
         }
-        OutlinedTextField(tags, onTags, label = { Text("分类 / 知识点标签") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        DifficultyPicker(difficulty, onDifficulty)
     }
 }
 
@@ -4636,36 +5396,41 @@ private fun RenderedMistakeContentCard(
     contentBlocks: List<com.tiji.mistakes.service.QuestionContentBlock> = emptyList(),
     onDeleteBlock: (com.tiji.mistakes.service.QuestionContentBlock) -> Unit = {}
 ) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    TijiSurfaceCard {
             if (question.isNotBlank()) {
-                Text("题目", fontWeight = FontWeight.Bold)
-                MathText(question, preserveSourceExactly = true, naturalQuestionWrap = true)
+                Text("题目", style = MaterialTheme.typography.titleMedium)
+                MathText(
+                    question,
+                    preserveSourceExactly = true,
+                    naturalQuestionWrap = true,
+                    compactQuestionLayout = true,
+                    compactVerticalSpacing = true
+                )
             }
             ContentBlockImages(
                 contentBlocks.filter { it.role == ContentBlockRole.QUESTION },
                 onDelete = onDeleteBlock
             )
             if (answer.isNotBlank()) {
-                Text("答案", fontWeight = FontWeight.Bold)
-                MathText(answer)
+                Text("答案", style = MaterialTheme.typography.titleMedium)
+                MathText(answer, compactVerticalSpacing = true)
             }
             ContentBlockImages(
                 contentBlocks.filter { it.role == ContentBlockRole.ANSWER },
                 onDelete = onDeleteBlock
             )
             if (explanation.isNotBlank()) {
-                Text("解析", fontWeight = FontWeight.Bold)
-                MathText(explanation, preserveSourceExactly = true)
+                Text("解析", style = MaterialTheme.typography.titleMedium)
+                MathText(
+                    explanation,
+                    preserveSourceExactly = true,
+                    compactVerticalSpacing = true
+                )
             }
             ContentBlockImages(
                 contentBlocks.filter { it.role == ContentBlockRole.EXPLANATION },
                 onDelete = onDeleteBlock
             )
-        }
     }
 }
 
@@ -4692,6 +5457,18 @@ private fun DifficultyPicker(difficulty: Int, onDifficulty: (Int) -> Unit) {
 @Composable
 private fun ReviewCard(mistake: MistakeEntity, onClick: () -> Unit) {
     MistakeCard(mistake = mistake, onClick = onClick)
+}
+
+private fun reviewIntervalLabel(grade: ReviewGrade): String = when (grade) {
+    ReviewGrade.FORGOT -> "明天复习"
+    ReviewGrade.HARD -> "3 天后"
+    ReviewGrade.GOOD -> "7 天后"
+    ReviewGrade.EASY -> "14 天后"
+}
+
+private fun reviewGradeUiLabel(grade: ReviewGrade): String = when (grade) {
+    ReviewGrade.GOOD -> "会了"
+    else -> grade.label
 }
 
 @Composable
@@ -4731,11 +5508,13 @@ private fun ReviewQuestionScreen(
     }
 
     val current = mistake
+    val currentIndex = reviewIds.indexOf(currentId)
+    val progressLabel = if (reviewIds.isEmpty() || currentIndex < 0) "复习" else "${currentIndex + 1} / ${reviewIds.size}"
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(current?.title?.ifBlank { "复习题目" } ?: "复习题目", maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, null) } },
+                title = { Text(progressLabel) },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回复习") } },
                 actions = {
                     if (current != null) {
                         IconButton(
@@ -4761,114 +5540,104 @@ private fun ReviewQuestionScreen(
             }
         } else {
             LazyColumn(
-                contentPadding = PaddingValues(20.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+                contentPadding = PaddingValues(horizontal = TijiDimens.pagePadding, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(TijiDimens.sectionGap),
                 modifier = Modifier
                     .padding(padding)
                     .fillMaxSize()
             ) {
                 item {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        current.imagePath?.let {
-                            Text("题目图片", fontWeight = FontWeight.Bold)
-                            ImagePreview(it)
-                        }
-                        Card(
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                MathText(current.title.ifBlank { "复习题目" }, emphasized = true)
+                    TijiSurfaceCard {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Text(normalizedSubject(current.subject), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(current.title.ifBlank { "复习题目" }, style = MaterialTheme.typography.titleLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             }
+                            TijiStatusBadge(current.mastery)
+                        }
+                        current.imagePath?.let {
+                            Text("题目图片", style = MaterialTheme.typography.titleSmall)
+                            ImagePreview(it)
                         }
                     }
                 }
                 item {
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Text("题目", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                            MathText(
-                                current.questionText.ifBlank { "（图片题，请查看题目图片）" },
-                                preserveSourceExactly = true
-                            )
-                        }
+                    TijiSurfaceCard {
+                        Text("题目", style = MaterialTheme.typography.titleMedium)
+                        MathText(
+                            current.questionText.ifBlank { "（图片题，请查看题目图片）" },
+                            preserveSourceExactly = true,
+                            naturalQuestionWrap = true,
+                            compactQuestionLayout = true,
+                            compactVerticalSpacing = true
+                        )
                     }
                 }
                 item {
                     Button(
-                        onClick = { showAnswer = true },
+                        onClick = { showAnswer = true; showExplanation = true },
                         enabled = !showAnswer,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp)
                     ) { Text(if (showAnswer) "答案已展开" else "查看答案") }
                 }
                 if (showAnswer) {
                     if (current.answerImagePath != null) item {
-                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Text("答案图片", fontWeight = FontWeight.Bold)
+                        TijiSurfaceCard {
+                            Text("答案图片", style = MaterialTheme.typography.titleSmall)
                             ImagePreview(current.answerImagePath)
                         }
                     }
                     item {
-                        Card(
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Text("答案", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                                MathText(current.answerText.ifBlank { "未填写答案" })
-                            }
+                        TijiSurfaceCard {
+                            Text("答案", style = MaterialTheme.typography.titleMedium)
+                            MathText(current.answerText.ifBlank { "未填写答案" })
                         }
-                    }
-                    item {
-                        Button(
-                            onClick = { showExplanation = true },
-                            enabled = !showExplanation,
-                            modifier = Modifier.fillMaxWidth()
-                        ) { Text(if (showExplanation) "解析已展开" else "查看解析") }
                     }
                 }
                 if (showExplanation) {
                     if (current.explanationImagePath != null) item {
-                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Text("解析图片", fontWeight = FontWeight.Bold)
+                        TijiSurfaceCard {
+                            Text("解析图片", style = MaterialTheme.typography.titleSmall)
                             ImagePreview(current.explanationImagePath)
                         }
                     }
                     item {
-                        Card(
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                Text("解析", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                                MathText(current.explanation.ifBlank { "未填写解析" }, normalizeTerminalPeriod = true)
-                            }
+                        TijiSurfaceCard {
+                            Text("解析", style = MaterialTheme.typography.titleMedium)
+                            MathText(current.explanation.ifBlank { "未填写解析" }, normalizeTerminalPeriod = true)
                         }
                     }
                     item {
-                        Text("完成本题后记录复习结果", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                                ReviewGrade.values().forEach { grade ->
-                                    FilterChip(
-                                    selected = selectedGrade == grade,
-                                    enabled = selectedGrade == null,
-                                    onClick = {
-                                        viewModel.review(current, grade)
-                                        selectedGrade = grade
-                                        onReviewed(current.id, grade)
-                                    },
-                                    label = { Text(grade.label) }
-                                )
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("这道题下次什么时候出现？", style = MaterialTheme.typography.titleMedium)
+                            ReviewGrade.values().toList().chunked(2).forEach { rowGrades ->
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                    rowGrades.forEach { grade ->
+                                        FilterChip(
+                                            selected = selectedGrade == grade,
+                                            enabled = selectedGrade == null,
+                                            onClick = {
+                                                viewModel.review(current, grade)
+                                                selectedGrade = grade
+                                                onReviewed(current.id, grade)
+                                            },
+                                            modifier = Modifier.weight(1f).heightIn(min = 60.dp),
+                                            label = {
+                                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                                    Text(reviewGradeUiLabel(grade))
+                                                    Text(reviewIntervalLabel(grade), style = MaterialTheme.typography.labelSmall)
+                                                }
+                                            }
+                                        )
+                                    }
+                                    if (rowGrades.size == 1) Spacer(Modifier.weight(1f))
+                                }
                             }
+                            if (selectedGrade != null) Text("已记录：${reviewGradeUiLabel(selectedGrade!!)}", color = MaterialTheme.colorScheme.primary)
                         }
-                        if (selectedGrade != null) Text("今日掌握状态：${selectedGrade!!.label}", color = MaterialTheme.colorScheme.primary)
                     }
                 }
                 item {
-                    val currentIndex = reviewIds.indexOf(currentId)
                     val isLastQuestion = reviewIds.isNotEmpty() && currentIndex == reviewIds.lastIndex
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                         OutlinedButton(
@@ -4907,7 +5676,7 @@ private fun MistakeCard(
         difficulty = mistake.difficulty,
         mastery = mistake.mastery
     )
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer), modifier = Modifier.fillMaxWidth().animateContentSize()) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), modifier = Modifier.fillMaxWidth()) {
         Box(Modifier.fillMaxWidth()) {
             Row(Modifier.padding(14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (selectionMode) Checkbox(checked = selected, onCheckedChange = { onSelected() })
@@ -4928,7 +5697,8 @@ private fun MistakeCard(
                                 compact = true,
                                 muted = true,
                                 interactive = false,
-                                normalizeTerminalPeriod = true
+                                normalizeTerminalPeriod = true,
+                                compactQuestionLayout = true
                             )
                         }
                         Text(
@@ -5026,11 +5796,10 @@ private fun ScreenHeading(
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(
-            modifier = Modifier.fillMaxWidth().height(48.dp),
+            modifier = Modifier.fillMaxWidth().heightIn(min = 40.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-Text(normalizeAsciiPunctuation(title), style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.weight(1f))
+            Text(normalizeAsciiPunctuation(title), modifier = Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
             action()
         }
         Text(subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -5139,15 +5908,13 @@ private fun SettingCard(
     headerIcon: (@Composable () -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer), modifier = Modifier.fillMaxWidth().animateContentSize()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    TijiSurfaceCard {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 headerIcon?.invoke() ?: Icon(icon, null, tint = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.size(8.dp))
                 Text(normalizeAsciiPunctuation(title), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             }
             content()
-        }
     }
 }
 
@@ -5178,40 +5945,202 @@ private fun OcrFrameBadgeIcon() {
 
 @Composable
 private fun EmptyState(title: String, message: String) {
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer), modifier = Modifier.fillMaxWidth()) { Column(Modifier.padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) { Icon(Icons.Outlined.Lightbulb, null, tint = MaterialTheme.colorScheme.primary); Text(normalizeAsciiPunctuation(title), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold); Text(normalizeAsciiPunctuation(message), color = MaterialTheme.colorScheme.onSurfaceVariant) } }
-}
-
-@Composable
-private fun ClickableImageThumbnail(path: String, onDelete: () -> Unit) {
-    var expanded by remember(path) { mutableStateOf(false) }
-    AsyncImage(
-        model = path,
-        contentDescription = "已添加的识别图片，点击放大",
-        modifier = Modifier.size(84.dp).clip(RoundedCornerShape(10.dp)).clickable { expanded = true },
-        contentScale = ContentScale.Crop
-    )
-    if (expanded) {
-        Dialog(onDismissRequest = { expanded = false }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-            Box(Modifier.fillMaxSize().padding(12.dp)) {
-                AsyncImage(
-                    model = path,
-                    contentDescription = "放大的识别图片",
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(20.dp))
-                )
-                TextButton(onClick = { expanded = false }, modifier = Modifier.align(Alignment.TopEnd)) { Text("关闭") }
-                TextButton(onClick = { expanded = false; onDelete() }, modifier = Modifier.align(Alignment.TopStart)) { Text("删除图片") }
-            }
+    TijiSurfaceCard {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            Icon(Icons.Outlined.Lightbulb, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+            Text(normalizeAsciiPunctuation(title), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(normalizeAsciiPunctuation(message), color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
 
 @Composable
-private fun ImagePreview(path: String, onDelete: (() -> Unit)? = null) {
+private fun ClickableImageThumbnail(path: String, onDelete: () -> Unit) {
     var expanded by remember(path) { mutableStateOf(false) }
+    val reloadVersion = imageReloadVersions[path] ?: 0
+    val context = LocalContext.current
+    val imageModel = remember(path, reloadVersion) {
+        val revision = imageRequestRevision(path, reloadVersion)
+        ImageRequest.Builder(context)
+            .data(if (path.startsWith("content://")) path else File(path))
+            .memoryCacheKey(revision)
+            .diskCacheKey(revision)
+            .memoryCachePolicy(CachePolicy.DISABLED)
+            .diskCachePolicy(CachePolicy.DISABLED)
+            .build()
+    }
+    AsyncImage(
+        model = imageModel,
+        contentDescription = "已添加的识别图片，点击放大",
+        modifier = Modifier.size(84.dp).clip(RoundedCornerShape(10.dp)).clickable { expanded = true },
+        contentScale = ContentScale.Crop
+    )
+    if (expanded) {
+        ExpandedImageDialog(
+            path = path,
+            imageModel = imageModel,
+            isGraphicCrop = false,
+            onDismiss = { expanded = false },
+            onDelete = { expanded = false; onDelete() },
+            onReplaced = { notifyImageReplaced(path) }
+        )
+    }
+}
+
+@Composable
+private fun ExpandedImageDialog(
+    path: String,
+    imageModel: Any,
+    isGraphicCrop: Boolean,
+    onDismiss: () -> Unit,
+    onDelete: (() -> Unit)?,
+    onReplaced: () -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var replacementEditingPath by remember(path) { mutableStateOf<String?>(null) }
+    var saving by remember(path) { mutableStateOf(false) }
+    val replacementLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            replacementEditingPath = ImageStorage.copyToPrivate(context, uri, "replacement_source")
+            if (replacementEditingPath == null) Toast.makeText(context, "图片读取失败，请重新选择", Toast.LENGTH_SHORT).show()
+        }
+    }
+    fun saveCurrentImage() {
+        if (saving) return
+        scope.launch {
+            saving = true
+            val result = withContext(Dispatchers.IO) { ImageStorage.saveToGallery(context, path) }
+            Toast.makeText(
+                context,
+                if (result.isSuccess) "已保存到系统相册“题迹”" else "保存失败：${result.exceptionOrNull()?.message ?: "未知错误"}",
+                Toast.LENGTH_SHORT
+            ).show()
+            saving = false
+        }
+    }
+    val storagePermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) saveCurrentImage() else Toast.makeText(context, "未授予存储权限，无法保存图片", Toast.LENGTH_SHORT).show()
+    }
+    fun requestSave() {
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED
+        ) {
+            storagePermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        } else {
+            saveCurrentImage()
+        }
+    }
+
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        var scale by remember(path) { mutableFloatStateOf(1f) }
+        var offsetX by remember(path) { mutableFloatStateOf(0f) }
+        var offsetY by remember(path) { mutableFloatStateOf(0f) }
+        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.88f)).padding(12.dp)) {
+            AsyncImage(
+                model = imageModel,
+                contentDescription = "放大的题目图片",
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(20.dp))
+                    .graphicsLayer(scaleX = scale, scaleY = scale, translationX = offsetX, translationY = offsetY)
+                    .pointerInput(path) {
+                        detectTransformGestures { _, pan, zoom, _ ->
+                            scale = (scale * zoom).coerceIn(1f, 5f)
+                            offsetX += pan.x
+                            offsetY += pan.y
+                        }
+                    }
+            )
+            TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.TopEnd).padding(12.dp)) {
+                Text("关闭", color = Color.White)
+            }
+            if (onDelete != null) {
+                TextButton(onClick = onDelete, modifier = Modifier.align(Alignment.TopStart).padding(12.dp)) {
+                    Text("删除图片", color = MaterialTheme.colorScheme.error)
+                }
+            }
+            TextButton(
+                onClick = { replacementLauncher.launch("image/*") },
+                modifier = Modifier.align(Alignment.BottomStart).navigationBarsPadding().padding(12.dp)
+            ) { Text("替换图片", color = Color.White) }
+            TextButton(
+                enabled = !saving,
+                onClick = ::requestSave,
+                modifier = Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(12.dp)
+            ) { Text(if (saving) "正在保存…" else "保存到本地", color = Color.White) }
+        }
+    }
+
+    replacementEditingPath?.let { importedPath ->
+        Dialog(onDismissRequest = {}, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+            StandaloneImageEditor(
+                initialPath = importedPath,
+                title = "替换图片",
+                onCancel = {
+                    ImageStorage.deletePrivateFiles(context, listOf(importedPath))
+                    replacementEditingPath = null
+                },
+                onDiscard = { paths -> ImageStorage.deletePrivateFiles(context, paths) },
+                onConfirm = { processedPath ->
+                    scope.launch {
+                        val finalPath = if (isGraphicCrop) {
+                            val cleaned = withContext(Dispatchers.IO) {
+                                ImageProcessor.cleanGraphicCrop(context, processedPath)
+                            }
+                            if (cleaned.isFailure) {
+                                Toast.makeText(
+                                    context,
+                                    "黑白处理失败：${cleaned.exceptionOrNull()?.message ?: "未知错误"}",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                                return@launch
+                            }
+                            cleaned.getOrThrow()
+                        } else {
+                            processedPath
+                        }
+                        val result = withContext(Dispatchers.IO) {
+                            ImageStorage.replacePrivateImage(context, path, finalPath)
+                        }
+                        if (result.isSuccess) {
+                            ImageStorage.deletePrivateFiles(context, listOf(importedPath, processedPath, finalPath).filterNot { it == path })
+                            replacementEditingPath = null
+                            onReplaced()
+                            Toast.makeText(context, "图片已替换", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(context, "替换失败：${result.exceptionOrNull()?.message ?: "未知错误"}", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun ImagePreview(
+    path: String,
+    onDelete: (() -> Unit)? = null,
+    isGraphicCrop: Boolean = false,
+    overlayActionLabel: String? = null,
+    onOverlayAction: (() -> Unit)? = null
+) {
+    var expanded by remember(path) { mutableStateOf(false) }
+    val reloadVersion = imageReloadVersions[path] ?: 0
     var loadFailed by remember(path) { mutableStateOf(false) }
     var imageAspect by remember(path) { mutableFloatStateOf(1f) }
     val configuration = LocalConfiguration.current
+    val context = LocalContext.current
+    val imageModel = remember(path, reloadVersion) {
+        val revision = imageRequestRevision(path, reloadVersion)
+        ImageRequest.Builder(context)
+            .data(if (path.startsWith("content://")) path else File(path))
+            .memoryCacheKey(revision)
+            .diskCacheKey(revision)
+            .memoryCachePolicy(CachePolicy.DISABLED)
+            .diskCachePolicy(CachePolicy.DISABLED)
+            .build()
+    }
     val sourceAvailable = remember(path) { path.startsWith("content://") || File(path).isFile }
     if (!sourceAvailable || loadFailed) {
         Card(
@@ -5228,7 +6157,7 @@ private fun ImagePreview(path: String, onDelete: (() -> Unit)? = null) {
         }
         return
     }
-    LaunchedEffect(path) {
+    LaunchedEffect(path, reloadVersion) {
         imageAspect = withContext(Dispatchers.IO) {
             runCatching {
                 val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -5238,49 +6167,41 @@ private fun ImagePreview(path: String, onDelete: (() -> Unit)? = null) {
         }
     }
     val previewHeight = ((configuration.screenWidthDp.dp - 32.dp) / imageAspect.coerceAtLeast(0.2f)).coerceIn(48.dp, 420.dp)
-    AsyncImage(
-        model = path,
-        contentDescription = "题目图片，点击放大",
-        modifier = Modifier.fillMaxWidth().height(previewHeight).clip(RoundedCornerShape(16.dp)).clickable { expanded = true },
-        contentScale = ContentScale.Fit,
-        onError = { loadFailed = true }
-    )
-    if (expanded) {
-        Dialog(onDismissRequest = { expanded = false }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-            var scale by remember { mutableFloatStateOf(1f) }
-            var offsetX by remember { mutableFloatStateOf(0f) }
-            var offsetY by remember { mutableFloatStateOf(0f) }
-            Box(Modifier.fillMaxSize().padding(12.dp)) {
-                AsyncImage(
-                    model = path,
-                    contentDescription = "放大的题目图片",
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(20.dp))
-                        .graphicsLayer(scaleX = scale, scaleY = scale, translationX = offsetX, translationY = offsetY)
-                        .pointerInput(Unit) {
-                            detectTransformGestures { _, pan, zoom, _ ->
-                                scale = (scale * zoom).coerceIn(1f, 5f)
-                                offsetX += pan.x
-                                offsetY += pan.y
-                            }
-                        }
-                )
-                TextButton(onClick = { expanded = false }, modifier = Modifier.align(Alignment.TopEnd).padding(12.dp)) {
-                    Text("关闭", color = MaterialTheme.colorScheme.onSurface)
-                }
-                if (onDelete != null) {
-                    TextButton(
-                        onClick = {
-                            expanded = false
-                            onDelete.invoke()
-                        },
-                        modifier = Modifier.align(Alignment.TopStart).padding(12.dp)
-                    ) {
-                        Text("删除图片", color = MaterialTheme.colorScheme.error)
-                    }
-                }
-            }
+    Box(Modifier.fillMaxWidth().height(previewHeight)) {
+        AsyncImage(
+            model = imageModel,
+            contentDescription = "题目图片，点击放大",
+            modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(16.dp)).clickable { expanded = true },
+            contentScale = ContentScale.Fit,
+            onError = { loadFailed = true }
+        )
+        if (!overlayActionLabel.isNullOrBlank() && onOverlayAction != null) {
+            Text(
+                overlayActionLabel,
+                style = MaterialTheme.typography.bodySmall.copy(
+                    shadow = Shadow(Color.Black, Offset(0f, 1f), 3f)
+                ),
+                color = Color.White,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(10.dp)
+                    .clickable(onClick = onOverlayAction)
+                    .padding(horizontal = 2.dp, vertical = 2.dp)
+            )
         }
+    }
+    if (expanded) {
+        ExpandedImageDialog(
+            path = path,
+            imageModel = imageModel,
+            isGraphicCrop = isGraphicCrop,
+            onDismiss = { expanded = false },
+            onDelete = onDelete?.let { action -> { expanded = false; action() } },
+            onReplaced = {
+                notifyImageReplaced(path)
+                loadFailed = false
+            }
+        )
     }
 }
 
@@ -5301,6 +6222,7 @@ private fun containsMathSyntax(value: String): Boolean =
     value.contains('$') ||
         value.contains("\\(") ||
         value.contains("\\[") ||
+        MathRendering.containsStructuredEnvironment(value) ||
         value.contains('^') ||
         value.contains('_') ||
         value.any { it in "∫√±×÷≤≥≠∞" } ||
@@ -5389,6 +6311,9 @@ private fun normalizeReturnedMathSource(value: String): String {
     )
     result = markerWithDisplayFormula.replace(result) { match ->
         val token = match.groupValues[3]
+        if (MathRendering.containsStructuredEnvironment(token)) {
+            return@replace match.groupValues[1] + match.groupValues[2] + token
+        }
         val body = when {
             token.startsWith("\\[") -> token.substring(2, token.length - 2)
             else -> token.substring(2, token.length - 2)
@@ -5465,7 +6390,8 @@ private fun normalizeDisplayWhitespace(value: String): String {
 
 /**
  * Compact only the ordinary prose of a question into paragraphs.
- * Choice/list markers and standalone formula blocks remain on their own lines.
+ * Choice markers stay on separate visual rows, while formulas stay in the
+ * question/choice flow instead of being promoted to standalone display lines.
  */
 private fun normalizeQuestionSource(
     value: String,
@@ -5474,7 +6400,7 @@ private fun normalizeQuestionSource(
 ): String {
     if (value.isBlank()) return value
     val formulaTokens = mutableListOf<String>()
-    val protected = Regex("""(?s)\\\[.*?\\\]|\\\(.*?\\\)|\$\$.*?\$\$""").replace(
+    val protected = Regex("""(?s)\\\[.*?\\\]|\\\(.*?\\\)|\$\$.*?\$\$|\$(?!\$).*?\$""").replace(
         value.replace("\r\n", "\n").replace('\r', '\n'),
     ) { match ->
         val index = formulaTokens.size
@@ -5482,13 +6408,9 @@ private fun normalizeQuestionSource(
         "\uE300${index}\uE301"
     }
     val placeholder = Regex("""\uE300(\d+)\uE301""")
-    fun isDisplayFormulaLine(line: String): Boolean =
-        placeholder.matchEntire(line.trim())?.groupValues?.getOrNull(1)?.toIntOrNull()
-            ?.let { formulaTokens.getOrNull(it)?.startsWith("\\[") == true || formulaTokens.getOrNull(it)?.startsWith("$$") == true }
-            ?: false
     fun isSemanticLine(line: String): Boolean {
         val trimmed = line.trim()
-        if (trimmed.isBlank() || isDisplayFormulaLine(trimmed)) return true
+        if (trimmed.isBlank()) return true
         return Regex("""^(?:(?:[（(][A-DＡ-Ｄ][）)]|[A-DＡ-Ｄ](?:[.、:：)）]|\s+))\s*\S+|[①②③④⑤⑥⑦⑧⑨]|\(?\d{1,2}[)）.、:：])\s*\S+|(?:[（(]\s*(?:[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩⅪⅫ]|XII|XI)\s*[）)]|(?:[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩⅪⅫ]|XII|XI)(?:[.、:：])|[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩⅪⅫ](?=\s+))\s*\S+""").containsMatchIn(trimmed)
     }
 
@@ -5517,10 +6439,10 @@ private fun normalizeQuestionSource(
         .replace(Regex("(?m)^\\s*(?:#{1,6}\\s*)?(?:\\*\\*)?(?:题目识别|题目)(?:\\*\\*)?\\s*[：:]\\s*"), "")
         .replace("**", "")
         .trim()
-    // Models usually return semantic lineBreaks for choices, but a single text
-    // segment can still contain `(A) ... (B) ...`. Add a conservative,
-    // formula-aware fallback before restoring protected math source.
-    normalized = splitQuestionOptionsForLayout(normalized)
+    // Models may return semantic lineBreaks for choices, but a single text
+    // segment can still contain `(A) ... (B) ...`. Keep each choice separate
+    // while joining only continuation text/formulas inside that choice.
+    normalized = normalizeQuestionForDisplayLayout(normalized)
     normalized = placeholder.replace(normalized) { match ->
         formulaTokens.getOrNull(match.groupValues[1].toIntOrNull() ?: -1) ?: match.value
     }
@@ -5573,6 +6495,42 @@ private fun normalizeQuestionForNaturalWrap(value: String): String {
     )
 }
 
+/** Cancels delayed WebView measurements before Compose releases the renderer. */
+private class MathWebViewGuard {
+    private var active = true
+    private val pending = mutableListOf<Runnable>()
+
+    fun activate(view: WebView) {
+        active = true
+        clear(view)
+    }
+
+    fun isActive(view: WebView): Boolean =
+        active && view.tag != null
+
+    fun post(view: WebView, delayMillis: Long, block: () -> Unit) {
+        if (!isActive(view)) return
+        lateinit var runnable: Runnable
+        runnable = Runnable {
+            pending.remove(runnable)
+            if (isActive(view)) block()
+        }
+        pending += runnable
+        view.postDelayed(runnable, delayMillis)
+    }
+
+    fun release(view: WebView) {
+        active = false
+        clear(view)
+        view.tag = null
+    }
+
+    private fun clear(view: WebView) {
+        pending.toList().forEach(view::removeCallbacks)
+        pending.clear()
+    }
+}
+
 @Composable
 private fun FormulaPreview(value: String, normalizeTerminalPeriod: Boolean = false) {
     if (value.isBlank() || !containsMathSyntax(value)) return
@@ -5601,13 +6559,30 @@ private fun MathText(
     preserveReturnedLayout: Boolean = false,
     compactQuestionLayout: Boolean = false,
     preserveSourceExactly: Boolean = false,
-    naturalQuestionWrap: Boolean = false
+    naturalQuestionWrap: Boolean = false,
+    compactVerticalSpacing: Boolean = false
 ) {
     // Only the existing conservative source cleanup is used for display.
     // Recognition and database values are never rewritten here.
-    val displayValue = remember(value, normalizeTerminalPeriod, naturalQuestionWrap) {
-        val normalized = normalizeMathSource(value, normalizeTerminalPeriod)
-        if (naturalQuestionWrap) normalizeQuestionForNaturalWrap(normalized) else normalized
+    val displayValue = remember(
+        value,
+        normalizeTerminalPeriod,
+        naturalQuestionWrap,
+        compactQuestionLayout,
+        preserveSourceExactly
+    ) {
+        val questionLayout = naturalQuestionWrap || compactQuestionLayout
+        if (preserveSourceExactly) {
+            if (questionLayout) {
+                MathRendering.normalizeFormulaForKaTeX(normalizeQuestionForNaturalWrap(value))
+            } else {
+                value
+            }
+        } else {
+            val normalized = normalizeMathSource(value, normalizeTerminalPeriod)
+            val layout = if (questionLayout) normalizeQuestionForNaturalWrap(normalized) else normalized
+            MathRendering.normalizeFormulaForKaTeX(layout)
+        }
     }
     if (displayValue.isBlank()) return
 
@@ -5615,6 +6590,30 @@ private fun MathText(
 
     val containsMath = remember(displayValue) { containsMathSyntax(displayValue) }
     if (!renderFormulas || !containsMath) {
+        val textStyle = when {
+            emphasized && compact -> MaterialTheme.typography.titleSmall
+            emphasized -> MaterialTheme.typography.titleMedium
+            compact -> MaterialTheme.typography.bodySmall
+            else -> MaterialTheme.typography.bodyLarge
+        }
+        SelectionContainer {
+            Text(
+                text = displayValue,
+                style = textStyle.copy(
+                    fontFamily = if (emphasized) FontFamily.Default else FontFamily.Serif,
+                    lineHeight = textStyle.fontSize * 1.2f
+                ),
+                fontWeight = if (emphasized) FontWeight.Bold else null,
+                color = resolvedColor,
+                maxLines = maxLines,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        return
+    }
+
+    var rendererFailed by remember(displayValue) { mutableStateOf(false) }
+    if (rendererFailed) {
         val textStyle = when {
             emphasized && compact -> MaterialTheme.typography.titleSmall
             emphasized -> MaterialTheme.typography.titleMedium
@@ -5658,7 +6657,10 @@ private fun MathText(
         textColor,
         fontSizePx,
         emphasized,
-        preserveRawSource
+        preserveRawSource,
+        naturalQuestionWrap,
+        compactQuestionLayout,
+        compactVerticalSpacing
     ) {
         buildMathHtml(
             displayValue,
@@ -5666,7 +6668,9 @@ private fun MathText(
             textColor,
             fontSizePx,
             emphasized,
-            preserveRawSource
+            preserveRawSource,
+            responsiveQuestionLayout = naturalQuestionWrap || compactQuestionLayout,
+            compactVerticalSpacing = compactVerticalSpacing
         )
     }
     val assetLoader = remember(context) {
@@ -5674,7 +6678,11 @@ private fun MathText(
             .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(context))
             .build()
     }
-    val webViewClient = remember(assetLoader, html, minimumHeight) {
+    val webViewGuard = remember { MathWebViewGuard() }
+    var rendererGeneration by remember { mutableIntStateOf(0) }
+    val renderStartedAt = remember(html) { SystemClock.elapsedRealtime() }
+    var renderReported by remember(html) { mutableStateOf(false) }
+    val webViewClient = remember(assetLoader, html, minimumHeight, webViewGuard, rendererGeneration) {
         object : WebViewClientCompat() {
             override fun shouldInterceptRequest(
                 view: WebView,
@@ -5683,68 +6691,90 @@ private fun MathText(
 
             override fun onPageFinished(view: WebView, url: String?) {
                 super.onPageFinished(view, url)
+                if (!webViewGuard.isActive(view)) return
+                if (!renderReported) {
+                    renderReported = true
+                    Log.i(
+                        "TijiMathRender",
+                        "page_finished elapsedMs=${SystemClock.elapsedRealtime() - renderStartedAt} " +
+                            "chars=${displayValue.length} exact=$preserveSourceExactly"
+                    )
+                }
                 fun measureRenderedHeight() {
-                    if (view.tag != html) return
-                    view.evaluateJavascript(
-                        "(function(){var r=document.getElementById('root');return Math.ceil(r.getBoundingClientRect().height+2);})()"
-                    ) { measured ->
-                        if (view.tag == html) {
-                            measured.trim('"').toFloatOrNull()?.let { cssPixels ->
-                                contentHeight = cssPixels.coerceIn(minimumHeight, 8_000f).dp
+                    if (!webViewGuard.isActive(view) || view.tag != html) return
+                    runCatching {
+                        view.evaluateJavascript(
+                            "(function(){var r=document.getElementById('root');return Math.ceil(r.getBoundingClientRect().height+2);})()"
+                        ) { measured ->
+                            if (webViewGuard.isActive(view) && view.tag == html) {
+                                measured.trim('"').toFloatOrNull()?.let { cssPixels ->
+                                    contentHeight = cssPixels.coerceIn(minimumHeight, 8_000f).dp
+                                }
                             }
                         }
                     }
                 }
-                view.post { measureRenderedHeight() }
-                view.postDelayed({ measureRenderedHeight() }, 80L)
-                view.postDelayed({ measureRenderedHeight() }, 240L)
-                view.postDelayed({ measureRenderedHeight() }, 600L)
+                webViewGuard.post(view, 0L) { measureRenderedHeight() }
+                webViewGuard.post(view, 80L) { measureRenderedHeight() }
+                webViewGuard.post(view, 240L) { measureRenderedHeight() }
+                webViewGuard.post(view, 600L) { measureRenderedHeight() }
+            }
+
+            override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+                webViewGuard.release(view)
+                rendererFailed = true
+                rendererGeneration += 1
+                return true
             }
         }
     }
 
-    AndroidView(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(contentHeight),
-        factory = { webViewContext ->
-            WebView(webViewContext).apply {
-                settings.javaScriptEnabled = true
-                settings.domStorageEnabled = false
-                settings.allowFileAccess = false
-                settings.allowContentAccess = false
-                settings.setSupportZoom(false)
-                isVerticalScrollBarEnabled = false
-                isHorizontalScrollBarEnabled = false
-                isClickable = interactive
-                isFocusable = interactive
-                isFocusableInTouchMode = interactive
-                if (!interactive) importantForAccessibility = android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
-                setBackgroundColor(android.graphics.Color.TRANSPARENT)
-                this.webViewClient = webViewClient
+    androidx.compose.runtime.key(rendererGeneration) {
+        AndroidView(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(contentHeight),
+            factory = { webViewContext ->
+                WebView(webViewContext).apply {
+                    settings.javaScriptEnabled = true
+                    settings.domStorageEnabled = false
+                    settings.allowFileAccess = false
+                    settings.allowContentAccess = false
+                    settings.setSupportZoom(false)
+                    isVerticalScrollBarEnabled = false
+                    isHorizontalScrollBarEnabled = false
+                    isClickable = interactive
+                    isFocusable = interactive
+                    isFocusableInTouchMode = interactive
+                    if (!interactive) importantForAccessibility = android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+                    setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                    this.webViewClient = webViewClient
+                }
+            },
+            update = { webView ->
+                webView.webViewClient = webViewClient
+                webView.isClickable = interactive
+                webView.isFocusable = interactive
+                webView.isFocusableInTouchMode = interactive
+                if (webView.tag != html) {
+                    webViewGuard.activate(webView)
+                    webView.tag = html
+                    webView.loadDataWithBaseURL(
+                        "https://appassets.androidplatform.net/assets/katex/",
+                        html,
+                        "text/html",
+                        "UTF-8",
+                        null
+                    )
+                }
+            },
+            onRelease = { webView ->
+                webViewGuard.release(webView)
+                webView.stopLoading()
+                webView.destroy()
             }
-        },
-        update = { webView ->
-            webView.webViewClient = webViewClient
-            webView.isClickable = interactive
-            webView.isFocusable = interactive
-            webView.isFocusableInTouchMode = interactive
-            if (webView.tag != html) {
-                webView.tag = html
-                webView.loadDataWithBaseURL(
-                    "https://appassets.androidplatform.net/assets/katex/",
-                    html,
-                    "text/html",
-                    "UTF-8",
-                    null
-                )
-            }
-        },
-        onRelease = { webView ->
-            webView.stopLoading()
-            webView.destroy()
-        }
-    )
+        )
+    }
 }
 
 private fun buildMathHtml(
@@ -5754,7 +6784,9 @@ private fun buildMathHtml(
     fontSizePx: Int,
     emphasized: Boolean,
     preserveSourceExactly: Boolean = false,
-    allowDomLayout: Boolean = true
+    allowDomLayout: Boolean = true,
+    responsiveQuestionLayout: Boolean = false,
+    compactVerticalSpacing: Boolean = false
 ): String {
     val dollar = '$'
     val quotedSource = JSONObject.quote(source)
@@ -5777,6 +6809,7 @@ private fun buildMathHtml(
             html, body { margin: 0; padding: 0; background: transparent; }
             body { color: $color; font-family: $fontFamily; font-size: ${fontSizePx}px; font-weight: $fontWeight; line-height: 1.5; }
             #root { max-height: $maxHeight; overflow: $overflow; padding-bottom: .35em; box-sizing: border-box; white-space: pre-wrap; word-break: normal; overflow-wrap: break-word; line-break: strict; text-wrap: pretty; }
+            #root.compact-vertical { padding-bottom: .12em; line-height: 1.40; }
             .prose { display: inline; white-space: pre-wrap; word-break: normal; overflow-wrap: break-word; line-break: strict; text-wrap: pretty; }
             .keep-unit { display: inline-flex; align-items: center; width: max-content; max-width: 100%; overflow-x: auto; overflow-y: hidden; white-space: nowrap; vertical-align: middle; -webkit-overflow-scrolling: touch; }
             .keep-line { display: block; width: max-content; max-width: 100%; overflow-x: auto; overflow-y: hidden; white-space: nowrap; margin: .10em 0; -webkit-overflow-scrolling: touch; }
@@ -5788,11 +6821,16 @@ private fun buildMathHtml(
             .inline-formula.long-formula .katex { display: inline-block; margin: 0; vertical-align: middle; line-height: 1.16; text-align: left !important; }
             .inline-formula.long-formula.has-tail { display: inline-flex; width: max-content; max-width: 100%; overflow-x: auto; overflow-y: hidden; white-space: nowrap; vertical-align: middle; -webkit-overflow-scrolling: touch; }
             .inline-formula.long-formula.has-tail .katex { display: inline-block; }
+            .inline-formula.responsive-block { display: inline-flex; width: max-content; max-width: 100%; overflow-x: auto; overflow-y: visible; margin: 0; padding: .04em 0 .08em; box-sizing: border-box; align-items: center; white-space: nowrap; vertical-align: middle; -webkit-overflow-scrolling: touch; }
+            .inline-formula.responsive-block .katex { display: inline-block; max-width: none; margin: 0; vertical-align: middle; }
             .display-formula { display: block; max-width: 100%; margin: 0; padding: .02em 0 .04em; box-sizing: border-box; overflow-x: auto; overflow-y: visible; text-align: left !important; white-space: nowrap; line-height: 1.20; -webkit-overflow-scrolling: touch; }
             .display-formula .katex-display { display: block; margin: 0; padding: 0; line-height: 1.20; text-align: left !important; }
             .display-formula .katex-display > .katex { display: block; margin-left: 0; margin-right: 0; text-align: left !important; }
-            .display-formula.aligned-formula { width: 100%; overflow-x: auto; overflow-y: visible; text-align: left; white-space: normal; -webkit-overflow-scrolling: touch; }
-            .display-formula.aligned-formula .katex-display { margin: 0; text-align: left; }
+            #root.compact-vertical .display-formula { margin: .18em 0 .20em; padding: 0; line-height: 1.18; }
+            #root.compact-vertical .display-formula .katex-display { line-height: 1.18; }
+             .display-formula.aligned-formula, .display-formula.structured-formula { width: 100%; overflow-x: auto; overflow-y: visible; text-align: left; white-space: normal; -webkit-overflow-scrolling: touch; }
+             .display-formula.aligned-formula .katex-display, .display-formula.structured-formula .katex-display { margin: 0; text-align: left; }
+             .display-formula.structured-formula .katex-display > .katex { max-width: none; }
             .display-formula.has-tail { display: inline-block; width: max-content; max-width: 100%; overflow-x: auto; overflow-y: hidden; white-space: nowrap; vertical-align: middle; text-align: left; -webkit-overflow-scrolling: touch; }
             .display-formula.has-tail .katex-display { display: inline; margin: 0; }
             .display-formula.has-tail .katex-display > .katex { display: inline-block; }
@@ -5807,12 +6845,14 @@ private fun buildMathHtml(
           </style>
         </head>
         <body>
-          <div id="root"></div>
+            <div id="root" class="${if (compactVerticalSpacing) "compact-vertical" else ""}"></div>
           <script src="katex.min.js"></script>
           <script>
             (() => {
               const preserveRawSource = ${if (preserveSourceExactly) "true" else "false"};
               const allowDomLayout = ${if (allowDomLayout) "true" else "false"};
+              const responsiveQuestionLayout = ${if (responsiveQuestionLayout) "true" else "false"};
+              const compactVerticalSpacing = ${if (compactVerticalSpacing) "true" else "false"};
               // Decode only a literal newline escape at render time. The
               // look-ahead deliberately excludes LaTeX commands such as \\ne.
               const source = $quotedSource
@@ -5827,7 +6867,7 @@ private fun buildMathHtml(
                 if (!text) return;
                 // Layout-only cleanup: keep the model response unchanged, but
                 // do not render accidental empty paragraphs as blank lines.
-                if (allowDomLayout && !preserveRawSource) {
+                if (allowDomLayout && (!preserveRawSource || compactVerticalSpacing)) {
                   text = text
                     .replace(/\r\n?/g, '\n')
                     .replace(/[ \t\u00a0]*\n(?:[ \t\u00a0]*\n)+/g, '\n');
@@ -5843,13 +6883,17 @@ private fun buildMathHtml(
                 return token && (token.startsWith('$$') || token.startsWith('\\['));
               }
 
+              function isStructuredFormulaSource(value) {
+                return /\\begin\s*\{(?:aligned|alignedat|array|gathered|gather|multline|cases|dcases|rcases|matrix|pmatrix|bmatrix|Bmatrix|vmatrix|Vmatrix|smallmatrix)\}/.test(value || '');
+              }
+
               function appendBetween(text, afterFormula, beforeFormula, adjacentFormulaToken = '') {
-                if (allowDomLayout && beforeFormula && isDisplayFormulaToken(adjacentFormulaToken)) {
-                  text = text.replace(/[ \t]*(?:\r?\n|\\n)[ \t]*$/, '');
+                if (allowDomLayout && !responsiveQuestionLayout && beforeFormula && isDisplayFormulaToken(adjacentFormulaToken) && (compactVerticalSpacing || !isStructuredFormulaSource(adjacentFormulaToken))) {
+                  text = text.replace(/(?:[ \t]*(?:\r?\n|\\n)[ \t]*)+$/, '');
                 }
                 if (allowDomLayout && afterFormula && lastFormulaNode) {
                   if (lastFormulaNode.classList.contains('display-formula')) {
-                    text = text.replace(/^[ \t]*(?:\r?\n|\\n)[ \t]*/, '');
+                    text = text.replace(/^(?:[ \t]*(?:\r?\n|\\n)[ \t]*)+/, '');
                   }
                   const punctuation = text.match(/^([\uFF0C\u3002\uFF01\uFF1F\uFF1B\uFF1A\u3001,.!?;:]+)/);
                   if (punctuation) {
@@ -5871,17 +6915,30 @@ private fun buildMathHtml(
                   if (token.startsWith('${dollar}${dollar}')) { formula = token.slice(2, -2); display = true; }
                   else if (token.startsWith('${dollar}')) formula = token.slice(1, -1);
                   else { formula = token.slice(2, -2); display = token.startsWith('\\['); }
-                }
-                const structured = /\\begin\s*\{(?:aligned|array|gathered|cases|matrix|pmatrix|bmatrix)\}/.test(formula);
-                if (!structured) formula = formula.replace(/\\\\/g, ' ');
+                 }
+                 const structured = isStructuredFormulaSource(formula);
+                 if (structured) {
+                   const rows = formula.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+                   formula = rows.map((line, index) => {
+                     const nextLine = rows[index + 1] || '';
+                     const pureEnvironmentBoundary = /^\\(?:begin|end)\s*\{[^}]+\}\s*$/.test(line);
+                     const nextIsEnvironmentEnd = /^\\end\s*\{[^}]+\}\s*$/.test(nextLine);
+                     if (pureEnvironmentBoundary || nextIsEnvironmentEnd || index === rows.length - 1 || /\\\\(?:\s*\[[^\]]*])?\s*$/.test(line)) return line;
+                     return line + ' \\\\';
+                   }).join('\n');
+                 } else {
+                   formula = formula.replace(/\\\\/g, ' ');
+                 }
                 formula = formula.replace(/\r?\n/g, ' ').replace(/\s{2,}/g, ' ').trim();
                 try {
                   const node = document.createElement('span');
-                  node.className = display ? 'display-formula' : 'inline-formula';
+                  const responsiveBlock = display && responsiveQuestionLayout;
+                  const renderDisplay = display && !responsiveBlock;
+                  node.className = (renderDisplay ? 'display-formula' : 'inline-formula') + (structured ? ' structured-formula' : '') + (responsiveBlock ? ' responsive-block' : '');
                   node.dataset.formula = formula;
                   const renderedFormula = '\\displaystyle ' + formula;
                   node.innerHTML = katex.renderToString(renderedFormula, {
-                    displayMode: display,
+                    displayMode: renderDisplay,
                     throwOnError: true,
                     output: 'htmlAndMathml'
                   });
@@ -5964,7 +7021,7 @@ private fun buildMathHtml(
                 if (!renderDelimited(value) && !renderBareLatex(value)) {
                   const hasChinese = /[\u4e00-\u9fff]/.test(value);
                   const looksLikeFormula =
-                    /\\(?:frac|dfrac|tfrac|sqrt|sum|prod|int|lim|left|right)\b/.test(value) ||
+                     /\\(?:frac|dfrac|tfrac|sqrt|sum|prod|int|lim|left|right|begin|end)\b/.test(value) ||
                     (/[\^_]/.test(value) && !hasChinese);
                   if (looksLikeFormula) {
                     appendFormula(value, true);

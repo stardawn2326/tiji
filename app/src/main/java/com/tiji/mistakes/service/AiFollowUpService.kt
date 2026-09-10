@@ -11,11 +11,14 @@ import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.TimeoutCancellationException
 
 class AiFollowUpService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -47,30 +50,40 @@ class AiFollowUpService : Service() {
         val baseContext = command.getStringExtra(EXTRA_CONTEXT).orEmpty()
         val prompt = command.getStringExtra(EXTRA_PROMPT).orEmpty()
         val imagePath = command.getStringExtra(EXTRA_IMAGE_PATH)
+        val sourceImagePaths = (command.getStringArrayListExtra(EXTRA_SOURCE_IMAGE_PATHS).orEmpty() + listOfNotNull(imagePath))
+            .filter(String::isNotBlank)
+            .distinct()
         val graphicImagePath = command.getStringExtra(EXTRA_GRAPHIC_IMAGE_PATH)
+        val followUpImagePaths = command.getStringArrayListExtra(EXTRA_FOLLOW_UP_IMAGE_PATHS).orEmpty()
         followUpJob = serviceScope.launch {
             val previous = stateStore.read()
             val initial = previous.copy(
                 requestId = requestId,
                 running = true,
                 currentPrompt = prompt,
+                currentImagePaths = followUpImagePaths,
+                lastPrompt = prompt,
+                lastImagePaths = followUpImagePaths,
+                status = "RUNNING",
                 progress = 0.30f,
                 streamedText = "",
                 error = null
             )
             stateStore.write(initial)
             val conversation = previous.messages.takeLast(10).joinToString("\n\n") { message ->
-                "用户：${message.prompt}\nAI：${message.reply}"
+                "用户：${message.prompt}\nAI：${followUpReplyForDisplay(message.reply)}"
             }
             var streamedChars = 0
-            val result = aiService.answerFollowUp(
+            val result = runCatching { withTimeout(FOLLOW_UP_TIMEOUT_MS) { aiService.answerFollowUp(
                 endpoint = endpoint,
                 model = model,
                 apiKey = apiKey,
                 context = listOf(baseContext, conversation).filter(String::isNotBlank).joinToString("\n\n"),
                 prompt = prompt,
                 imagePath = imagePath,
+                sourceImagePaths = sourceImagePaths,
                 graphicImagePath = graphicImagePath,
+                followUpImagePaths = followUpImagePaths,
                 onDelta = { delta ->
                     streamedChars += delta.length
                     val current = stateStore.read()
@@ -85,26 +98,37 @@ class AiFollowUpService : Service() {
                         )
                     }
                 }
-            )
+            ).getOrThrow() } }
+            result.exceptionOrNull()?.let { if (it is CancellationException && it !is TimeoutCancellationException) throw it }
             result.onSuccess { reply ->
                 stateStore.write(
                     initial.copy(
                         running = false,
                         currentPrompt = "",
+                        currentImagePaths = emptyList(),
                         progress = 1f,
                         streamedText = "",
-                        messages = initial.messages + AiChatMessage(prompt, reply.ifBlank { "AI 没有返回文字回复" }),
+                        status = "COMPLETED",
+                        messages = initial.messages + AiChatMessage(
+                            prompt = prompt,
+                            reply = reply.ifBlank { "AI 没有返回文字回复" },
+                            imagePaths = followUpImagePaths
+                        ),
                         error = null
                     )
                 )
             }.onFailure { error ->
+                val current = stateStore.read()
                 stateStore.write(
-                    initial.copy(
-                        running = false,
-                        currentPrompt = "",
-                        progress = stateStore.read().progress,
-                        streamedText = "",
-                        error = error.message ?: error.javaClass.simpleName
+                    finishAiChatWithAvailableContent(
+                        state = current,
+                        status = "FAILED",
+                        error = if (error is TimeoutCancellationException) {
+                            "追问请求超时，已保留当前收到的内容"
+                        } else {
+                            error.message ?: error.javaClass.simpleName
+                        },
+                        preferredReply = (error as? AiOutputLimitException)?.partialContent.orEmpty()
                     )
                 )
             }
@@ -121,7 +145,7 @@ class AiFollowUpService : Service() {
         followUpJob?.cancel()
         val current = stateStore.read()
         if (current.running) {
-            stateStore.write(current.copy(running = false, currentPrompt = "", streamedText = ""))
+            stateStore.write(finishAiChatWithAvailableContent(current, status = "STOPPED"))
         }
         serviceScope.cancel()
         super.onDestroy()
@@ -137,7 +161,7 @@ class AiFollowUpService : Service() {
         if (clearState) {
             stateStore.clear()
         } else if (current.running) {
-            stateStore.write(current.copy(running = false, currentPrompt = "", progress = 0f, streamedText = "", error = null))
+            stateStore.write(finishAiChatWithAvailableContent(current, status = "STOPPED"))
         }
         aiService.cancelActiveRequest()
         followUpJob?.cancel()
@@ -175,9 +199,12 @@ class AiFollowUpService : Service() {
         const val EXTRA_CONTEXT = "context"
         const val EXTRA_PROMPT = "prompt"
         const val EXTRA_IMAGE_PATH = "image_path"
+        const val EXTRA_SOURCE_IMAGE_PATHS = "source_image_paths"
         const val EXTRA_GRAPHIC_IMAGE_PATH = "graphic_image_path"
+        const val EXTRA_FOLLOW_UP_IMAGE_PATHS = "follow_up_image_paths"
         private const val RESPONSE_ESTIMATE_CHARS = 4_000
         private const val MAX_STREAMED_TEXT_LENGTH = 24_000
+        private const val FOLLOW_UP_TIMEOUT_MS = 180_000L
         private const val ACTION_CANCEL = "com.tiji.mistakes.action.CANCEL_AI_FOLLOW_UP"
 
         fun createIntent(
@@ -189,7 +216,9 @@ class AiFollowUpService : Service() {
             baseContext: String,
             prompt: String,
             imagePath: String? = null,
-            graphicImagePath: String? = null
+            sourceImagePaths: List<String> = listOfNotNull(imagePath),
+            graphicImagePath: String? = null,
+            followUpImagePaths: List<String> = emptyList()
         ): Intent = Intent(context, AiFollowUpService::class.java).apply {
             putExtra(EXTRA_REQUEST_ID, requestId)
             putExtra(EXTRA_ENDPOINT, endpoint)
@@ -198,7 +227,9 @@ class AiFollowUpService : Service() {
             putExtra(EXTRA_CONTEXT, baseContext.take(24_000))
             putExtra(EXTRA_PROMPT, prompt)
             putExtra(EXTRA_IMAGE_PATH, imagePath)
+            putStringArrayListExtra(EXTRA_SOURCE_IMAGE_PATHS, ArrayList(sourceImagePaths.filter(String::isNotBlank).distinct()))
             putExtra(EXTRA_GRAPHIC_IMAGE_PATH, graphicImagePath)
+            putStringArrayListExtra(EXTRA_FOLLOW_UP_IMAGE_PATHS, ArrayList(followUpImagePaths.filter(String::isNotBlank).distinct()))
         }
 
         fun cancel(context: Context) {

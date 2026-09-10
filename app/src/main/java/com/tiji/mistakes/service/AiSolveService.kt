@@ -22,6 +22,19 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 
+internal fun combineLocalOcrDocuments(documents: List<LocalOcrDocument>): LocalOcrDocument {
+    require(documents.isNotEmpty()) { "至少需要一页 OCR 文档" }
+    fun join(values: List<String>): String = values.filter(String::isNotBlank).joinToString("\n")
+    return LocalOcrDocument(
+        text = join(documents.map(LocalOcrDocument::text)),
+        diagramBlocks = documents.flatMap(LocalOcrDocument::diagramBlocks),
+        diagramTextEvidence = join(documents.map(LocalOcrDocument::diagramTextEvidence)),
+        rawOcrTrace = join(documents.map(LocalOcrDocument::rawOcrTrace)),
+        orderedText = join(documents.map(LocalOcrDocument::orderedText)),
+        formulaCandidates = documents.flatMap(LocalOcrDocument::formulaCandidates).distinct()
+    )
+}
+
 class AiSolveService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val aiService = AiVisionService()
@@ -57,14 +70,20 @@ class AiSolveService : Service() {
         val visualApiKey = command.getStringExtra(EXTRA_VISUAL_API_KEY).orEmpty()
         val visualConfigurationId = command.getStringExtra(EXTRA_VISUAL_CONFIGURATION_ID).orEmpty()
         val question = command.getStringExtra(EXTRA_QUESTION)
+        val supplementalText = command.getStringExtra(EXTRA_SUPPLEMENTAL_TEXT)
         val imagePath = command.getStringExtra(EXTRA_IMAGE_PATH)
+        val imagePaths = (command.getStringArrayListExtra(EXTRA_IMAGE_PATHS).orEmpty() + listOfNotNull(imagePath))
+            .filter(String::isNotBlank)
+            .distinct()
+        val primaryImagePath = imagePaths.firstOrNull()
         val graphicImagePath = command.getStringExtra(EXTRA_GRAPHIC_IMAGE_PATH)
         val correctionContext = command.getStringExtra(EXTRA_CORRECTION_CONTEXT)
-        val sourceQuestion = question.takeIf { imagePath == null }
+        val correctionImagePaths = command.getStringArrayListExtra(EXTRA_CORRECTION_IMAGE_PATHS).orEmpty()
+        val sourceQuestion = question.takeIf { imagePaths.isEmpty() }
         val mode = command.getStringExtra(EXTRA_MODE)
             ?.let { raw -> runCatching { AiRecognitionMode.valueOf(raw) }.getOrNull() }
             ?: AiRecognitionMode.VISION
-        Log.i(TAG, "solve_start request=$requestId run=${solveRunId.take(36)} mode=$mode model=${model.take(80)} image=${imagePath != null}")
+        Log.i(TAG, "solve_start request=$requestId run=${solveRunId.take(36)} mode=$mode model=${model.take(80)} images=${imagePaths.size}")
         solveJob = serviceScope.launch {
             val pipelineStartedAt = SystemClock.elapsedRealtime()
             val now = System.currentTimeMillis()
@@ -79,18 +98,19 @@ class AiSolveService : Service() {
                 modelName = model,
                 visualModelName = visualModel,
                 question = sourceQuestion,
-                imagePath = imagePath,
+                imagePath = primaryImagePath,
+                imagePaths = imagePaths,
                 graphicImagePath = graphicImagePath,
                 startedAt = now,
                 updatedAt = now
             )
             stateStore.write(initial)
             var runningState = initial
+            var streamedAnswer = ""
+            var streamedChars = 0
+            var responseProgress = 0.30f
+            var lastProgressPersistAt = 0L
             try {
-                var streamedAnswer = ""
-                var streamedChars = 0
-                var responseProgress = 0.30f
-                var lastProgressPersistAt = 0L
                 // Keep the complete local OCR document when available.  The
                 // text-only call used to discard its diagram blocks, which
                 // meant an AI solve could understand a graph but save no
@@ -99,12 +119,16 @@ class AiSolveService : Service() {
                 var localOcrCorrection: AiRecognitionResult? = null
                 var localOcrDiagramEvidence = ""
                 var visualEvidence: VisualEvidence? = null
-                val textQuestion = if (mode == AiRecognitionMode.LOCAL_OCR && imagePath != null) {
+                val textQuestion = if (mode == AiRecognitionMode.LOCAL_OCR && imagePaths.isNotEmpty()) {
                     runningState = runningState.copy(progress = 0.08f)
                     writeIfRunning(requestId, runningState)
-                    val recognized = LocalOcrService(applicationContext, ocrModelManager)
-                        .recognizeDocument(imagePath)
-                        .getOrThrow()
+                    val recognized = combineLocalOcrDocuments(
+                        imagePaths.map { path ->
+                            LocalOcrService(applicationContext, ocrModelManager)
+                                .recognizeDocument(path)
+                                .getOrThrow()
+                        }
+                    )
                     Log.i(TAG, "ocr_document_complete request=$requestId elapsedMs=${SystemClock.elapsedRealtime() - pipelineStartedAt} chars=${recognized.text.length} diagramBlocks=${recognized.diagramBlocks.size}")
                     localOcrDocument = recognized
                     localOcrDiagramEvidence = recognized.diagramTextEvidence
@@ -165,8 +189,11 @@ class AiSolveService : Service() {
                             visualEndpoint = visualEndpoint,
                             visualModel = visualModel,
                             visualApiKey = visualApiKey,
-                            imagePath = imagePath ?: error("视觉辅助模式缺少题目图片"),
+                            imagePath = primaryImagePath ?: error("视觉辅助模式缺少题目图片"),
+                            imagePaths = imagePaths,
+                            supplementalText = supplementalText,
                             correctionContext = correctionContext,
+                            supplementalImagePaths = correctionImagePaths,
                             onDelta = ::onDelta
                         ).getOrThrow().also { visualEvidence = it.evidence }.solution
                     } else {
@@ -175,16 +202,22 @@ class AiSolveService : Service() {
                             model,
                             apiKey,
                             textQuestion,
-                            imagePath.takeUnless { mode == AiRecognitionMode.LOCAL_OCR },
+                            primaryImagePath.takeUnless { mode == AiRecognitionMode.LOCAL_OCR },
+                            sourceImagePaths = imagePaths.takeUnless { mode == AiRecognitionMode.LOCAL_OCR }.orEmpty(),
                             graphicImagePath = graphicImagePath.takeUnless { mode == AiRecognitionMode.LOCAL_OCR },
                             diagramEvidence = localOcrDiagramEvidence.takeIf { mode == AiRecognitionMode.LOCAL_OCR },
+                            supplementalText = supplementalText,
                             correctionContext = correctionContext,
+                            supplementalImagePaths = correctionImagePaths.takeIf { mode == AiRecognitionMode.VISION }.orEmpty(),
                             onDelta = ::onDelta
                         ).getOrThrow()
                     }
                 }
+                // From this point onward, parsing/cropping failures must not
+                // hide a response the provider already returned.
+                streamedAnswer = complete
                 Log.i(TAG, "solve_response_complete request=$requestId elapsedMs=${SystemClock.elapsedRealtime() - pipelineStartedAt} chars=${complete.length}")
-                val finalQuestion = if (imagePath != null) {
+                val finalQuestion = if (imagePaths.isNotEmpty()) {
                     val modelQuestion = extractRecognizedQuestionFromSolution(complete)
                     when (mode) {
                         AiRecognitionMode.LOCAL_OCR -> localOcrCorrection?.let {
@@ -221,7 +254,7 @@ class AiSolveService : Service() {
                 } else {
                     sourceQuestion.orEmpty()
                 }
-                val questionBlocks = if (imagePath != null) {
+                val questionBlocks = if (imagePaths.isNotEmpty()) {
                     val metadata = runCatching {
                         aiService.parseStructuredSolveRecognition(
                             complete,
@@ -242,13 +275,17 @@ class AiSolveService : Service() {
                     }
                     val visualAssistBlocks = if (mode == AiRecognitionMode.VISUAL_ASSISTED) {
                         visualEvidence?.graphicSpecs.orEmpty().mapNotNull { spec ->
-                            if (spec.sourceIndex != 0) null else GraphicCropper.materialize(applicationContext, imagePath, spec)
+                            imagePaths.getOrNull(spec.sourceIndex)?.let { source ->
+                                GraphicCropper.materialize(applicationContext, source, spec)
+                            }
                         }.mapNotNull { it.toContentBlock() }
                     } else {
                         emptyList()
                     }
                     val modelBlocks = metadata?.graphicSpecs.orEmpty().mapNotNull { spec ->
-                        if (spec.sourceIndex != 0) null else GraphicCropper.materialize(applicationContext, imagePath, spec)
+                        imagePaths.getOrNull(spec.sourceIndex)?.let { source ->
+                            GraphicCropper.materialize(applicationContext, source, spec)
+                        }
                     }.mapNotNull { it.toContentBlock() }
                     val fallbackLocalOcrBlocks = if (
                         localOcrBlocks.isEmpty() &&
@@ -258,7 +295,7 @@ class AiSolveService : Service() {
                     ) {
                         val document = localOcrDocument ?: runCatching {
                             LocalOcrService(applicationContext, ocrModelManager)
-                                .recognizeDocument(imagePath)
+                                .recognizeDocument(primaryImagePath!!)
                                 .getOrNull()
                         }.getOrNull()
                         document?.diagramBlocks.orEmpty().mapIndexedNotNull { index, block ->
@@ -312,19 +349,25 @@ class AiSolveService : Service() {
                             AiChatStateStore(applicationContext).read().messages
                         )
                     }.onFailure {
-                        stateStore.write(
-                            completed.copy(historyWriteError = "解题完成，但记录保存失败")
-                        )
+                        runCatching {
+                            stateStore.write(
+                                completed.copy(historyWriteError = "解题完成，但记录保存失败")
+                            )
+                        }.onFailure { stateWriteError ->
+                            Log.e(TAG, "history_write_error_state_failed request=" + requestId, stateWriteError)
+                        }
                     }
                 }
             } catch (error: TimeoutCancellationException) {
+                val current = stateStore.read()
+                val partial = streamedAnswer.ifBlank { current.streamedText }
                 writeIfRunning(
                     requestId,
                     runningState.copy(
                         status = AiSolveStatus.FAILED,
-                        progress = stateStore.read().progress,
+                        progress = current.progress,
                         streamedText = "",
-                        completeText = null,
+                        completeText = partial.takeIf(String::isNotBlank),
                         error = if (mode == AiRecognitionMode.LOCAL_OCR) {
                             "OCR+文本模型解题超时：模型响应时间过长，请检查网络或稍后重试"
                         } else if (mode == AiRecognitionMode.VISUAL_ASSISTED) {
@@ -339,13 +382,17 @@ class AiSolveService : Service() {
                 // The cancel command stores the visible CANCELED state before closing the socket.
             } catch (error: Throwable) {
                 Log.e(TAG, "solve_failed request=$requestId mode=$mode model=${model.take(80)}", error)
+                val current = stateStore.read()
+                val partial = (error as? AiOutputLimitException)?.partialContent.orEmpty()
+                    .ifBlank { streamedAnswer }
+                    .ifBlank { current.streamedText }
                 writeIfRunning(
                     requestId,
                     runningState.copy(
                         status = AiSolveStatus.FAILED,
-                        progress = stateStore.read().progress,
+                        progress = current.progress,
                         streamedText = "",
-                        completeText = null,
+                        completeText = partial.takeIf(String::isNotBlank),
                         error = error.message ?: error.javaClass.simpleName,
                         updatedAt = System.currentTimeMillis()
                     )
@@ -373,11 +420,12 @@ class AiSolveService : Service() {
         if (clearAll) {
             stateStore.clear()
         } else if (current.status == AiSolveStatus.RUNNING) {
+            val availableContent = current.streamedText.ifBlank { current.completeText.orEmpty() }
             stateStore.write(
                 current.copy(
                     status = AiSolveStatus.CANCELED,
                     streamedText = "",
-                    completeText = null,
+                    completeText = availableContent.takeIf(String::isNotBlank),
                     error = null,
                     updatedAt = System.currentTimeMillis()
                 )
@@ -408,11 +456,12 @@ class AiSolveService : Service() {
         solveJob?.cancel()
         val current = stateStore.read()
         if (current.status == AiSolveStatus.RUNNING) {
+            val availableContent = current.streamedText.ifBlank { current.completeText.orEmpty() }
                 stateStore.write(
                     current.copy(
                         status = AiSolveStatus.CANCELED,
                         streamedText = "",
-                        completeText = null,
+                        completeText = availableContent.takeIf(String::isNotBlank),
                         error = null,
                     updatedAt = System.currentTimeMillis()
                 )
@@ -460,15 +509,19 @@ class AiSolveService : Service() {
         const val EXTRA_VISUAL_API_KEY = "visual_api_key"
         const val EXTRA_VISUAL_CONFIGURATION_ID = "visual_configuration_id"
         const val EXTRA_QUESTION = "question"
+        const val EXTRA_SUPPLEMENTAL_TEXT = "supplemental_text"
         const val EXTRA_IMAGE_PATH = "image_path"
+        const val EXTRA_IMAGE_PATHS = "image_paths"
         const val EXTRA_GRAPHIC_IMAGE_PATH = "graphic_image_path"
         const val EXTRA_MODE = "mode"
         const val EXTRA_CORRECTION_CONTEXT = "correction_context"
+        const val EXTRA_CORRECTION_IMAGE_PATHS = "correction_image_paths"
         private const val MAX_SOLVE_DURATION_MS = 300_000L
         private const val MAX_LOCAL_OCR_SOLVE_DURATION_MS = 360_000L
         private const val RESPONSE_ESTIMATE_CHARS = 4_000
         private const val MAX_STREAMED_TEXT_LENGTH = 24_000
         private const val MAX_CORRECTION_CONTEXT_LENGTH = 24_000
+        private const val MAX_SUPPLEMENTAL_TEXT_LENGTH = 12_000
         private const val STREAM_PROGRESS_PERSIST_INTERVAL_MS = 250L
 
         fun createIntent(
@@ -481,9 +534,12 @@ class AiSolveService : Service() {
             configurationId: String = "",
             question: String?,
             imagePath: String?,
+            imagePaths: List<String> = listOfNotNull(imagePath),
+            supplementalText: String? = null,
             graphicImagePath: String? = null,
             mode: AiRecognitionMode = AiRecognitionMode.VISION,
             correctionContext: String? = null,
+            correctionImagePaths: List<String> = emptyList(),
             visualEndpoint: String? = null,
             visualModel: String? = null,
             visualApiKey: String? = null,
@@ -501,12 +557,20 @@ class AiSolveService : Service() {
             visualApiKey?.let { putExtra(EXTRA_VISUAL_API_KEY, it) }
             visualConfigurationId?.let { putExtra(EXTRA_VISUAL_CONFIGURATION_ID, it) }
             putExtra(EXTRA_QUESTION, question)
+            supplementalText?.trim()?.takeIf { it.isNotBlank() }?.let {
+                putExtra(EXTRA_SUPPLEMENTAL_TEXT, it.take(MAX_SUPPLEMENTAL_TEXT_LENGTH))
+            }
             putExtra(EXTRA_IMAGE_PATH, imagePath)
+            putStringArrayListExtra(EXTRA_IMAGE_PATHS, ArrayList(imagePaths.filter(String::isNotBlank).distinct()))
             putExtra(EXTRA_GRAPHIC_IMAGE_PATH, graphicImagePath)
             putExtra(EXTRA_MODE, mode.name)
             correctionContext?.takeIf { it.isNotBlank() }?.let {
                 putExtra(EXTRA_CORRECTION_CONTEXT, it.take(MAX_CORRECTION_CONTEXT_LENGTH))
             }
+            putStringArrayListExtra(
+                EXTRA_CORRECTION_IMAGE_PATHS,
+                ArrayList(correctionImagePaths.filter(String::isNotBlank).distinct().take(4))
+            )
         }
 
         fun cancel(context: Context) {

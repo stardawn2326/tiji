@@ -2,6 +2,7 @@ package com.tiji.mistakes.service
 
 import android.annotation.SuppressLint
 import android.content.Context
+import org.json.JSONArray
 import java.util.UUID
 
 enum class AiSolveStatus {
@@ -30,6 +31,7 @@ data class PersistedAiSolveState(
     val visualModelName: String = "",
     val question: String? = null,
     val imagePath: String? = null,
+    val imagePaths: List<String> = emptyList(),
     val graphicImagePath: String? = null,
     val progress: Float = 0f,
     val streamedText: String = "",
@@ -93,6 +95,9 @@ class AiSolveStateStore(context: Context) {
                 completeText != null -> AiSolveStatus.COMPLETED
                 else -> AiSolveStatus.IDLE
             }
+        val legacyImagePath = preferences.getString(KEY_IMAGE_PATH, null)
+        val imagePaths = decodePaths(preferences.getString(KEY_IMAGE_PATHS, null))
+            .ifEmpty { listOfNotNull(legacyImagePath) }
         return PersistedAiSolveState(
             requestId = preferences.getLong(KEY_REQUEST_ID, 0L),
             solveRunId = preferences.getString(KEY_SOLVE_RUN_ID, "").orEmpty(),
@@ -106,7 +111,8 @@ class AiSolveStateStore(context: Context) {
             modelName = preferences.getString(KEY_MODEL_NAME, "").orEmpty(),
             visualModelName = preferences.getString(KEY_VISUAL_MODEL_NAME, "").orEmpty(),
             question = preferences.getString(KEY_QUESTION, null),
-            imagePath = preferences.getString(KEY_IMAGE_PATH, null),
+            imagePath = imagePaths.firstOrNull() ?: legacyImagePath,
+            imagePaths = imagePaths,
             graphicImagePath = preferences.getString(KEY_GRAPHIC_IMAGE_PATH, null),
             progress = preferences.getFloat(KEY_PROGRESS, 0f).coerceIn(0f, 1f),
             streamedText = streamedText,
@@ -135,6 +141,7 @@ class AiSolveStateStore(context: Context) {
             .putString(KEY_VISUAL_MODEL_NAME, state.visualModelName)
             .putString(KEY_QUESTION, state.question)
             .putString(KEY_IMAGE_PATH, state.imagePath)
+            .putString(KEY_IMAGE_PATHS, JSONArray(state.imagePaths.filter(String::isNotBlank).distinct()).toString())
             .putString(KEY_GRAPHIC_IMAGE_PATH, state.graphicImagePath)
             .putFloat(KEY_PROGRESS, state.progress.coerceIn(0f, 1f))
             .putString(KEY_STREAMED_TEXT, state.streamedText.take(MAX_TEXT_LENGTH))
@@ -171,6 +178,13 @@ class AiSolveStateStore(context: Context) {
         return if (chunked(4).all { it == "null" }) "" else this
     }
 
+    private fun decodePaths(raw: String?): List<String> = runCatching {
+        val array = JSONArray(raw ?: "[]")
+        (0 until array.length()).mapNotNull { index ->
+            array.optString(index).trim().takeIf(String::isNotBlank)
+        }.distinct()
+    }.getOrDefault(emptyList())
+
     private companion object {
         const val FILE_NAME = "ai_solve_state"
         const val KEY_REQUEST_ID = "request_id"
@@ -185,6 +199,7 @@ class AiSolveStateStore(context: Context) {
         const val KEY_VISUAL_MODEL_NAME = "visual_model_name"
         const val KEY_QUESTION = "question"
         const val KEY_IMAGE_PATH = "image_path"
+        const val KEY_IMAGE_PATHS = "image_paths"
         const val KEY_GRAPHIC_IMAGE_PATH = "graphic_image_path"
         const val KEY_PROGRESS = "progress"
         const val KEY_STREAMED_TEXT = "streamed_text"

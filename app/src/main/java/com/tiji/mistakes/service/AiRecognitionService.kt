@@ -496,7 +496,7 @@ internal fun validateOcrRecognition(
             // expected to change most math characters.
             val orderedCoverage = ocrOrderedAnchorCoverage(sourceAnchors, resultAnchors)
             if (sourceAnchors.size >= 8 && orderedCoverage < 0.15f) {
-                reasons += "校正结果严重偏离原题顺序"
+                reasons += "校正结果与原题锚点顺序严重偏离"
             } else if (orderedCoverage < 0.40f) {
                 warnings += "题意锚点顺序存在差异，请核对原题"
             }
@@ -523,7 +523,7 @@ internal fun validateOcrRecognition(
     // The OCR reconstruction protocol requires mathematical semantics to be
     // represented by math segments. This is a format retry signal only; it
     // never rewrites the candidate or falls back to raw OCR text.
-    reasons += mathSegmentFormatIssues(result)
+    if (result.questionSegments.isNotEmpty()) reasons += mathSegmentFormatIssues(result)
     val noiseIssues = ocrValidationNoiseIssues(question)
     reasons += noiseIssues.filterNot { it == "不确定字符过多" }
     warnings += noiseIssues.filter { it == "不确定字符过多" }

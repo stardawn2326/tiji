@@ -2,7 +2,8 @@ package com.tiji.mistakes.service
 
 private enum class QuestionMarkerKind {
     LETTER,
-    ROMAN
+    ROMAN,
+    NUMBER
 }
 
 private data class QuestionOptionMarker(
@@ -28,6 +29,10 @@ private val unicodeRomanMarkerRegex = Regex(
 
 private val asciiRomanMarkerRegex = Regex(
     """(?:[（(]\s*($ASCII_ROMAN_DIGITS)\s*[）)]|(?<![\p{L}\p{N}_])($ASCII_ROMAN_DIGITS)\s*([.．、，,：:])(?=\s*(?:[^\s]|$))|(?m)^($ASCII_ROMAN_DIGITS)(?=\s+\S))"""
+)
+
+private val numericSubquestionMarkerRegex = Regex(
+    """(?:[（(]\s*(\d{1,2})\s*[）)]|(?<![\p{L}\p{N}_])(\d{1,2})([.．、：:])(?=\s*(?!\d)\S))"""
 )
 
 private fun unicodeRomanOrder(value: String): Int = when (value) {
@@ -64,7 +69,7 @@ private fun asciiRomanOrder(value: String): Int = when (value.uppercase()) {
 
 /**
  * Add deterministic sub-question breaks when a model packed multiple choices
- * or Roman-numbered sub-questions into one prose segment. Complete math
+ * or numbered sub-questions into one prose segment. Complete math
  * source is protected before scanning, so labels inside formulas are never
  * treated as structural markers.
  */
@@ -127,7 +132,18 @@ internal fun splitQuestionOptionsForLayout(value: String): String {
             punctuation = match.groupValues[3].firstOrNull()
         )
     }
-    val markers = (optionMarkers + unicodeRomanMarkers + asciiRomanMarkers)
+    val numericMarkers = numericSubquestionMarkerRegex.findAll(protected).map { match ->
+        val parenthesized = match.groupValues[1].isNotEmpty()
+        QuestionOptionMarker(
+            start = match.range.first,
+            end = match.range.last + 1,
+            sequence = match.groupValues[1].ifEmpty { match.groupValues[2] }.toIntOrNull() ?: 0,
+            kind = QuestionMarkerKind.NUMBER,
+            parenthesized = parenthesized,
+            punctuation = match.groupValues[3].firstOrNull()
+        )
+    }
+    val markers = (optionMarkers + unicodeRomanMarkers + asciiRomanMarkers + numericMarkers)
         .sortedBy { it.start }
         .toList()
     if (markers.size < 2) return value
@@ -189,15 +205,119 @@ internal fun splitQuestionOptionsForLayout(value: String): String {
     }
     rebuilt.append(protected, cursor, protected.length)
 
-    val romanLabel = "(?:[（(]\\s*[$UNICODE_ROMAN_DIGITS]\\s*[）)]|[$UNICODE_ROMAN_DIGITS](?:[.．、，,：:]))"
-    val asciiRomanLabel = "(?:[（(]\\s*(?:$ASCII_ROMAN_DIGITS)\\s*[）)]|(?:$ASCII_ROMAN_DIGITS)(?:[.．、，,：:]))"
-    val compactLabelSpacing = Regex(
-        """(?m)^((?:[（(][A-Da-dＡ-Ｄａ-ｄ][）)]|[A-Da-dＡ-Ｄａ-ｄ](?:[.．、，,：:）)]|$romanLabel|$asciiRomanLabel))[ \t]{2,}"""
-    )
-    val compacted = compactLabelSpacing.replace(rebuilt.toString()) { match ->
-        "${match.groupValues[1]} "
+    fun compactMarkerSpacing(line: String): String {
+        val markerEnd = listOfNotNull(
+            questionOptionMarkerRegex.find(line)?.takeIf { it.range.first == 0 }?.range?.last?.plus(1),
+            unicodeRomanMarkerRegex.find(line)?.takeIf { it.range.first == 0 }?.range?.last?.plus(1),
+            asciiRomanMarkerRegex.find(line)?.takeIf { it.range.first == 0 }?.range?.last?.plus(1),
+            numericSubquestionMarkerRegex.find(line)?.takeIf { it.range.first == 0 }?.range?.last?.plus(1)
+        ).maxOrNull() ?: return line
+        val whitespaceLength = line
+            .substring(markerEnd)
+            .takeWhile { it == ' ' || it == '\t' }
+            .length
+        if (whitespaceLength < 2) return line
+        return line.substring(0, markerEnd) + " " + line.substring(markerEnd + whitespaceLength)
+    }
+    val compacted = rebuilt.toString().split('\n').joinToString("\n") { line ->
+        compactMarkerSpacing(line)
     }
     return placeholder.replace(compacted) { match ->
+        formulaTokens.getOrNull(match.groupValues[1].toIntOrNull() ?: -1) ?: match.value
+    }
+}
+
+private val questionSubquestionLineRegex = Regex(
+    """^(?:[①②③④⑤⑥⑦⑧⑨]\s*\S+|\(?\d{1,2}[)）.、:：]\s*\S+|(?:[（(]\s*(?:$UNICODE_ROMAN_DIGITS|$ASCII_ROMAN_DIGITS)\s*[）)]|(?:$UNICODE_ROMAN_DIGITS|$ASCII_ROMAN_DIGITS)(?:[.、:：]))\s*\S+)"""
+)
+
+private fun isQuestionOptionLine(value: String?): Boolean {
+    val line = value?.trimStart() ?: return false
+    val match = questionOptionMarkerRegex.find(line) ?: return false
+    return match.range.first == 0
+}
+
+private fun isQuestionSubquestionLine(value: String?): Boolean =
+    value?.trimStart()?.let(questionSubquestionLineRegex::containsMatchIn) == true
+
+private fun joinQuestionLayoutLines(left: String, right: String): String {
+    if (left.isBlank()) return right
+    if (right.isBlank()) return left
+    val leftChar = left.lastOrNull()
+    val rightChar = right.firstOrNull()
+    val leftIsFormula = left.trimEnd().let { it.endsWith('\uE301') || it.endsWith('\uE311') }
+    val rightIsFormula = right.trimStart().let { it.startsWith('\uE300') || it.startsWith('\uE310') }
+    val cjk = { char: Char? -> char != null && char in '\u2E80'..'\u9FFF' }
+    return if (leftIsFormula || rightIsFormula) {
+        "${left.trimEnd()} ${right.trimStart()}"
+    } else if (cjk(leftChar) || cjk(rightChar) ||
+        (leftChar != null && leftChar in "，。！？；：、）》】") ||
+        (rightChar != null && rightChar in "，。！？；：、）》】")
+    ) {
+        left.trimEnd() + right.trimStart()
+    } else {
+        "${left.trimEnd()} ${right.trimStart()}"
+    }
+}
+
+/**
+ * Normalize the rendering copy of a saved question. Options remain separate
+ * rows, while continuation text and standalone formula lines stay inside the
+ * surrounding question/option row. The persisted question text is untouched.
+ */
+internal fun normalizeQuestionForDisplayLayout(value: String): String {
+    if (value.isBlank()) return value
+    val separated = splitQuestionOptionsForLayout(value)
+    val formulaTokens = mutableListOf<String>()
+    val protected = Regex("""(?s)\\\[.*?\\\]|\\\(.*?\\\)|\$\$.*?\$\$|\$(?!\$).*?\$""").replace(
+        separated.replace("\r\n", "\n").replace('\r', '\n')
+    ) { match ->
+        val index = formulaTokens.size
+        formulaTokens += match.value
+        "\uE310$index\uE311"
+    }
+    val output = mutableListOf<String>()
+    var pending = ""
+
+    fun appendPending(attachToPrevious: Boolean) {
+        if (pending.isBlank()) {
+            pending = ""
+            return
+        }
+        val previous = output.lastOrNull()
+        if (attachToPrevious && (isQuestionOptionLine(previous) || isQuestionSubquestionLine(previous))) {
+            output[output.lastIndex] = joinQuestionLayoutLines(previous.orEmpty(), pending.trim())
+        } else {
+            output += pending.trim()
+        }
+        pending = ""
+    }
+
+    protected.split('\n').forEach { rawLine ->
+        val line = rawLine.trim()
+        when {
+            line.isBlank() -> {
+                appendPending(attachToPrevious = true)
+                if (output.lastOrNull()?.isNotBlank() == true) output += ""
+            }
+            isQuestionOptionLine(line) || isQuestionSubquestionLine(line) -> {
+                appendPending(attachToPrevious = true)
+                if (isQuestionOptionLine(line) && output.lastOrNull()?.isBlank() == true) {
+                    var previous = output.lastIndex
+                    while (previous >= 0 && output[previous].isBlank()) previous--
+                    if (previous >= 0 && isQuestionOptionLine(output[previous])) {
+                        while (output.lastIndex > previous) output.removeAt(output.lastIndex)
+                    }
+                }
+                output += line
+            }
+            else -> pending = joinQuestionLayoutLines(pending, line)
+        }
+    }
+    appendPending(attachToPrevious = true)
+
+    val normalized = output.joinToString("\n").trim()
+    return Regex("\uE310(\\d+)\uE311").replace(normalized) { match ->
         formulaTokens.getOrNull(match.groupValues[1].toIntOrNull() ?: -1) ?: match.value
     }
 }

@@ -1,6 +1,7 @@
 package com.tiji.mistakes.ui
 
 import android.app.Application
+import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.core.content.ContextCompat
@@ -11,6 +12,8 @@ import com.tiji.mistakes.domain.ReviewGrade
 import com.tiji.mistakes.domain.ReviewScheduler
 import com.tiji.mistakes.service.AiChatMessage
 import com.tiji.mistakes.service.AiChatStateStore
+import com.tiji.mistakes.service.restoredAiChatState
+import com.tiji.mistakes.service.finishAiChatWithAvailableContent
 import com.tiji.mistakes.service.AiFollowUpService
 import com.tiji.mistakes.service.AiMistakeClassificationService
 import com.tiji.mistakes.service.AiMistakeSavePhase
@@ -31,8 +34,10 @@ import com.tiji.mistakes.service.ImageStorage
 import com.tiji.mistakes.service.LocalOcrService
 import com.tiji.mistakes.service.OcrModelManager
 import com.tiji.mistakes.service.PersistedAiChatState
+import com.tiji.mistakes.service.unreferencedImagePaths
 import com.tiji.mistakes.service.PersistedAiSolveState
 import com.tiji.mistakes.service.QuestionContentBlockCodec
+import com.tiji.mistakes.service.shouldPersistAiSolveHistory
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -46,6 +51,47 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import java.util.UUID
+import java.io.File
+import org.json.JSONArray
+
+internal fun copyMistakeWithOwnedImages(context: Context, draft: MistakeEntity, prefix: String): Pair<MistakeEntity, List<String>> {
+    val sourcePaths = runCatching {
+        val array = JSONArray(draft.sourceImagePaths.ifBlank { "[]" })
+        (0 until array.length()).mapNotNull { array.optString(it).trim().takeIf(String::isNotBlank) }
+    }.getOrDefault(emptyList())
+    val blocks = QuestionContentBlockCodec.decode(draft.contentBlocks)
+    val originals = buildList {
+        addAll(sourcePaths)
+        addAll(listOfNotNull(draft.imagePath, draft.answerImagePath, draft.explanationImagePath))
+        blocks.forEach { block -> add(block.path); block.sourcePath?.let(::add) }
+    }.filter(String::isNotBlank).distinct()
+    val created = mutableListOf<String>()
+    return try {
+        val mapping = originals.associateWith { original ->
+            require(File(original).isFile) { "图片文件不存在：${File(original).name}" }
+            ImageStorage.copyFileToPrivate(context, File(original), prefix)
+                ?.also(created::add)
+                ?: error("复制图片失败：${File(original).name}")
+        }
+        val copiedSources = sourcePaths.mapNotNull(mapping::get)
+        val copiedBlocks = blocks.map { block ->
+            block.copy(
+                path = mapping[block.path] ?: block.path,
+                sourcePath = block.sourcePath?.let { mapping[it] ?: it }
+            )
+        }
+        draft.copy(
+            imagePath = draft.imagePath?.let(mapping::get),
+            sourceImagePaths = JSONArray().apply { copiedSources.forEach(::put) }.toString(),
+            answerImagePath = draft.answerImagePath?.let(mapping::get),
+            explanationImagePath = draft.explanationImagePath?.let(mapping::get),
+            contentBlocks = QuestionContentBlockCodec.encode(copiedBlocks)
+        ) to created.toList()
+    } catch (error: Throwable) {
+        ImageStorage.deletePrivateFiles(context, created)
+        throw error
+    }
+}
 
 data class AiSolveState(
     val requestId: Long = 0L,
@@ -58,6 +104,7 @@ data class AiSolveState(
     val visualModelName: String = "",
     val question: String? = null,
     val imagePath: String? = null,
+    val imagePaths: List<String> = emptyList(),
     val graphicImagePath: String? = null,
     val contentBlocks: String = "",
     val progress: Float = 0f,
@@ -79,6 +126,10 @@ data class AiChatState(
     val currentPrompt: String = "",
     val progress: Float = 0f,
     val streamedText: String = "",
+    val currentImagePaths: List<String> = emptyList(),
+    val lastPrompt: String = "",
+    val lastImagePaths: List<String> = emptyList(),
+    val status: String = "IDLE",
     val messages: List<AiChatMessage> = emptyList(),
     val error: String? = null
 )
@@ -92,12 +143,33 @@ class MistakeViewModel(application: Application) : AndroidViewModel(application)
     private val restoredAiSolve = aiSolveStore.read().let { restored ->
         // A new app process starts a new solve session. The solve result is
         // transient UI state, not history: never restore a terminal or
-        // running result from a previous process. The completed snapshot is
-        // already copied to AiSolveHistoryStore by the solve service.
+        // running result from a previous process. A terminal snapshot is
+        // recovered once before it is cleared, because the service can be
+        // interrupted between writing the terminal state and appending the
+        // durable history record.
         if (restored.status != AiSolveStatus.IDLE &&
             restored.sessionId != AiSolveRuntime.sessionId
         ) {
-            PersistedAiSolveState().also { aiSolveStore.clear() }
+            if (shouldPersistAiSolveHistory(restored)) {
+                val recovery = runCatching {
+                    aiSolveHistoryStore.appendIfAbsent(
+                        restored,
+                        AiChatStateStore(application).read().messages
+                    )
+                }
+                if (recovery.isFailure) {
+                    restored.copy(
+                        sessionId = AiSolveRuntime.sessionId,
+                        historyWriteError = "解题完成，但记录保存失败"
+                    ).also { pending ->
+                        runCatching { aiSolveStore.write(pending) }
+                    }
+                } else {
+                    PersistedAiSolveState().also { aiSolveStore.clear() }
+                }
+            } else {
+                PersistedAiSolveState().also { aiSolveStore.clear() }
+            }
         } else {
             restored
         }
@@ -122,6 +194,9 @@ class MistakeViewModel(application: Application) : AndroidViewModel(application)
     )
     private var aiMistakeSaveObserverJob: Job? = null
 
+    // Home counts must never depend on the library's active search query.
+    val allMistakes: StateFlow<List<MistakeEntity>> = repository.observe("")
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val searchQuery: StateFlow<String> = query
     val mistakes: StateFlow<List<MistakeEntity>> = query.flatMapLatest(repository::observe)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -184,9 +259,12 @@ class MistakeViewModel(application: Application) : AndroidViewModel(application)
         configurationId: String = "",
         question: String?,
         imagePath: String?,
+        imagePaths: List<String> = listOfNotNull(imagePath),
+        supplementalText: String? = null,
         graphicImagePath: String? = null,
         mode: AiRecognitionMode = AiRecognitionMode.VISION,
         correctionContext: String? = null,
+        correctionImagePaths: List<String> = emptyList(),
         visualEndpoint: String? = null,
         visualModel: String? = null,
         visualApiKey: String? = null,
@@ -207,7 +285,8 @@ class MistakeViewModel(application: Application) : AndroidViewModel(application)
             modelName = model,
             visualModelName = visualModel.orEmpty(),
             question = question,
-            imagePath = imagePath,
+            imagePath = imagePaths.firstOrNull() ?: imagePath,
+            imagePaths = imagePaths.filter(String::isNotBlank).distinct(),
             graphicImagePath = graphicImagePath,
             startedAt = now,
             updatedAt = now
@@ -227,10 +306,13 @@ class MistakeViewModel(application: Application) : AndroidViewModel(application)
                     apiKey = apiKey,
                     configurationId = configurationId,
                     question = question,
-                    imagePath = imagePath,
+                    imagePath = imagePaths.firstOrNull() ?: imagePath,
+                    imagePaths = imagePaths,
+                    supplementalText = supplementalText,
                     graphicImagePath = graphicImagePath,
                     mode = mode,
                     correctionContext = correctionContext,
+                    correctionImagePaths = correctionImagePaths,
                     visualEndpoint = visualEndpoint,
                     visualModel = visualModel,
                     visualApiKey = visualApiKey,
@@ -252,10 +334,11 @@ class MistakeViewModel(application: Application) : AndroidViewModel(application)
         val current = _aiSolve.value
         if (!current.running) return
         aiSolveObserverJob?.cancel()
+        val availableContent = current.streamedText.ifBlank { current.completeText.orEmpty() }
         val stopped = current.copy(
             status = AiSolveStatus.CANCELED,
             streamedText = "",
-            completeText = null,
+            completeText = availableContent.takeIf(String::isNotBlank),
             error = null,
             updatedAt = System.currentTimeMillis()
         )
@@ -296,10 +379,12 @@ class MistakeViewModel(application: Application) : AndroidViewModel(application)
         val current = _aiSolve.value
         val blocks = QuestionContentBlockCodec.decode(current.contentBlocks)
         val remaining = blocks.filterNot { it.path == path || it.sourcePath == path }
-        val changed = current.imagePath == path || current.graphicImagePath == path || remaining.size != blocks.size
+        val remainingImages = current.imagePaths.filterNot { it == path }
+        val changed = current.imagePath == path || path in current.imagePaths || current.graphicImagePath == path || remaining.size != blocks.size
         if (!changed) return
         val updated = current.copy(
-            imagePath = current.imagePath?.takeUnless { it == path },
+            imagePath = if (current.imagePath == path) remainingImages.firstOrNull() else current.imagePath,
+            imagePaths = remainingImages,
             graphicImagePath = current.graphicImagePath?.takeUnless { it == path },
             contentBlocks = QuestionContentBlockCodec.encode(remaining),
             updatedAt = System.currentTimeMillis()
@@ -328,6 +413,7 @@ class MistakeViewModel(application: Application) : AndroidViewModel(application)
             visualModelName = record.visualModelName,
             question = record.question,
             imagePath = record.imagePath,
+            imagePaths = record.imagePaths,
             graphicImagePath = record.graphicImagePath,
             contentBlocks = record.contentBlocks,
             progress = 1f,
@@ -341,12 +427,8 @@ class MistakeViewModel(application: Application) : AndroidViewModel(application)
         _aiSolve.value = restored
 
         val chatRequestId = aiChatRequestId + 1L
-        aiChatRequestId = chatRequestId
-        val restoredChat = PersistedAiChatState(
-            requestId = chatRequestId,
-            running = false,
-            messages = record.chatMessages
-        )
+        val restoredChat = restoredAiChatState(record.chatMessages, chatRequestId)
+        aiChatRequestId = restoredChat.requestId
         aiChatStore.write(restoredChat)
         _aiChat.value = restoredChat.toUiState()
     }
@@ -364,22 +446,48 @@ class MistakeViewModel(application: Application) : AndroidViewModel(application)
     fun deleteAiSolveHistory(id: String) {
         viewModelScope.launch {
             val removed = aiSolveHistoryStore.delete(id) ?: return@launch
+            val transientPaths = if (activeAiSolveHistoryId == id) {
+                buildList {
+                    addAll(_aiSolve.value.imagePaths)
+                    _aiSolve.value.imagePath?.let(::add)
+                    _aiSolve.value.graphicImagePath?.let(::add)
+                    addAll(QuestionContentBlockCodec.decode(_aiSolve.value.contentBlocks).flatMap { listOfNotNull(it.path, it.sourcePath) })
+                    addAll(_aiChat.value.currentImagePaths)
+                    addAll(_aiChat.value.lastImagePaths)
+                    addAll(_aiChat.value.messages.flatMap(AiChatMessage::imagePaths))
+                }
+            } else emptyList()
             if (activeAiSolveHistoryId == id) {
                 activeAiSolveHistoryId = null
+                aiSolveObserverJob?.cancel()
+                aiSolveStore.clear()
+                _aiSolve.value = AiSolveState()
                 aiChatObserverJob?.cancel()
                 aiChatStore.clear()
                 _aiChat.value = AiChatState()
                 aiChatRequestId = 0L
             }
             _aiSolveHistory.value = aiSolveHistoryStore.read()
-            deleteImagesIfUnreferencedNow(removed.referencedImagePaths())
+            deleteImagesIfUnreferencedNow(removed.referencedImagePaths() + transientPaths)
         }
     }
 
     fun clearAiSolveHistory() {
         viewModelScope.launch {
             val removed = aiSolveHistoryStore.clear()
+            val transientPaths = buildList {
+                addAll(_aiSolve.value.imagePaths)
+                _aiSolve.value.imagePath?.let(::add)
+                _aiSolve.value.graphicImagePath?.let(::add)
+                addAll(QuestionContentBlockCodec.decode(_aiSolve.value.contentBlocks).flatMap { listOfNotNull(it.path, it.sourcePath) })
+                addAll(_aiChat.value.currentImagePaths)
+                addAll(_aiChat.value.lastImagePaths)
+                addAll(_aiChat.value.messages.flatMap(AiChatMessage::imagePaths))
+            }
             if (activeAiSolveHistoryId != null) {
+                aiSolveObserverJob?.cancel()
+                aiSolveStore.clear()
+                _aiSolve.value = AiSolveState()
                 aiChatObserverJob?.cancel()
                 aiChatStore.clear()
                 _aiChat.value = AiChatState()
@@ -387,7 +495,7 @@ class MistakeViewModel(application: Application) : AndroidViewModel(application)
             }
             activeAiSolveHistoryId = null
             _aiSolveHistory.value = emptyList()
-            deleteImagesIfUnreferencedNow(removed.flatMap(AiSolveHistoryRecord::referencedImagePaths))
+            deleteImagesIfUnreferencedNow(removed.flatMap(AiSolveHistoryRecord::referencedImagePaths) + transientPaths)
         }
     }
 
@@ -403,7 +511,7 @@ class MistakeViewModel(application: Application) : AndroidViewModel(application)
             if (updated == record) return@launch
             aiSolveHistoryStore.update(updated)
             _aiSolveHistory.value = aiSolveHistoryStore.read()
-            ImageStorage.deletePrivateFiles(getApplication(), removedPaths)
+            deleteImagesIfUnreferencedNow(removedPaths)
         }
     }
 
@@ -428,17 +536,21 @@ class MistakeViewModel(application: Application) : AndroidViewModel(application)
         val currentSolve = _aiSolve.value
         val currentRecognition = _aiRecognition.value
         val currentPaths = buildSet {
+            addAll(currentSolve.imagePaths)
             currentSolve.imagePath?.takeIf(String::isNotBlank)?.let(::add)
             currentSolve.graphicImagePath?.takeIf(String::isNotBlank)?.let(::add)
-            addAll(QuestionContentBlockCodec.decode(currentSolve.contentBlocks).map { it.path })
+            addAll(QuestionContentBlockCodec.decode(currentSolve.contentBlocks).flatMap { listOfNotNull(it.path, it.sourcePath) })
             addAll(currentRecognition.imagePaths)
             addAll(currentRecognition.result?.diagramBlocks.orEmpty().mapNotNull { it.cropPath })
+            addAll(_aiChat.value.currentImagePaths)
+            addAll(_aiChat.value.lastImagePaths)
+            addAll(_aiChat.value.messages.flatMap(AiChatMessage::imagePaths))
         }
         val referenced = aiSolveHistoryStore.referencedImagePaths() +
             repository.allReferencedImagePaths() + currentPaths
         ImageStorage.deletePrivateFiles(
             getApplication(),
-            candidates.filterNot { it in referenced }
+            unreferencedImagePaths(candidates, referenced)
         )
     }
 
@@ -475,7 +587,9 @@ class MistakeViewModel(application: Application) : AndroidViewModel(application)
         baseContext: String,
         prompt: String,
         imagePath: String? = null,
-        graphicImagePath: String? = null
+        sourceImagePaths: List<String> = listOfNotNull(imagePath),
+        graphicImagePath: String? = null,
+        followUpImagePaths: List<String> = emptyList()
     ) {
         if (_aiChat.value.running || prompt.isBlank()) return
         val requestId = ++aiChatRequestId
@@ -483,6 +597,10 @@ class MistakeViewModel(application: Application) : AndroidViewModel(application)
             requestId = requestId,
             running = true,
             currentPrompt = prompt,
+            currentImagePaths = followUpImagePaths,
+            lastPrompt = prompt,
+            lastImagePaths = followUpImagePaths,
+            status = "RUNNING",
             progress = 0.30f,
             streamedText = "",
             error = null
@@ -502,11 +620,21 @@ class MistakeViewModel(application: Application) : AndroidViewModel(application)
                     baseContext = baseContext,
                     prompt = prompt,
                     imagePath = imagePath,
-                    graphicImagePath = graphicImagePath
+                    sourceImagePaths = sourceImagePaths,
+                    graphicImagePath = graphicImagePath,
+                    followUpImagePaths = followUpImagePaths
                 )
             )
         }.onFailure { error ->
-            val failed = state.copy(running = false, currentPrompt = "", progress = 0f, streamedText = "", error = error.message ?: "无法启动后台 AI 对话")
+            val failed = state.copy(
+                running = false,
+                currentPrompt = "",
+                currentImagePaths = emptyList(),
+                progress = 0f,
+                streamedText = "",
+                status = "FAILED",
+                error = error.message ?: "无法启动后台 AI 对话"
+            )
             aiChatStore.write(failed.toPersisted())
             _aiChat.value = failed
         }
@@ -531,6 +659,12 @@ class MistakeViewModel(application: Application) : AndroidViewModel(application)
                     _aiChat.value = uiState
                     if (!uiState.running) {
                         updateActiveHistory { record -> record.copy(chatMessages = uiState.messages) }
+                        if (uiState.error != null && uiState.currentImagePaths.isNotEmpty()) {
+                            deleteImagesIfUnreferencedNow(uiState.currentImagePaths)
+                            val cleaned = uiState.copy(currentImagePaths = emptyList())
+                            aiChatStore.write(cleaned.toPersisted())
+                            _aiChat.value = cleaned
+                        }
                         break
                     }
                 }
@@ -539,12 +673,17 @@ class MistakeViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun save(mistake: MistakeEntity, onSaved: (Long) -> Unit = {}) = viewModelScope.launch {
-        val blocks = QuestionContentBlockCodec.sanitize(
-            getApplication(),
-            QuestionContentBlockCodec.decode(mistake.contentBlocks)
-        )
-        onSaved(repository.save(mistake.copy(contentBlocks = QuestionContentBlockCodec.encode(blocks))))
+    fun save(mistake: MistakeEntity, onFailure: (Throwable) -> Unit = { throw it }, onSaved: (Long) -> Unit = {}) = viewModelScope.launch {
+        try {
+            val blocks = QuestionContentBlockCodec.sanitize(
+                getApplication(), QuestionContentBlockCodec.decode(mistake.contentBlocks)
+            )
+            onSaved(repository.save(mistake.copy(contentBlocks = QuestionContentBlockCodec.encode(blocks))))
+        } catch (error: kotlinx.coroutines.CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            onFailure(error)
+        }
     }
 
     /**
@@ -598,8 +737,15 @@ class MistakeViewModel(application: Application) : AndroidViewModel(application)
         aiMistakeSaveStore.upsert(saving)
         _aiMistakeSave.value = saving
         viewModelScope.launch {
+            var ownedCopies = emptyList<String>()
             try {
-                val id = repository.save(draft)
+                val (ownedDraft, copiedPaths) = copyMistakeWithOwnedImages(
+                    getApplication(),
+                    draft,
+                    "mistake_${taskId.take(8)}"
+                )
+                ownedCopies = copiedPaths
+                val id = repository.save(ownedDraft)
                 val classifying = saving.copy(
                     mistakeId = id,
                     phase = AiMistakeSavePhase.SAVED,
@@ -628,6 +774,7 @@ class MistakeViewModel(application: Application) : AndroidViewModel(application)
                     _aiMistakeSave.value = failed
                 }
             } catch (error: Throwable) {
+                ImageStorage.deletePrivateFiles(getApplication(), ownedCopies)
                 val failed = saving.copy(
                     phase = AiMistakeSavePhase.SAVE_FAILED,
                     completedAt = System.currentTimeMillis(),
@@ -683,15 +830,10 @@ class MistakeViewModel(application: Application) : AndroidViewModel(application)
         val current = _aiChat.value
         if (!current.running) return
         aiChatObserverJob?.cancel()
-        val stopped = current.copy(
-            running = false,
-            currentPrompt = "",
-            progress = 0f,
-            streamedText = "",
-            error = null
-        )
-        aiChatStore.write(stopped.toPersisted())
-        _aiChat.value = stopped
+        val stopped = finishAiChatWithAvailableContent(current.toPersisted(), status = "STOPPED")
+        aiChatStore.write(stopped)
+        _aiChat.value = stopped.toUiState()
+        updateActiveHistory { record -> record.copy(chatMessages = stopped.messages) }
         runCatching { AiFollowUpService.cancel(getApplication()) }
     }
 
@@ -832,6 +974,7 @@ private fun AiSolveState.toPersisted() = PersistedAiSolveState(
     visualModelName = visualModelName,
     question = question,
     imagePath = imagePath,
+    imagePaths = imagePaths,
     graphicImagePath = graphicImagePath,
     contentBlocks = contentBlocks,
     progress = progress,
@@ -856,6 +999,7 @@ private fun PersistedAiSolveState.toUiState() = AiSolveState(
     visualModelName = visualModelName,
     question = question,
     imagePath = imagePath,
+    imagePaths = imagePaths,
     graphicImagePath = graphicImagePath,
     contentBlocks = contentBlocks,
     progress = progress,
@@ -875,6 +1019,10 @@ private fun AiChatState.toPersisted() = PersistedAiChatState(
     currentPrompt = currentPrompt,
     progress = progress,
     streamedText = streamedText,
+    currentImagePaths = currentImagePaths,
+    lastPrompt = lastPrompt,
+    lastImagePaths = lastImagePaths,
+    status = status,
     messages = messages,
     error = error
 )
@@ -885,6 +1033,10 @@ private fun PersistedAiChatState.toUiState() = AiChatState(
     currentPrompt = currentPrompt,
     progress = progress,
     streamedText = streamedText,
+    currentImagePaths = currentImagePaths,
+    lastPrompt = lastPrompt,
+    lastImagePaths = lastImagePaths,
+    status = status,
     messages = messages,
     error = error
 )

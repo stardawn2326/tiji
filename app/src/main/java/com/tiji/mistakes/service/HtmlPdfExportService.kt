@@ -14,6 +14,7 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import androidx.webkit.WebViewAssetLoader
 import androidx.webkit.WebViewClientCompat
+import com.tiji.mistakes.ui.MathRendering
 import com.tiji.mistakes.data.MistakeEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -39,25 +40,13 @@ object HtmlPdfExportService {
     private const val PAGE_HEIGHT_PX = 1123
     private const val A4_WIDTH_PT = 595
     private const val A4_HEIGHT_PT = 842
-    private enum class PdfMode { QUESTIONS, ANSWERS }
-
     suspend fun writeQuestionPdf(
         context: Context,
         uri: Uri,
         mistakes: List<MistakeEntity>,
         documentTitle: String = "题迹错题练习册",
         exportOriginalImagesOnly: Boolean = false
-    ): Result<Unit> = writePdf(context, mistakes, PdfMode.QUESTIONS, documentTitle, exportOriginalImagesOnly) {
-        context.contentResolver.openOutputStream(uri, "w") ?: error("无法创建 PDF 文件")
-    }
-
-    suspend fun writeAnswerPdf(
-        context: Context,
-        uri: Uri,
-        mistakes: List<MistakeEntity>,
-        documentTitle: String = "题迹解析册",
-        exportOriginalImagesOnly: Boolean = false
-    ): Result<Unit> = writePdf(context, mistakes, PdfMode.ANSWERS, documentTitle, exportOriginalImagesOnly) {
+    ): Result<Unit> = writePdf(context, mistakes, documentTitle, exportOriginalImagesOnly) {
         context.contentResolver.openOutputStream(uri, "w") ?: error("无法创建 PDF 文件")
     }
 
@@ -66,14 +55,7 @@ object HtmlPdfExportService {
         mistakes: List<MistakeEntity>,
         documentTitle: String = "题迹错题练习册",
         exportOriginalImagesOnly: Boolean = false
-    ): Result<File> = createPreviewPdf(context, mistakes, PdfMode.QUESTIONS, documentTitle, exportOriginalImagesOnly)
-
-    suspend fun createAnswerPreview(
-        context: Context,
-        mistakes: List<MistakeEntity>,
-        documentTitle: String = "题迹解析册",
-        exportOriginalImagesOnly: Boolean = false
-    ): Result<File> = createPreviewPdf(context, mistakes, PdfMode.ANSWERS, documentTitle, exportOriginalImagesOnly)
+    ): Result<File> = createPreviewPdf(context, mistakes, documentTitle, exportOriginalImagesOnly)
 
     suspend fun copyPreviewToUri(context: Context, previewFile: File, uri: Uri): Result<Unit> = runCatching {
         require(previewFile.isFile && previewFile.length() > 0L) { "PDF 预览文件不存在" }
@@ -88,13 +70,12 @@ object HtmlPdfExportService {
     private suspend fun createPreviewPdf(
         context: Context,
         mistakes: List<MistakeEntity>,
-        mode: PdfMode,
         documentTitle: String,
         exportOriginalImagesOnly: Boolean
     ): Result<File> {
         val previewDirectory = File(context.cacheDir, "pdf-previews").apply { mkdirs() }
         val previewFile = File.createTempFile("tiji-preview-", ".pdf", previewDirectory)
-        return writePdf(context, mistakes, mode, documentTitle, exportOriginalImagesOnly) { previewFile.outputStream() }
+        return writePdf(context, mistakes, documentTitle, exportOriginalImagesOnly) { previewFile.outputStream() }
             .map { previewFile }
             .onFailure { previewFile.delete() }
     }
@@ -102,7 +83,6 @@ object HtmlPdfExportService {
     private suspend fun writePdf(
         context: Context,
         mistakes: List<MistakeEntity>,
-        mode: PdfMode,
         documentTitle: String,
         exportOriginalImagesOnly: Boolean,
         openOutputStream: () -> OutputStream
@@ -130,7 +110,7 @@ object HtmlPdfExportService {
                 val assetLoader = WebViewAssetLoader.Builder()
                     .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(context))
                     .build()
-                val pageCount = loadHtml(webView, buildHtml(mistakes, mode, documentTitle, exportOriginalImagesOnly), assetLoader)
+                val pageCount = loadHtml(webView, buildHtml(mistakes, documentTitle, exportOriginalImagesOnly), assetLoader)
                 Log.d(TAG, "HTML ready, pages=$pageCount")
                 webView.setLayerType(View.LAYER_TYPE_SOFTWARE, null)
                 webView.measure(
@@ -248,13 +228,12 @@ object HtmlPdfExportService {
 
     private fun buildHtml(
         mistakes: List<MistakeEntity>,
-        mode: PdfMode,
         documentTitle: String,
         exportOriginalImagesOnly: Boolean
     ): String {
         val exportedOn = SimpleDateFormat("yyyy年M月d日", Locale.getDefault()).format(Date())
         val questions = mistakes.mapIndexed { index, mistake ->
-            buildQuestionHtml(index, mistake, mode, exportOriginalImagesOnly)
+            buildQuestionHtml(index, mistake, exportOriginalImagesOnly)
         }.joinToString("\n")
 
         return """
@@ -269,7 +248,7 @@ object HtmlPdfExportService {
                 * { box-sizing: border-box; }
                 html, body { width: 794px; margin: 0; padding: 0; background: #fff; color: #243f59; }
                 body {
-                  font-family: "Noto Serif CJK SC", "Source Han Serif SC", "STSong", serif;
+                  font-family: "SimSun", "宋体", "STSong", "Noto Serif CJK SC", serif;
                   font-size: 10.5pt;
                   line-height: 1.4;
                   overflow: hidden;
@@ -287,7 +266,7 @@ object HtmlPdfExportService {
                 .pdf-page-content { width: 100%; height: 100%; overflow: hidden; }
                 .book-header { border-bottom: .6pt solid #d7e3ee; padding: 0 0 2mm; margin-bottom: 1.2mm; }
                 .book-title { display: flex; align-items: center; gap: 3mm; font-size: 18pt; line-height: 1.1; font-weight: 700; }
-                .book-title, .question-title, .section-label, .answer-label { font-family: "Noto Sans CJK SC", "Source Han Sans SC", "STHeiti", sans-serif; }
+                .book-title, .question-title, .section-label, .answer-label { font-family: "SimSun", "宋体", "STSong", serif; }
                 .book-title::before { content: ""; width: 1.3mm; height: 10mm; border-radius: 1mm; background: #3b5ecc; }
                 .book-meta { margin: 1.2mm 0 0 4.3mm; color: #718599; font-size: 9.2pt; }
                 .question {
@@ -311,9 +290,17 @@ object HtmlPdfExportService {
                 .keep-unit .inline-formula, .keep-line .inline-formula { max-width: none; }
                 .katex { font-size: 1.04em; }
                 .inline-formula { display: inline-flex; align-items: center; max-width: 100%; padding: 0; white-space: nowrap; vertical-align: middle; line-height: 1.08; }
+                .inline-formula.responsive-block { display: inline-flex; width: max-content; max-width: 100%; overflow: hidden; white-space: nowrap; vertical-align: middle; }
+                .inline-formula.responsive-block .katex { display: inline-block; max-width: none; }
                 .display-formula { display: block; max-width: 100%; margin: 0; padding: .02em 0 .04em; overflow-x: auto; text-align: left !important; white-space: nowrap; line-height: 1.12; }
                 .display-formula .katex-display { display: block; margin: 0; line-height: 1; text-align: left !important; }
                 .display-formula .katex-display > .katex { display: block; margin-left: 0; margin-right: 0; text-align: left !important; }
+                .compact-vertical { line-height: 1.22; }
+                .compact-vertical.display-formula,
+                .compact-vertical .display-formula { margin: .12em 0 .14em; padding: 0; line-height: 1.12; }
+                .compact-vertical .display-formula .katex-display { line-height: 1.12; }
+                .display-formula.structured-formula { overflow-x: auto; overflow-y: visible; white-space: normal; }
+                .display-formula.structured-formula .katex-display > .katex { max-width: none; }
                 .inline-formula.fraction-formula { padding: .02em 0 .04em; }
                 .inline-formula .katex { display: inline-flex; align-items: center; vertical-align: middle; line-height: 1; }
                 .mfrac.primary-fraction > .vlist-t > .vlist-r > .vlist > span:nth-child(1) { transform: translateY(-.03em); }
@@ -335,15 +322,10 @@ object HtmlPdfExportService {
                   min-height: 50mm;
                   margin: .4mm 0 1.5mm;
                 }
-                .analysis-pdf .question { padding-top: .7mm; padding-bottom: .7mm; }
-                .analysis-pdf .section { margin-top: .3mm; }
-                .analysis-pdf .section-label { margin-bottom: .08mm; }
-                .analysis-pdf .math-text { line-height: 1.24; }
-                .analysis-pdf .display-formula { line-height: 1.12; }
                 .empty-note { color: #718599; }
               </style>
             </head>
-            <body class="${if (mode == PdfMode.ANSWERS) "analysis-pdf" else "question-pdf"}">
+            <body class="question-pdf">
               <header class="book-header">
                 <div class="book-title">${escapeHtml(documentTitle)}</div>
                 <div class="book-meta">共 ${mistakes.size} 道题 · 导出于 ${escapeHtml(exportedOn)} · 正文与公式 10.5pt</div>
@@ -360,12 +342,15 @@ object HtmlPdfExportService {
 
                   function appendFormula(root, formula, display, fallback) {
                     try {
+                      const structured = /\\begin\s*\{(?:aligned|alignedat|array|gathered|gather|multline|cases|dcases|rcases|matrix|pmatrix|bmatrix|Bmatrix|vmatrix|Vmatrix|smallmatrix)\}/.test(formula);
+                      const responsiveBlock = display && root.classList.contains('compact-question');
+                      const renderDisplay = display && !responsiveBlock;
                       const node = document.createElement('span');
-                      node.className = display ? 'display-formula' : 'inline-formula';
+                      node.className = (renderDisplay ? 'display-formula' : 'inline-formula') + (structured ? ' structured-formula' : '') + (responsiveBlock ? ' responsive-block' : '');
                       node.dataset.formula = formula;
                       const renderedFormula = '\\displaystyle ' + formula;
                       node.innerHTML = katex.renderToString(renderedFormula, {
-                        displayMode: display,
+                        displayMode: renderDisplay,
                         throwOnError: true,
                         output: 'htmlAndMathml'
                       });
@@ -406,11 +391,11 @@ object HtmlPdfExportService {
                   }
 
                   function compactBetween(root, text, afterFormula, beforeFormula, adjacentFormulaToken = '') {
-                    if (beforeFormula && isDisplayFormulaToken(adjacentFormulaToken)) {
-                      text = text.replace(/[ \t]*(?:\r?\n|\\n)[ \t]*$/, '');
+                    if (!root.classList.contains('compact-question') && beforeFormula && isDisplayFormulaToken(adjacentFormulaToken)) {
+                      text = text.replace(/(?:[ \t]*(?:\r?\n|\\n)[ \t]*)+$/, '');
                     }
                     if (afterFormula && root.lastElementChild?.classList.contains('display-formula')) {
-                      text = text.replace(/^[ \t]*(?:\r?\n|\\n)[ \t]*/, '');
+                      text = text.replace(/^(?:[ \t]*(?:\r?\n|\\n)[ \t]*)+/, '');
                     }
                     return text;
                   }
@@ -429,6 +414,11 @@ object HtmlPdfExportService {
 
                   function renderCore(root, source) {
                     if (!source) return;
+                    if (root.classList.contains('compact-vertical')) {
+                      source = source
+                        .replace(/\r\n?/g, '\n')
+                        .replace(/[ \t\u00a0]*\n(?:[ \t\u00a0]*\n)+/g, '\n');
+                    }
                     const delimiter = /(\\\[([\s\S]*?)\\\]|\\\(([\s\S]*?)\\\)|\$\$([\s\S]*?)\$\$|\$([^$\n]+)\$)/g;
                     let cursor = 0;
                     let found = false;
@@ -649,7 +639,7 @@ object HtmlPdfExportService {
         """.trimIndent()
     }
 
-    private fun buildQuestionHtml(index: Int, mistake: MistakeEntity, mode: PdfMode, exportOriginalImagesOnly: Boolean): String {
+    private fun buildQuestionHtml(index: Int, mistake: MistakeEntity, exportOriginalImagesOnly: Boolean): String {
         val title = mistake.title.ifBlank { "错题" }
         val metadata = listOf(mistake.subject, mistake.questionType)
             .map(String::trim)
@@ -667,7 +657,7 @@ object HtmlPdfExportService {
                 images.forEachIndexed { sourceIndex, path ->
                     appendImageSection(this, "", path, blackAndWhite = true)
                 }
-                if (mode == PdfMode.QUESTIONS && images.any { File(it).isFile }) {
+                if (images.any { File(it).isFile }) {
                     append("<div class=\"answer-label\">作答区</div>")
                     append("<div class=\"answer-space original-photo-answer-space\"></div>")
                 }
@@ -700,24 +690,8 @@ object HtmlPdfExportService {
             "题目图"
         )
 
-        if (mode == PdfMode.QUESTIONS) {
-            body.append("<div class=\"answer-label\">作答区</div>")
-            body.append("<div class=\"answer-space\" style=\"height:${answerSpaceMm(mistake)}mm\"></div>")
-        } else {
-            appendTextSection(body, "解析", mistake.explanation)
-            appendImageSection(body, "答案图片", mistake.answerImagePath)
-            appendImageSection(body, "解析图片", mistake.explanationImagePath)
-            appendContentBlockImages(
-                body,
-                QuestionContentBlockCodec.decode(mistake.contentBlocks).filter { it.role == ContentBlockRole.ANSWER },
-                "答案图"
-            )
-            appendContentBlockImages(
-                body,
-                QuestionContentBlockCodec.decode(mistake.contentBlocks).filter { it.role == ContentBlockRole.EXPLANATION },
-                "解析图"
-            )
-        }
+        body.append("<div class=\"answer-label\">作答区</div>")
+        body.append("<div class=\"answer-space\" style=\"height:${answerSpaceMm(mistake)}mm\"></div>")
         body.append("</article>")
         return body.toString()
     }
@@ -726,17 +700,16 @@ object HtmlPdfExportService {
         if (source.isBlank()) return
         target.append("<section class=\"section\">")
         if (label.isNotBlank()) target.append("<div class=\"section-label\">${escapeHtml(label)}</div>")
-        val displaySource = when {
-            label == "题目" -> splitQuestionOptionsForLayout(source)
-            label.startsWith("解析") -> normalizeTerminalChinesePeriod(source)
-            else -> source
-        }
-        target.append(mathText(displaySource, preserveSourceExactly = label == "题目"))
+        target.append(
+            mathText(
+                source,
+                preserveSourceExactly = label == "题目",
+                compactQuestionLayout = label == "题目",
+                compactVerticalSpacing = true
+            )
+        )
         target.append("</section>")
     }
-
-    private fun normalizeTerminalChinesePeriod(value: String): String =
-        normalizeTextbookPunctuation(value)
 
     /** Keep the PDF answer book compact while preserving the key reasoning and formulas. */
     private fun compactExplanation(source: String): String {
@@ -937,7 +910,8 @@ object HtmlPdfExportService {
     }.getOrDefault(emptyList()).ifEmpty { listOfNotNull(mistake.imagePath) }
 
     private fun answerSpaceMm(mistake: MistakeEntity): Int {
-        val visualLines = mistake.questionText.lines().sumOf { line ->
+        val questionLayout = normalizeQuestionForDisplayLayout(mistake.questionText)
+        val visualLines = questionLayout.lines().sumOf { line ->
             ceil(line.trim().length.coerceAtLeast(1) / 38.0).toInt().coerceAtLeast(1)
         }
         val formulaWeight = Regex("""\\(?:frac|dfrac|tfrac|int|sum|prod|sqrt|lim)""")
@@ -950,15 +924,28 @@ object HtmlPdfExportService {
             .coerceAtLeast(14)
     }
 
-    private fun mathText(source: String, preserveSourceExactly: Boolean = false): String {
-        val displaySource = normalizeSavedDisplayLayout(source)
+    private fun mathText(
+        source: String,
+        preserveSourceExactly: Boolean = false,
+        compactQuestionLayout: Boolean = false,
+        compactVerticalSpacing: Boolean = false
+    ): String {
+        val displaySource = if (compactQuestionLayout) {
+            normalizeQuestionForDisplayLayout(source)
+        } else {
+            normalizeSavedDisplayLayout(source)
+        }
         val sourceValue = if (preserveSourceExactly) displaySource else normalizeDelimitedFormulaSegments(displaySource)
-        val normalized = (if (preserveSourceExactly) sourceValue else repairStandaloneAlignedBlocks(sourceValue))
+        val normalized = MathRendering.normalizeFormulaForKaTeX(
+            (if (preserveSourceExactly) sourceValue else repairStandaloneAlignedBlocks(sourceValue))
+        )
             .replace("\r\n", "\n")
             .replace('\r', '\n')
             .let { if (preserveSourceExactly) it else it.trim() }
         val json = JSONObject.quote(normalized).replace("</", "<\\/")
-        return "<div class=\"math-text\"><script type=\"application/json\" class=\"math-source\">$json</script></div>"
+        val compactClass = if (compactQuestionLayout) " compact-question" else ""
+        val verticalClass = if (compactVerticalSpacing) " compact-vertical" else ""
+        return "<div class=\"math-text$compactClass$verticalClass\"><script type=\"application/json\" class=\"math-source\">$json</script></div>"
     }
 
     /** Keep PDF text in step with the saved mistake detail renderer. */
