@@ -147,7 +147,7 @@ score = Base * 0.45 + ForgetPenalty * 0.35 + RepeatPenalty * 0.20
 - `:app:compileDebugAndroidTestKotlin`：通过；
 - `:app:testDebugUnitTest`：通过；
 - `RoomMigrationTest`：5 项通过，覆盖 v9→10、v7→10、v8→10 及级联删除；
-- `:app:connectedDebugAndroidTest`：31 项完成，4 项按既有环境能力约定跳过，0 失败；
+- `:app:connectedDebugAndroidTest`：本地全量回归 31 项完成，4 项按既有环境能力约定跳过，0 失败；新增备份往返用例另行单测通过；
 - `LegacyTagBackfillTest`：通过，验证标签解析、去重、稳定 ID、关系回填和重复执行；
 - `ReviewQuestionUiTest`：通过，验证预览与实际事务结果一致，并且只生成一条真实复习记录；
 - `BackupRoundTripTest`：通过，验证 Schema 3 归档实际写入、删除后导入、stable ID 重映射、知识点关系和复习记录恢复；
@@ -166,3 +166,13 @@ score = Base * 0.45 + ForgetPenalty * 0.35 + RepeatPenalty * 0.20
 - GitHub 推送目标为 `stardawn2326/tiji`；
 - 本轮不提交 APK 二进制；
 - 后续 GitHub 分支提交 SHA 和 Pull Request 地址以远端推送结果为准。
+
+## 九、GitHub 远端结果
+
+- 初始 v1.4B 实现提交：`1a773afe0f8198d2439580de385322e72c5bdbef`；
+- CI fixture 隔离修复提交：`7280a1ebc430f08cde108217227cecbb9fe22dc9`；
+- 最终分支：`codex/v1.4b-learning-data`，已核验远端指向 `7280a1ebc430f08cde108217227cecbb9fe22dc9`；
+- Pull Request：[stardawn2326/tiji#3](https://github.com/stardawn2326/tiji/pull/3)；
+- 修复后的 push workflow：[run 34492686468](https://github.com/stardawn2326/tiji/actions/runs/34492686468)，Compile、Lint/打包和 API 35 instrumentation 均通过；
+- 修复后的 Pull Request workflow：[run 34492693312](https://github.com/stardawn2326/tiji/actions/runs/34492693312)，Compile、Lint/打包和 API 35 instrumentation 均通过；
+- 首轮 workflow 暴露的唯一失败是测试 fixture 固定前缀造成的孤立知识点计数污染，已由 `7280a1e` 修复并在本地和远端重跑通过。
