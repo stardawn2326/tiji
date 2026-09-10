@@ -21,7 +21,19 @@ class MistakeRepository(private val dao: MistakeDao) {
     }
 
     private fun matchesSearchKeyword(mistake: MistakeEntity, keyword: String): Boolean {
-        val values = listOf(mistake.title, mistake.subject, mistake.questionType, mistake.tags, mistake.note)
+        val values = listOf(
+            mistake.title,
+            mistake.questionText,
+            mistake.userAnswer,
+            mistake.answerText,
+            mistake.explanation,
+            mistake.subject,
+            mistake.questionType,
+            mistake.tags,
+            mistake.errorReason,
+            mistake.note,
+            mistake.ocrText
+        )
         return values.any { it.contains(keyword, ignoreCase = true) }
     }
 

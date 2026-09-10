@@ -2,7 +2,7 @@ package com.tiji.mistakes
 
 import android.os.ParcelFileDescriptor
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
-import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -27,12 +27,25 @@ class LargeFontAccessibilityTest {
     @After
     fun restoreFontScale() {
         shell("settings put system font_scale 1.0")
+        shell("cmd uimode night no")
     }
 
     @Test
     fun navigationKeepsLabelsAndClickSemanticsAtLargeFont() {
-        listOf("首页", "错题", "解题", "复习", "设置").forEach { label ->
-            composeRule.onNodeWithText(label).assertExists().performClick()
+        listOf("home", "library", "solve", "review", "profile").forEach { route ->
+            composeRule.onNodeWithTag("nav_$route").assertExists().performClick()
+        }
+    }
+
+    @Test
+    fun navigationKeepsLabelsAndClickSemanticsInDarkModeAtLargestFont() {
+        shell("settings put system font_scale 1.5")
+        shell("cmd uimode night yes")
+        composeRule.activityRule.scenario.recreate()
+        composeRule.waitForIdle()
+
+        listOf("home", "library", "solve", "review", "profile").forEach { route ->
+            composeRule.onNodeWithTag("nav_$route").assertExists().performClick()
         }
     }
 

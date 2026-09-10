@@ -42,8 +42,8 @@ data class BackupImportResult(
 /** Versioned, app-readable .tiji archive. It deliberately excludes API keys and AI working state. */
 object BackupService {
     private const val FORMAT = "tiji-backup"
-    private const val SCHEMA_VERSION = 1
-    private const val MIN_READER_SCHEMA_VERSION = 1
+    private const val SCHEMA_VERSION = 2
+    private const val MIN_READER_SCHEMA_VERSION = 2
     private const val MAX_ENTRY_BYTES = 40L * 1024L * 1024L
     private const val MAX_ARCHIVE_BYTES = 160L * 1024L * 1024L
     private const val MAX_ENTRIES = 20_000
@@ -336,9 +336,11 @@ object BackupService {
             stableId = stableId,
             title = title,
             questionText = json.optString("questionText"),
+            userAnswer = json.optString("userAnswer"),
             answerText = json.optString("answerText"),
             explanation = json.optString("explanation"),
             note = json.optString("note"),
+            errorReason = json.optString("errorReason"),
             subject = json.optString("subject", "未分类"),
             questionType = json.optString("questionType", "未分类"),
             tags = json.optString("tags"),
@@ -379,9 +381,11 @@ object BackupService {
         put("stableId", mistake.stableId)
         put("title", mistake.title)
         put("questionText", mistake.questionText)
+        put("userAnswer", mistake.userAnswer)
         put("answerText", mistake.answerText)
         put("explanation", mistake.explanation)
         put("note", mistake.note)
+        put("errorReason", mistake.errorReason)
         put("subject", mistake.subject)
         put("questionType", mistake.questionType)
         put("tags", mistake.tags)

@@ -21,9 +21,13 @@ data class MistakeEntity(
     @ColumnInfo(defaultValue = "''") val stableId: String = UUID.randomUUID().toString(),
     val title: String = "未命名错题",
     val questionText: String = "",
+    /** The learner's original attempt, kept separate from the reference answer. */
+    @ColumnInfo(defaultValue = "''") val userAnswer: String = "",
     val answerText: String = "",
     val explanation: String = "",
     val note: String = "",
+    /** Comma-separated reason chips such as 概念不清 or 计算错误. */
+    @ColumnInfo(defaultValue = "''") val errorReason: String = "",
     val subject: String = "未分类",
     val questionType: String = "未分类",
     val tags: String = "",

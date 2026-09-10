@@ -2,9 +2,9 @@ package com.tiji.mistakes.ui
 
 import android.app.Application
 import android.content.Context
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.core.content.ContextCompat
 import com.tiji.mistakes.data.AppDatabase
 import com.tiji.mistakes.data.MistakeEntity
 import com.tiji.mistakes.data.MistakeRepository
@@ -12,46 +12,44 @@ import com.tiji.mistakes.domain.ReviewGrade
 import com.tiji.mistakes.domain.ReviewScheduler
 import com.tiji.mistakes.service.AiChatMessage
 import com.tiji.mistakes.service.AiChatStateStore
-import com.tiji.mistakes.service.restoredAiChatState
-import com.tiji.mistakes.service.finishAiChatWithAvailableContent
 import com.tiji.mistakes.service.AiFollowUpService
 import com.tiji.mistakes.service.AiMistakeClassificationService
 import com.tiji.mistakes.service.AiMistakeSavePhase
 import com.tiji.mistakes.service.AiMistakeSaveState
 import com.tiji.mistakes.service.AiMistakeSaveStore
-import com.tiji.mistakes.service.AiRecognitionService
 import com.tiji.mistakes.service.AiRecognitionMode
+import com.tiji.mistakes.service.AiRecognitionService
 import com.tiji.mistakes.service.AiRecognitionState
 import com.tiji.mistakes.service.AiRecognitionStateStore
-import com.tiji.mistakes.service.AiSolveRuntime
-import com.tiji.mistakes.service.AiSolveService
-import com.tiji.mistakes.service.AiSolveStatus
 import com.tiji.mistakes.service.AiSolveHistoryRecord
 import com.tiji.mistakes.service.AiSolveHistoryStore
+import com.tiji.mistakes.service.AiSolveRuntime
+import com.tiji.mistakes.service.AiSolveService
 import com.tiji.mistakes.service.AiSolveStateStore
-import com.tiji.mistakes.service.AiVisionService
+import com.tiji.mistakes.service.AiSolveStatus
+import com.tiji.mistakes.service.finishAiChatWithAvailableContent
 import com.tiji.mistakes.service.ImageStorage
 import com.tiji.mistakes.service.LocalOcrService
 import com.tiji.mistakes.service.OcrModelManager
 import com.tiji.mistakes.service.PersistedAiChatState
-import com.tiji.mistakes.service.unreferencedImagePaths
 import com.tiji.mistakes.service.PersistedAiSolveState
 import com.tiji.mistakes.service.QuestionContentBlockCodec
+import com.tiji.mistakes.service.restoredAiChatState
 import com.tiji.mistakes.service.shouldPersistAiSolveHistory
-import kotlinx.coroutines.Job
+import com.tiji.mistakes.service.unreferencedImagePaths
+import java.io.File
+import java.util.UUID
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
-import kotlinx.coroutines.ExperimentalCoroutinesApi
-import java.util.UUID
-import java.io.File
 import org.json.JSONArray
 
 internal fun copyMistakeWithOwnedImages(context: Context, draft: MistakeEntity, prefix: String): Pair<MistakeEntity, List<String>> {
@@ -138,6 +136,8 @@ data class AiChatState(
 class MistakeViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = MistakeRepository(AppDatabase.get(application).mistakeDao())
     private val query = MutableStateFlow("")
+    private val reviewClock = MutableStateFlow(System.currentTimeMillis())
+    private var reviewClockJob: Job? = null
     private val aiSolveStore = AiSolveStateStore(application)
     private val aiSolveHistoryStore = AiSolveHistoryStore(application)
     private val restoredAiSolve = aiSolveStore.read().let { restored ->
@@ -194,14 +194,17 @@ class MistakeViewModel(application: Application) : AndroidViewModel(application)
     )
     private var aiMistakeSaveObserverJob: Job? = null
 
+    // Home counts must never depend on the library's active search query.
+    val allMistakes: StateFlow<List<MistakeEntity>> = repository.observe("")
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val searchQuery: StateFlow<String> = query
     val mistakes: StateFlow<List<MistakeEntity>> = query.flatMapLatest(repository::observe)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-    val dueMistakes: StateFlow<List<MistakeEntity>> = repository.observeDue(System.currentTimeMillis())
+    val dueMistakes: StateFlow<List<MistakeEntity>> = reviewClock.flatMapLatest(repository::observeDue)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val totalCount: StateFlow<Int> = repository.observeCount()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
-    val dueCount: StateFlow<Int> = repository.observeDueCount(System.currentTimeMillis())
+    val dueCount: StateFlow<Int> = reviewClock.flatMapLatest(repository::observeDueCount)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
     val aiSolve: StateFlow<AiSolveState> = _aiSolve.asStateFlow()
     val aiSolveHistory: StateFlow<List<AiSolveHistoryRecord>> = _aiSolveHistory.asStateFlow()
@@ -210,6 +213,12 @@ class MistakeViewModel(application: Application) : AndroidViewModel(application)
     val aiMistakeSave: StateFlow<AiMistakeSaveState> = _aiMistakeSave.asStateFlow()
 
     init {
+        reviewClockJob = viewModelScope.launch {
+            while (isActive) {
+                reviewClock.value = System.currentTimeMillis()
+                delay(REVIEW_CLOCK_INTERVAL_MS)
+            }
+        }
         aiMistakeSaveStore.recoverInterruptedTasks()
         _aiMistakeSave.value = aiMistakeSaveStore.latestForUi()
             ?: AiMistakeSaveState(taskId = "", requestId = 0L, phase = AiMistakeSavePhase.IDLE)
@@ -244,6 +253,11 @@ class MistakeViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun setQuery(value: String) { query.value = value }
+
+    /** Refreshes time-derived review state after resume, plan changes, and grading. */
+    fun refreshReviewClock() {
+        reviewClock.value = System.currentTimeMillis()
+    }
 
     /**
      * Runs in a foreground service, outside the Compose screen lifecycle. The persisted state
@@ -670,12 +684,17 @@ class MistakeViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun save(mistake: MistakeEntity, onSaved: (Long) -> Unit = {}) = viewModelScope.launch {
-        val blocks = QuestionContentBlockCodec.sanitize(
-            getApplication(),
-            QuestionContentBlockCodec.decode(mistake.contentBlocks)
-        )
-        onSaved(repository.save(mistake.copy(contentBlocks = QuestionContentBlockCodec.encode(blocks))))
+    fun save(mistake: MistakeEntity, onFailure: (Throwable) -> Unit = { throw it }, onSaved: (Long) -> Unit = {}) = viewModelScope.launch {
+        try {
+            val blocks = QuestionContentBlockCodec.sanitize(
+                getApplication(), QuestionContentBlockCodec.decode(mistake.contentBlocks)
+            )
+            onSaved(repository.save(mistake.copy(contentBlocks = QuestionContentBlockCodec.encode(blocks))))
+        } catch (error: kotlinx.coroutines.CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            onFailure(error)
+        }
     }
 
     /**
@@ -846,6 +865,7 @@ class MistakeViewModel(application: Application) : AndroidViewModel(application)
     }
     fun setReviewPlan(id: Long, enabled: Boolean, onUpdated: () -> Unit = {}) = viewModelScope.launch {
         repository.setReviewPlan(id, enabled)
+        refreshReviewClock()
         onUpdated()
     }
 
@@ -942,6 +962,7 @@ class MistakeViewModel(application: Application) : AndroidViewModel(application)
 
     suspend fun resetAllData() {
         repository.resetAllData()
+        refreshReviewClock()
         aiSolveHistoryStore.clear()
         activeAiSolveHistoryId = null
         aiChatStore.clear()
@@ -951,6 +972,16 @@ class MistakeViewModel(application: Application) : AndroidViewModel(application)
 
     fun review(mistake: MistakeEntity, grade: ReviewGrade) = viewModelScope.launch {
         repository.save(ReviewScheduler.schedule(mistake, grade))
+        refreshReviewClock()
+    }
+
+    override fun onCleared() {
+        reviewClockJob?.cancel()
+        super.onCleared()
+    }
+
+    private companion object {
+        const val REVIEW_CLOCK_INTERVAL_MS = 30_000L
     }
 }
 

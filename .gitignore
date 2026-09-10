@@ -19,6 +19,7 @@ outputs/apk/releases/*.apk
 outputs/
 logs/
 .codex-tmp/
+.firecrawl/
 *.apk
 *.aab
 *.jks

@@ -68,6 +68,7 @@ android {
         jniLibs.excludes += "**/libopencv_java4.so"
         jniLibs.excludes += "**/libc++_shared.so"
     }
+    sourceSets["androidTest"].assets.srcDir("$projectDir/schemas")
     buildFeatures { compose = true; buildConfig = true }
 }
 
@@ -120,4 +121,9 @@ dependencies {
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     androidTestImplementation(libs.androidx.room.testing)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
+}
+
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+    arg("room.expandProjection", "true")
 }
