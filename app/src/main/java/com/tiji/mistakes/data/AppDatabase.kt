@@ -7,7 +7,7 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-@Database(entities = [MistakeEntity::class], version = 7, exportSchema = false)
+@Database(entities = [MistakeEntity::class], version = 9, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun mistakeDao(): MistakeDao
 
@@ -25,7 +25,9 @@ abstract class AppDatabase : RoomDatabase() {
                 MIGRATION_3_4,
                 MIGRATION_4_5,
                 MIGRATION_5_6,
-                MIGRATION_6_7
+                MIGRATION_6_7,
+                MIGRATION_7_8,
+                MIGRATION_8_9
             ).build().also { instance = it }
         }
 
@@ -72,6 +74,21 @@ abstract class AppDatabase : RoomDatabase() {
             override fun migrate(database: SupportSQLiteDatabase) {
                 database.execSQL("ALTER TABLE mistakes ADD COLUMN sourceImagePaths TEXT NOT NULL DEFAULT ''")
                 database.execSQL("ALTER TABLE mistakes ADD COLUMN contentBlocks TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
+        private val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE mistakes ADD COLUMN userAnswer TEXT NOT NULL DEFAULT ''")
+                database.execSQL("ALTER TABLE mistakes ADD COLUMN errorReason TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
+        private val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                // v8 already contained the two columns. v9 only corrects the
+                // Room schema metadata after their explicit default values were
+                // annotated, so the existing rows and physical table stay intact.
             }
         }
     }

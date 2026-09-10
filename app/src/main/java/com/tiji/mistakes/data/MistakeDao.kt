@@ -12,7 +12,7 @@ interface MistakeDao {
     @Query("SELECT * FROM mistakes WHERE deletedAt IS NULL AND archived = 0 ORDER BY uploadedAt DESC, updatedAt DESC")
     fun observeActive(): Flow<List<MistakeEntity>>
 
-    @Query("SELECT * FROM mistakes WHERE deletedAt IS NULL AND archived = 0 AND (title LIKE '%' || :query || '%' OR note LIKE '%' || :query || '%' OR subject LIKE '%' || :query || '%' OR questionType LIKE '%' || :query || '%' OR tags LIKE '%' || :query || '%') ORDER BY uploadedAt DESC, updatedAt DESC")
+    @Query("SELECT * FROM mistakes WHERE deletedAt IS NULL AND archived = 0 AND (title LIKE '%' || :query || '%' OR questionText LIKE '%' || :query || '%' OR userAnswer LIKE '%' || :query || '%' OR answerText LIKE '%' || :query || '%' OR explanation LIKE '%' || :query || '%' OR note LIKE '%' || :query || '%' OR subject LIKE '%' || :query || '%' OR questionType LIKE '%' || :query || '%' OR tags LIKE '%' || :query || '%' OR errorReason LIKE '%' || :query || '%' OR ocrText LIKE '%' || :query || '%') ORDER BY uploadedAt DESC, updatedAt DESC")
     fun searchActive(query: String): Flow<List<MistakeEntity>>
 
     @Query("SELECT * FROM mistakes WHERE id = :id LIMIT 1")

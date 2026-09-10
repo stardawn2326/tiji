@@ -194,6 +194,9 @@ class MistakeViewModel(application: Application) : AndroidViewModel(application)
     )
     private var aiMistakeSaveObserverJob: Job? = null
 
+    // Home counts must never depend on the library's active search query.
+    val allMistakes: StateFlow<List<MistakeEntity>> = repository.observe("")
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val searchQuery: StateFlow<String> = query
     val mistakes: StateFlow<List<MistakeEntity>> = query.flatMapLatest(repository::observe)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
@@ -670,12 +673,17 @@ class MistakeViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun save(mistake: MistakeEntity, onSaved: (Long) -> Unit = {}) = viewModelScope.launch {
-        val blocks = QuestionContentBlockCodec.sanitize(
-            getApplication(),
-            QuestionContentBlockCodec.decode(mistake.contentBlocks)
-        )
-        onSaved(repository.save(mistake.copy(contentBlocks = QuestionContentBlockCodec.encode(blocks))))
+    fun save(mistake: MistakeEntity, onFailure: (Throwable) -> Unit = { throw it }, onSaved: (Long) -> Unit = {}) = viewModelScope.launch {
+        try {
+            val blocks = QuestionContentBlockCodec.sanitize(
+                getApplication(), QuestionContentBlockCodec.decode(mistake.contentBlocks)
+            )
+            onSaved(repository.save(mistake.copy(contentBlocks = QuestionContentBlockCodec.encode(blocks))))
+        } catch (error: kotlinx.coroutines.CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            onFailure(error)
+        }
     }
 
     /**
