@@ -16,14 +16,16 @@ import org.junit.runner.RunWith
 class LegacyTagBackfillTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
     private var mistakeId = 0L
+    private var tagPrefix = ""
 
     @Before
     fun setUp() {
+        tagPrefix = "v1.4b回填${System.nanoTime()}"
         mistakeId = runBlocking {
             UiTestFixtures.insert(
                 context,
                 title = "标签回填题",
-                tags = " v1.4b函数   单调性，v1.4b函数 单调性, v1.4b极值;;"
+                tags = " ${tagPrefix}函数   ${tagPrefix}函数，${tagPrefix}极值;;"
             )
         }
     }
@@ -39,13 +41,13 @@ class LegacyTagBackfillTest {
 
         repository.backfillLegacyTags()
         val firstPoints = AppDatabase.get(context).knowledgePointDao().listAll()
-            .filter { it.subject == "数学" && it.name.startsWith("v1.4b") }
+            .filter { it.subject == "数学" && it.name.startsWith(tagPrefix) }
         val firstLinks = AppDatabase.get(context).mistakeKnowledgePointDao().listAll()
             .filter { it.mistakeId == mistakeId }
 
         repository.backfillLegacyTags()
         val secondPoints = AppDatabase.get(context).knowledgePointDao().listAll()
-            .filter { it.subject == "数学" && it.name.startsWith("v1.4b") }
+            .filter { it.subject == "数学" && it.name.startsWith(tagPrefix) }
         val secondLinks = AppDatabase.get(context).mistakeKnowledgePointDao().listAll()
             .filter { it.mistakeId == mistakeId }
 
