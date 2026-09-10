@@ -42,8 +42,8 @@ data class BackupImportResult(
 /** Versioned, app-readable .tiji archive. It deliberately excludes API keys and AI working state. */
 object BackupService {
     private const val FORMAT = "tiji-backup"
-    private const val SCHEMA_VERSION = 1
-    private const val MIN_READER_SCHEMA_VERSION = 1
+    private const val SCHEMA_VERSION = 2
+    private const val MIN_READER_SCHEMA_VERSION = 2
     private const val MAX_ENTRY_BYTES = 40L * 1024L * 1024L
     private const val MAX_ARCHIVE_BYTES = 160L * 1024L * 1024L
     private const val MAX_ENTRIES = 20_000

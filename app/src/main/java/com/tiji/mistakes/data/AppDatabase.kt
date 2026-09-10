@@ -7,7 +7,7 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-@Database(entities = [MistakeEntity::class], version = 9, exportSchema = false)
+@Database(entities = [MistakeEntity::class], version = 9, exportSchema = true)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun mistakeDao(): MistakeDao
 
@@ -19,7 +19,17 @@ abstract class AppDatabase : RoomDatabase() {
                 context.applicationContext,
                 AppDatabase::class.java,
                 "tiji.db"
-            ).addMigrations(
+            ).addMigrations(*ALL_MIGRATIONS).build().also { instance = it }
+        }
+
+        internal val MIGRATIONS_7_9: Array<Migration>
+            get() = arrayOf(MIGRATION_7_8, MIGRATION_8_9)
+
+        internal val MIGRATIONS_8_9: Array<Migration>
+            get() = arrayOf(MIGRATION_8_9)
+
+        private val ALL_MIGRATIONS: Array<Migration>
+            get() = arrayOf(
                 MIGRATION_1_2,
                 MIGRATION_2_3,
                 MIGRATION_3_4,
@@ -28,8 +38,7 @@ abstract class AppDatabase : RoomDatabase() {
                 MIGRATION_6_7,
                 MIGRATION_7_8,
                 MIGRATION_8_9
-            ).build().also { instance = it }
-        }
+            )
 
         private val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(database: SupportSQLiteDatabase) {

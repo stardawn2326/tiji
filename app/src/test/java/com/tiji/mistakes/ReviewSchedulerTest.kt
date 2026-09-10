@@ -15,15 +15,27 @@ class ReviewSchedulerTest {
         val mistake = MistakeEntity(mastery = 3, lastReviewedAt = now - DAY, nextReviewAt = now)
         val result = ReviewScheduler.schedule(mistake, ReviewGrade.FORGOT, now)
         assertEquals(0, result.mastery)
-        assertEquals(now + DAY, result.nextReviewAt)
+        assertEquals(ReviewScheduler.nextLocalMidnight(now), result.nextReviewAt)
     }
 
     @Test
     fun easyImprovesMasteryAndMovesReviewForward() {
         val mistake = MistakeEntity(mastery = 1, lastReviewedAt = now - DAY, nextReviewAt = now)
+        val preview = ReviewScheduler.preview(mistake, ReviewGrade.EASY, now)
         val result = ReviewScheduler.schedule(mistake, ReviewGrade.EASY, now)
         assertEquals(3, result.mastery)
-        assertTrue(result.nextReviewAt > now + DAY)
+        assertEquals(preview.intervalDays, 3)
+        assertEquals(preview.nextReviewAt, result.nextReviewAt)
+        assertTrue(result.nextReviewAt > ReviewScheduler.nextLocalMidnight(now))
+    }
+
+    @Test
+    fun firstReviewPreviewUsesSchedulerIntervals() {
+        val mistake = MistakeEntity(mastery = 0, lastReviewedAt = null, nextReviewAt = now)
+
+        assertEquals(1, ReviewScheduler.preview(mistake, ReviewGrade.HARD, now).intervalDays)
+        assertEquals(2, ReviewScheduler.preview(mistake, ReviewGrade.GOOD, now).intervalDays)
+        assertEquals(3, ReviewScheduler.preview(mistake, ReviewGrade.EASY, now).intervalDays)
     }
 
     private companion object { const val DAY = 24L * 60L * 60L * 1000L }
