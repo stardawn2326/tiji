@@ -109,7 +109,7 @@ import com.tiji.mistakes.ui.ConceptTag
 import com.tiji.mistakes.ui.ImagePreview
 import com.tiji.mistakes.ui.MathText
 import com.tiji.mistakes.ui.MistakeViewModel
-import com.tiji.mistakes.ui.stripQuestionCommentary
+import com.tiji.mistakes.ui.math.stripQuestionCommentary
 import com.tiji.mistakes.ui.TijiSurfaceCard
 import java.io.File
 import kotlinx.coroutines.Dispatchers

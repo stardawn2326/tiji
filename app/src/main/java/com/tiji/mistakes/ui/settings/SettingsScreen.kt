@@ -59,6 +59,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -256,6 +257,8 @@ internal fun VisualAssistConfigScreen(
 @Composable
 internal fun SettingsScreen(
     resetScrollToken: Int,
+    pageTag: String = "settings_overview",
+    initialItemIndex: Int = 0,
     themeMode: ThemeMode,
     themePalette: ThemePalette,
     aiEndpoint: String,
@@ -289,8 +292,12 @@ internal fun SettingsScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val settingsListState = rememberLazyListState()
-    LaunchedEffect(resetScrollToken) {
-        if (resetScrollToken > 0) settingsListState.scrollToItem(0)
+    LaunchedEffect(resetScrollToken, initialItemIndex) {
+        if (initialItemIndex > 0) {
+            settingsListState.scrollToItem(initialItemIndex)
+        } else if (resetScrollToken > 0) {
+            settingsListState.scrollToItem(0)
+        }
     }
     val secureStore = remember { SecureKeyStore(context) }
     val ocrModelState by ocrModelManager.combinedState.collectAsStateWithLifecycle()
@@ -444,7 +451,12 @@ internal fun SettingsScreen(
             }
         )
     }
-    LazyColumn(state = settingsListState, contentPadding = PaddingValues(horizontal = 20.dp, vertical = 20.dp), verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.fillMaxSize()) {
+    LazyColumn(
+        state = settingsListState,
+        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        modifier = Modifier.fillMaxSize().testTag(pageTag)
+    ) {
         item {
             ConceptPageHeader("我的", "管理复习计划、AI 配置和题迹数据。")
         }

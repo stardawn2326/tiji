@@ -114,168 +114,28 @@ import coil.request.CachePolicy
 import coil.request.ImageRequest
 import com.tiji.mistakes.data.AiProfile
 import com.tiji.mistakes.data.AppPreferences
-import com.tiji.mistakes.service.ContentBlockRole
 import com.tiji.mistakes.service.ImageProcessor
 import com.tiji.mistakes.service.ImageStorage
-import com.tiji.mistakes.service.normalizeQuestionForDisplayLayout
 import com.tiji.mistakes.service.OcrModelManager
 import com.tiji.mistakes.service.OcrModelStatus
-import com.tiji.mistakes.ui.capture.PhotoRole
 import com.tiji.mistakes.ui.capture.StandaloneImageEditor
 import com.tiji.mistakes.ui.common.imageReloadVersions
 import com.tiji.mistakes.ui.common.imageRequestRevision
 import com.tiji.mistakes.ui.common.notifyImageReplaced
-import com.tiji.mistakes.ui.common.parseErrorReasons
-import com.tiji.mistakes.ui.common.TijiErrorReasonOptions
+import com.tiji.mistakes.ui.math.containsMathSyntax
+import com.tiji.mistakes.ui.math.normalizeAsciiPunctuation
+import com.tiji.mistakes.ui.math.normalizeMathSource
+import com.tiji.mistakes.ui.math.normalizeQuestionForNaturalWrap
 import com.tiji.mistakes.ui.navigation.BottomDestination
 import com.tiji.mistakes.ui.navigation.TijiNavGraph
 import com.tiji.mistakes.ui.navigation.TijiNavGraphState
-import com.tiji.mistakes.ui.solve.ContentBlockImages
+import com.tiji.mistakes.ui.navigation.TijiRoutes
 import java.io.File
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
-
-/** Apply Chinese textbook punctuation outside mathematical expressions. */
-internal fun normalizeTextbookPunctuation(value: String): String {
-    val delimiter = Regex("""(\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\)|\$\$[\s\S]*?\$\$|\$[^\$\n]+\$)""")
-    fun prosePart(part: String): String = part
-        .replace("...", "……")
-        .replace(',', '，')
-        .replace(';', '；')
-        .replace(':', '：')
-        .replace('!', '！')
-        .replace('?', '？')
-        .replace(Regex("""(?<![A-D])(?<!\d)\.(?!\d)"""), "。")
-        .replace('．', '。')
-        .replace(Regex("""（\s*([0-9]+|[A-Za-z])\s*）""")) { "(${it.groupValues[1]})" }
-
-    return buildString {
-        var cursor = 0
-        delimiter.findAll(value).forEach { match ->
-            append(prosePart(value.substring(cursor, match.range.first)))
-            append(match.value)
-            cursor = match.range.last + 1
-        }
-        append(prosePart(value.substring(cursor)))
-    }
-}
-
-/** Keep option labels and numbered steps in the compact ASCII form used by textbooks. */
-internal fun normalizeChoiceAndListLabels(value: String): String {
-    val delimiter = Regex("""(\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\)|\$\$[\s\S]*?\$\$|\$(?!\$)[\s\S]*?\$)""")
-    val alphaMarker = Regex("""(?<![A-Za-z0-9])([A-D])\s*[.。．、:：](?=\s+\S)""")
-    val numberMarker = Regex("""(?<![A-Za-z0-9])(\d{1,2})\s*[.。．、:：](?=\s+\S)""")
-    val parenthesizedMarker = Regex("""(?<![A-Za-z0-9])[（(]\s*[A-Za-z0-9]+\s*[）)](?=\s+\S)""")
-    val trailingAlphaMarker = Regex("""(?<![A-Za-z0-9])([A-D])\s*[.。．、:：]\s*$""")
-    val anyAlphaMarker = Regex("""(?<![A-Za-z0-9])[A-D]\s*[.。．、:：](?=\s|$)""")
-
-    fun normalizeProse(part: String): String {
-        val lines = part.split('\n')
-
-        fun nearbyOptionLine(index: Int, marker: Regex, counter: Regex = marker): Boolean {
-            val currentCount = counter.findAll(lines[index]).count()
-            if (currentCount >= 2) return true
-            if (currentCount == 0) return false
-            return listOf(index - 1, index + 1).any { neighbor ->
-                neighbor in lines.indices && counter.containsMatchIn(lines[neighbor])
-            }
-        }
-
-        fun normalizeLine(line: String, marker: Regex, eligible: Boolean, replacement: (MatchResult) -> String): String {
-            return if (eligible) marker.replace(line, replacement) else line
-        }
-
-        return buildString {
-            var joinNextLine = false
-            lines.forEachIndexed { index, originalLine ->
-                if (index > 0 && !joinNextLine) append('\n')
-                joinNextLine = false
-                var line = originalLine
-                val alphaSequence = nearbyOptionLine(index, alphaMarker, anyAlphaMarker)
-                line = normalizeLine(line, alphaMarker, alphaSequence) { match ->
-                    "${match.groupValues[1]}.\u00A0"
-                }
-                line = normalizeLine(line, numberMarker, nearbyOptionLine(index, numberMarker)) { match ->
-                    "${match.groupValues[1]}.\u00A0"
-                }
-                line = normalizeLine(line, parenthesizedMarker, nearbyOptionLine(index, parenthesizedMarker)) { match ->
-                    match.value.replace('（', '(').replace('）', ')') + '\u00A0'
-                }
-                if (alphaSequence && trailingAlphaMarker.containsMatchIn(line) && index < lines.lastIndex) {
-                    line = trailingAlphaMarker.replace(line) { match -> "${match.groupValues[1]}.\u00A0" }
-                    joinNextLine = true
-                }
-                append(line)
-            }
-        }
-    }
-
-    val mathBlocks = mutableListOf<String>()
-    val protected = delimiter.replace(value) { match ->
-        val index = mathBlocks.size
-        mathBlocks += match.value
-        "\uE000$index\uE001"
-    }
-    return Regex("\uE000(\\d+)\uE001").replace(normalizeProse(protected)) { match ->
-        mathBlocks.getOrNull(match.groupValues[1].toIntOrNull() ?: -1) ?: match.value
-    }
-
-}
-
-/** Keep the contents of a math environment in ASCII/LaTeX form. */
-internal fun normalizeFormulaContent(value: String): String {
-    var normalized = value
-        .replace('，', ',')
-        .replace('、', ',')
-        .replace('；', ';')
-        .replace('：', ':')
-        .replace('。', '.')
-        .replace('．', '.')
-        .replace('！', '!')
-        .replace('？', '?')
-        .replace('（', '(')
-        .replace('）', ')')
-        .replace('［', '[')
-        .replace('］', ']')
-        .replace('｛', '{')
-        .replace('｝', '}')
-    "０１２３４５６７８９".forEachIndexed { index, digit ->
-        normalized = normalized.replace(digit, "0123456789"[index])
-    }
-    normalized = normalized.replace(
-        Regex("""(?<!\\)\b(sin|cos|tan|cot|sec|csc|arcsin|arccos|arctan|ln|log|exp|lim|max|min|det|dim|tr)\b"""),
-    ) { "\\${it.groupValues[1]}" }
-    return normalized
-}
-
-/** Normalize formulas without changing the punctuation of the surrounding Chinese prose. */
-internal fun normalizeDelimitedFormulaSegments(value: String, normalizeProse: Boolean = true): String {
-    val delimiter = Regex("""(\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\)|\$\$[\s\S]*?\$\$|\$(?!\$)[\s\S]*?\$)""")
-    val source = if (normalizeProse) normalizeTextbookPunctuation(value) else value
-    return delimiter.replace(source) { match ->
-        val token = match.value
-        val (opening, closing, rawFormula) = when {
-            token.startsWith("\\[") -> Triple("\\[", "\\]", token.substring(2, token.length - 2))
-            token.startsWith("\\(") -> Triple("\\(", "\\)", token.substring(2, token.length - 2))
-            token.startsWith("$$") -> Triple("$$", "$$", token.substring(2, token.length - 2))
-            else -> Triple("$", "$", token.substring(1, token.length - 1))
-        }
-        var formula = rawFormula.trimEnd()
-        var trailing = ""
-        val last = formula.lastOrNull()
-        if (last != null && last in "，。．；：！？,;:.!?") {
-            formula = formula.dropLast(1).trimEnd()
-            trailing = if (last in "。．.") "。" else last.toString()
-        }
-        opening + normalizeFormulaContent(formula) + closing + trailing
-    }
-}
-
-/** Normalize only option/step labels; do not rewrite ordinary Chinese prose. */
-internal fun normalizeAsciiPunctuation(value: String): String = normalizeChoiceAndListLabels(value)
 
 @Composable
 fun TijiApp() {
@@ -330,19 +190,19 @@ fun TijiApp() {
     var reviewVisitToken by remember { mutableIntStateOf(0) }
     var settingsVisitToken by remember { mutableIntStateOf(0) }
     LaunchedEffect(route) {
-        if (route == "solve") solveVisitToken += 1
-        if (route == "library") libraryVisitToken += 1
-        if (route == "review") reviewVisitToken += 1
-        if (route == "settings") settingsVisitToken += 1
+        if (route == TijiRoutes.SOLVE) solveVisitToken += 1
+        if (route == TijiRoutes.LIBRARY) libraryVisitToken += 1
+        if (route == TijiRoutes.REVIEW) reviewVisitToken += 1
+        if (route == TijiRoutes.SETTINGS) settingsVisitToken += 1
     }
     val snackbarHostState = remember { SnackbarHostState() }
     val destinations = remember {
         listOf(
-            BottomDestination("home", "首页") { Icon(Icons.Outlined.Home, null) },
-            BottomDestination("library", "错题") { Icon(Icons.AutoMirrored.Outlined.MenuBook, null) },
-            BottomDestination("solve", "AI解题") { Icon(Icons.Outlined.AutoAwesome, null) },
-            BottomDestination("review", "复习") { Icon(Icons.Outlined.Replay, null) },
-            BottomDestination("settings", "我的") { Icon(Icons.Outlined.Person, null) }
+            BottomDestination(TijiRoutes.HOME, "首页") { Icon(Icons.Outlined.Home, null) },
+            BottomDestination(TijiRoutes.LIBRARY, "错题") { Icon(Icons.AutoMirrored.Outlined.MenuBook, null) },
+            BottomDestination(TijiRoutes.SOLVE, "AI解题") { Icon(Icons.Outlined.AutoAwesome, null) },
+            BottomDestination(TijiRoutes.REVIEW, "复习") { Icon(Icons.Outlined.Replay, null) },
+            BottomDestination(TijiRoutes.SETTINGS, "我的") { Icon(Icons.Outlined.Person, null) }
         )
     }
 
@@ -381,7 +241,7 @@ fun TijiApp() {
         Scaffold(
             snackbarHost = { SnackbarHost(snackbarHostState) },
             bottomBar = {
-                if (route in setOf("home", "library", "solve", "review", "settings")) {
+                if (route in setOf(TijiRoutes.HOME, TijiRoutes.LIBRARY, TijiRoutes.SOLVE, TijiRoutes.REVIEW, TijiRoutes.SETTINGS)) {
                     NavigationBar(
                         containerColor = MaterialTheme.colorScheme.surface,
                         tonalElevation = 0.dp,
@@ -390,16 +250,16 @@ fun TijiApp() {
                         destinations.forEach { destination ->
                             NavigationBarItem(
                                 selected = route == destination.route ||
-                                    (destination.route == "library" && route == "detail/{id}") ||
-                                    (destination.route == "review" && (route == "review-calendar" || route == "review-detail/{id}/{ids}")) ||
-                                    (destination.route == "settings" && route == "settings-detail"),
+                                    (destination.route == TijiRoutes.LIBRARY && route == TijiRoutes.DETAIL_PATTERN) ||
+                                    (destination.route == TijiRoutes.REVIEW && (route == TijiRoutes.REVIEW_CALENDAR || route == TijiRoutes.REVIEW_DETAIL_PATTERN)) ||
+                                    (destination.route == TijiRoutes.SETTINGS && (route == TijiRoutes.SETTINGS_DETAIL || route == TijiRoutes.SETTINGS_DETAIL_PATTERN)),
                                 onClick = {
                                     when (destination.route) {
-                                        "home" -> homeVisitToken += 1
-                                        "library" -> libraryVisitToken += 1
-                                        "solve" -> solveVisitToken += 1
-                                        "review" -> reviewVisitToken += 1
-                                        "settings" -> settingsVisitToken += 1
+                                        TijiRoutes.HOME -> homeVisitToken += 1
+                                        TijiRoutes.LIBRARY -> libraryVisitToken += 1
+                                        TijiRoutes.SOLVE -> solveVisitToken += 1
+                                        TijiRoutes.REVIEW -> reviewVisitToken += 1
+                                        TijiRoutes.SETTINGS -> settingsVisitToken += 1
                                     }
                                     if (route != destination.route) {
                                         navController.navigate(destination.route) {
@@ -412,7 +272,7 @@ fun TijiApp() {
                                 icon = destination.icon,
                                 label = { Text(destination.label) },
                                 modifier = Modifier.testTag(
-                                    "nav_${if (destination.route == "settings") "profile" else destination.route}"
+                                    "nav_${if (destination.route == TijiRoutes.SETTINGS) "profile" else destination.route}"
                                 ),
                                 colors = NavigationBarItemDefaults.colors(
                                     selectedIconColor = MaterialTheme.colorScheme.primary,
@@ -442,377 +302,8 @@ fun TijiApp() {
     }
 }
 
-@Composable
-internal fun CaptureFields(
-    title: String, userAnswer: String, note: String, subject: String, errorReason: String,
-    questionType: String, tags: String, difficulty: Int,
-    onTitle: (String) -> Unit, onUserAnswer: (String) -> Unit, onNote: (String) -> Unit,
-    onSubject: (String) -> Unit, onErrorReason: (String) -> Unit,
-    onQuestionType: (String) -> Unit, onTags: (String) -> Unit, onDifficulty: (Int) -> Unit
-) {
-    var showDetails by rememberSaveable { mutableStateOf(false) }
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            OutlinedTextField(subject, onSubject, label = { Text("科目") }, singleLine = true, modifier = Modifier.weight(1f))
-            OutlinedTextField(questionType, onQuestionType, label = { Text("题目类型") }, singleLine = true, modifier = Modifier.weight(1f))
-        }
-        OutlinedTextField(tags, onTags, label = { Text("分类 / 知识点标签") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        DifficultyPicker(difficulty, onDifficulty)
-        TextButton(onClick = { showDetails = !showDetails }) {
-            Text(if (showDetails) "收起补充信息" else "补充作答与总结（选填）")
-        }
-        if (showDetails) {
-        OutlinedTextField(
-            title,
-            onTitle,
-            label = { Text("标题") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth()
-        )
-        FormulaPreview(title)
-        OutlinedTextField(
-            userAnswer,
-            onUserAnswer,
-            label = { Text("我的答案（选填）") },
-            minLines = 2,
-            modifier = Modifier.fillMaxWidth()
-        )
-        ErrorReasonPicker(errorReason, onErrorReason)
-        OutlinedTextField(note, onNote, label = { Text("我的总结") }, minLines = 2, modifier = Modifier.fillMaxWidth())
-        }
-    }
-}
 
-@Composable
-internal fun PhotoEditFields(
-    questionImage: String?,
-    answerImage: String?,
-    explanationImage: String?,
-    onEditImage: (PhotoRole, String) -> Unit,
-    onGallery: (PhotoRole) -> Unit,
-    onCamera: (PhotoRole) -> Unit,
-    title: String,
-    userAnswer: String,
-    note: String,
-    subject: String,
-    errorReason: String,
-    questionType: String,
-    tags: String,
-    difficulty: Int,
-    onTitle: (String) -> Unit,
-    onNote: (String) -> Unit,
-    onSubject: (String) -> Unit,
-    onQuestionType: (String) -> Unit,
-    onTags: (String) -> Unit,
-    onDifficulty: (Int) -> Unit,
-    onUserAnswer: (String) -> Unit,
-    onErrorReason: (String) -> Unit,
-    question: String,
-    answer: String,
-    explanation: String,
-    onQuestion: (String) -> Unit,
-    onAnswer: (String) -> Unit,
-    onExplanation: (String) -> Unit,
-    showTextFields: Boolean,
-    onDeleteImage: (PhotoRole, String) -> Unit = { _, _ -> }
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        buildList {
-            add(PhotoRole.QUESTION to questionImage)
-            if (answerImage != null) add(PhotoRole.ANSWER to answerImage)
-            if (explanationImage != null) add(PhotoRole.EXPLANATION to explanationImage)
-        }.forEach { (role, path) ->
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant), modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(role.label, fontWeight = FontWeight.Bold)
-                    path?.let { imagePath ->
-                        ImagePreview(imagePath, onDelete = { onDeleteImage(role, imagePath) })
-                    } ?: Text("未添加图片", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                        OutlinedButton(
-                            onClick = { onGallery(role) },
-                            modifier = Modifier.weight(1f),
-                            contentPadding = PaddingValues(horizontal = 4.dp)
-                        ) {
-                            Icon(Icons.Outlined.Image, contentDescription = null)
-                            Spacer(Modifier.size(4.dp))
-                            Text("相册", maxLines = 1)
-                        }
-                        OutlinedButton(
-                            onClick = { onCamera(role) },
-                            modifier = Modifier.weight(1f),
-                            contentPadding = PaddingValues(horizontal = 4.dp)
-                        ) {
-                            Icon(Icons.Outlined.CameraAlt, contentDescription = null)
-                            Spacer(Modifier.size(4.dp))
-                            Text("拍照", maxLines = 1)
-                        }
-                        if (path != null) {
-                            OutlinedButton(
-                                onClick = { onEditImage(role, path) },
-                                modifier = Modifier.weight(1f),
-                                contentPadding = PaddingValues(horizontal = 4.dp)
-                            ) { Text("处理", maxLines = 1) }
-                        }
-                    }
-                }
-            }
-        }
-        if (showTextFields) {
-            MistakeFields(
-                title = title,
-                userAnswer = userAnswer,
-                question = question,
-                answer = answer,
-                explanation = explanation,
-                note = note,
-                subject = subject,
-                tags = tags,
-                difficulty = difficulty,
-                onTitle = onTitle,
-                onUserAnswer = onUserAnswer,
-                onQuestion = onQuestion,
-                onAnswer = onAnswer,
-                onExplanation = onExplanation,
-                onNote = onNote,
-                errorReason = errorReason,
-                onErrorReason = onErrorReason,
-                onSubject = onSubject,
-                onTags = onTags,
-                onDifficulty = onDifficulty,
-                questionType = questionType,
-                onQuestionType = onQuestionType,
-                showRenderedPreview = true
-            )
-        } else {
-            CaptureFields(
-                title = title,
-                userAnswer = userAnswer,
-                note = note,
-                subject = subject,
-                errorReason = errorReason,
-                questionType = questionType,
-                tags = tags,
-                difficulty = difficulty,
-                onTitle = onTitle,
-                onUserAnswer = onUserAnswer,
-                onNote = onNote,
-                onSubject = onSubject,
-                onErrorReason = onErrorReason,
-                onQuestionType = onQuestionType,
-                onTags = onTags,
-                onDifficulty = onDifficulty
-            )
-        }
-    }
 
-}
-
-@Composable
-internal fun MistakeFields(
-    title: String, question: String, answer: String, explanation: String, note: String, subject: String, tags: String, difficulty: Int,
-    onTitle: (String) -> Unit, onQuestion: (String) -> Unit, onAnswer: (String) -> Unit, onExplanation: (String) -> Unit, onNote: (String) -> Unit,
-    onSubject: (String) -> Unit, onTags: (String) -> Unit, onDifficulty: (Int) -> Unit,
-    questionType: String = "", onQuestionType: (String) -> Unit = {},
-    showRenderedPreview: Boolean = false,
-    contentBlocks: List<com.tiji.mistakes.service.QuestionContentBlock> = emptyList(),
-    onDeleteBlock: (com.tiji.mistakes.service.QuestionContentBlock) -> Unit = {},
-    userAnswer: String = "",
-    errorReason: String = "",
-    onUserAnswer: (String) -> Unit = {},
-    onErrorReason: (String) -> Unit = {}
-) {
-    val editorBodyTextStyle = MaterialTheme.typography.bodyLarge.copy(
-        fontFamily = FontFamily.Serif
-    )
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        OutlinedTextField(title, onTitle, label = { Text("标题") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        if (showRenderedPreview && title.isNotBlank()) {
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer), modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp)) {
-                    MathText(title, emphasized = true)
-                }
-            }
-        } else {
-            FormulaPreview(title)
-        }
-        OutlinedTextField(
-            question,
-            onQuestion,
-            label = { Text("题目") },
-            textStyle = editorBodyTextStyle,
-            minLines = 4,
-            modifier = Modifier.fillMaxWidth()
-        )
-        if (showRenderedPreview) {
-            ContentBlockImages(
-                contentBlocks.filter { it.role == ContentBlockRole.QUESTION },
-                onDelete = onDeleteBlock
-            )
-        }
-        OutlinedTextField(
-            userAnswer,
-            onUserAnswer,
-            label = { Text("我的答案（选填）") },
-            textStyle = editorBodyTextStyle,
-            minLines = 2,
-            modifier = Modifier.fillMaxWidth()
-        )
-        OutlinedTextField(
-            answer,
-            onAnswer,
-            label = { Text("正确答案") },
-            textStyle = editorBodyTextStyle,
-            minLines = 2,
-            modifier = Modifier.fillMaxWidth()
-        )
-        OutlinedTextField(
-            explanation,
-            onExplanation,
-            label = { Text("解析") },
-            textStyle = editorBodyTextStyle,
-            minLines = 3,
-            modifier = Modifier.fillMaxWidth()
-        )
-        if (showRenderedPreview && (question.isNotBlank() || answer.isNotBlank() || explanation.isNotBlank())) {
-            RenderedMistakeContentCard(question, answer, explanation, contentBlocks, onDeleteBlock)
-        } else {
-            FormulaPreview(question, normalizeTerminalPeriod = true)
-            FormulaPreview(answer)
-            FormulaPreview(explanation, normalizeTerminalPeriod = true)
-        }
-        OutlinedTextField(
-            note,
-            onNote,
-            label = { Text("我的总结") },
-            minLines = 2,
-            modifier = Modifier.fillMaxWidth()
-        )
-        ErrorReasonPicker(errorReason, onErrorReason)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            OutlinedTextField(
-                subject,
-                onSubject,
-                label = { Text("科目") },
-                singleLine = true,
-                modifier = Modifier.weight(1f)
-            )
-            OutlinedTextField(
-                questionType,
-                onQuestionType,
-                label = { Text("题目类型") },
-                singleLine = true,
-                modifier = Modifier.weight(1f)
-            )
-        }
-        OutlinedTextField(
-            tags,
-            onTags,
-            label = { Text("分类 / 知识点标签") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth()
-        )
-        DifficultyPicker(difficulty, onDifficulty)
-    }
-}
-
-@Composable
-internal fun RenderedMistakeContentCard(
-    question: String,
-    answer: String,
-    explanation: String,
-    contentBlocks: List<com.tiji.mistakes.service.QuestionContentBlock> = emptyList(),
-    onDeleteBlock: (com.tiji.mistakes.service.QuestionContentBlock) -> Unit = {}
-) {
-    TijiSurfaceCard {
-            if (question.isNotBlank()) {
-                Text("题目", style = MaterialTheme.typography.titleMedium)
-                MathText(
-                    question,
-                    preserveSourceExactly = true,
-                    naturalQuestionWrap = true,
-                    compactQuestionLayout = true,
-                    compactVerticalSpacing = true
-                )
-            }
-            ContentBlockImages(
-                contentBlocks.filter { it.role == ContentBlockRole.QUESTION },
-                onDelete = onDeleteBlock
-            )
-            if (answer.isNotBlank()) {
-                Text("答案", style = MaterialTheme.typography.titleMedium)
-                MathText(answer, compactVerticalSpacing = true)
-            }
-            ContentBlockImages(
-                contentBlocks.filter { it.role == ContentBlockRole.ANSWER },
-                onDelete = onDeleteBlock
-            )
-            if (explanation.isNotBlank()) {
-                Text("解析", style = MaterialTheme.typography.titleMedium)
-                MathText(
-                    explanation,
-                    preserveSourceExactly = true,
-                    compactVerticalSpacing = true
-                )
-            }
-            ContentBlockImages(
-                contentBlocks.filter { it.role == ContentBlockRole.EXPLANATION },
-                onDelete = onDeleteBlock
-            )
-    }
-}
-
-@Composable
-internal fun DifficultyPicker(difficulty: Int, onDifficulty: (Int) -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(3.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        (1..5).forEach { value ->
-            Text(
-                text = if (value <= difficulty) "★" else "☆",
-                color = if (value <= difficulty) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier
-                    .clickable { onDifficulty(value) }
-                    .semantics { contentDescription = "星级 $value" }
-            )
-        }
-    }
-}
-
-@Composable
-internal fun ErrorReasonPicker(
-    value: String,
-    onValueChange: (String) -> Unit
-) {
-    val selected = parseErrorReasons(value)
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text("错因标签（可多选）", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(TijiErrorReasonOptions) { reason ->
-                FilterChip(
-                    selected = reason in selected,
-                    onClick = {
-                        val next = if (reason in selected) selected - reason else selected + reason
-                        onValueChange(next.joinToString(", "))
-                    },
-                    modifier = Modifier.height(36.dp),
-                    label = { Text(reason) }
-                )
-            }
-        }
-        val custom = selected.filterNot { it in TijiErrorReasonOptions }
-        if (custom.isNotEmpty()) {
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(custom) { reason ->
-                    ConceptTag(reason, containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.onErrorContainer)
-                }
-            }
-        }
-    }
-}
 
 @Composable
 internal fun ReviewAllocationRow(label: String, count: Int, maxCount: Int, onCountChange: (Int) -> Unit) {
@@ -1263,287 +754,8 @@ internal fun ImagePreview(
     }
 }
 
-internal val simpleEquationRegex = Regex(
-    """[A-Za-z](?:['′])?\s*\([^()\n]{1,32}\)\s*=\s*[A-Za-z0-9\\^_{}()+\-*/. \t]+"""
-)
-
-internal fun containsMathSyntax(value: String): Boolean =
-    value.contains('$') ||
-        value.contains("\\(") ||
-        value.contains("\\[") ||
-        MathRendering.containsStructuredEnvironment(value) ||
-        value.contains('^') ||
-        value.contains('_') ||
-        value.any { it in "∫√±×÷≤≥≠∞" } ||
-        simpleEquationRegex.containsMatchIn(value) ||
-        Regex("""\\(?:d?frac|tfrac|sqrt|sum|prod|int|lim|sin|cos|tan|ln|log|alpha|beta|gamma|delta|theta|lambda|mu|pi|sigma|phi|Delta|Omega)\b""")
-            .containsMatchIn(value)
-
-internal fun normalizeTerminalChinesePeriod(value: String): String =
-    normalizeTextbookPunctuation(value)
-
-internal fun normalizeMathSource(value: String, normalizeTerminalPeriod: Boolean = false): String {
-    val delimiter = Regex("""(\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\)|\$\$[\s\S]*?\$\$|\$(?!\$)[\s\S]*?\$)""")
-    var cursor = 0
-    val normalized = buildString {
-        delimiter.findAll(value).forEach { match ->
-            append(normalizeTextbookPunctuation(value.substring(cursor, match.range.first)))
-            append(match.value)
-            cursor = match.range.last + 1
-        }
-        append(normalizeTextbookPunctuation(value.substring(cursor)))
-    }
-    var result = normalized
-        .replace("\r\n", "\n")
-        .replace('\r', '\n')
-        .replace(Regex("""\\n(?=\s|[0-9]+[.)]|[-*#])"""), "\n")
-        .replace(Regex("""(?m)^\s*#{1,6}\s*(.+?)\s*$""")) { match ->
-            match.groupValues[1].trim()
-        }
-        .replace(Regex("""(?m)^\s*((?:解题思路|逐步推导|最终答案)[：:]?)\s*$""")) { match ->
-            "\n${match.groupValues[1].trim()}"
-        }
-        .replace(
-            Regex("""(?<!^)(?<!\n)[ \t]*(?=(?:题目识别|解题思路|逐步推导|最终答案)[：:])"""),
-            "\n\n"
-        )
-        .trim()
-
-    if (!result.contains('$') && !result.contains("\\(") && !result.contains("\\[")) {
-        result = simpleEquationRegex.replace(result) { match ->
-            val trailingSpace = match.value.lastOrNull()?.isWhitespace() == true
-            "${'$'}${match.value.trim()}${'$'}${if (trailingSpace) " " else ""}"
-        }
-    }
-    return result
-}
-
 /** Preserve the line/paragraph structure returned by an AI response. */
-internal fun normalizeReturnedMathSource(value: String): String {
-    val normalized = mergeStandalonePunctuationLines(
-        normalizeDelimitedFormulaSegments(value, normalizeProse = false)
-        .replace("\r\n", "\n")
-        .replace('\r', '\n')
-        // Only treat a literal backslash-n as a line break when it is not the
-        // prefix of a LaTeX command such as \ne or \neq.
-        .replace(Regex("""\\n(?![A-Za-z])"""), "\n")
-        .trim()
-    )
-    if (normalized.isBlank()) return normalized
-
-    val newline = """(?:[ \t]*(?:\r?\n|\\n))+"""
-    val punctuation = "[\uFF0C\u3002\uFF01\uFF1F\uFF1B\uFF1A\u3001,.!?;:]"
-    val formulaClose = """(?:\\\]|\\\)|\$\$|(?<!\$)\$(?!\$))"""
-
-    // Keep punctuation that the model placed on a separate line attached to
-    // the formula/text immediately before it. The reading order is unchanged.
-    val punctuationAfterFormula = Regex(
-        """(?m)($formulaClose)$newline[ \t]*($punctuation)(?=[ \t]*(?:\r?\n|\\n)|$)"""
-    )
-    var result = punctuationAfterFormula.replace(normalized) { match ->
-        match.groupValues[1] + match.groupValues[2]
-    }
-
-    // Keep a step marker with the formula that follows it instead of leaving
-    // `1.` or `2.` stranded on a line by itself.
-    val markerBeforeFormula = Regex(
-        """(?m)^([ \t]*(?:\d{1,2}|[A-Da-d])\.)[ \t]*$newline(?=[ \t]*(?:\\\[|\\\(|\$\$|(?<!\$)\$))"""
-    )
-    result = markerBeforeFormula.replace(result) { match ->
-        match.groupValues[1].trimEnd() + " "
-    }
-
-    // When a short step marker directly introduces a display formula, render
-    // that formula inline so the marker and formula remain one readable unit.
-    val markerWithDisplayFormula = Regex(
-        """(?s)(^|\n)([ \t]*(?:\d{1,2}|[A-Da-d])\.\s+)(\\\[[\s\S]*?\\\]|\$\$[\s\S]*?\$\$)"""
-    )
-    result = markerWithDisplayFormula.replace(result) { match ->
-        val token = match.groupValues[3]
-        if (MathRendering.containsStructuredEnvironment(token)) {
-            return@replace match.groupValues[1] + match.groupValues[2] + token
-        }
-        val body = when {
-            token.startsWith("\\[") -> token.substring(2, token.length - 2)
-            else -> token.substring(2, token.length - 2)
-        }.replace(Regex("""\s+"""), " ").trim()
-        match.groupValues[1] + match.groupValues[2] + "\\(" + body + "\\)"
-    }
-
-    // A repeated newline is visual spacing, not question content. Keep the
-    // source order and every character, but render at most one line break so
-    // punctuation, formulas and the following sentence cannot drift apart.
-    return result.replace(Regex("""\n{2,}"""), "\n").trim()
-}
-
 /** Attach punctuation-only lines to the previous non-empty content line. */
-internal fun mergeStandalonePunctuationLines(value: String): String {
-    if (value.isBlank()) return value
-    val lines = value.replace("\r\n", "\n").replace('\r', '\n')
-        .split('\n').toMutableList()
-    val punctuationOnly = Regex("""^[ \t]*[\uFF0C\u3002\uFF01\uFF1F\uFF1B\uFF1A\u3001,.!?;:]+[ \t]*$""")
-    var index = 0
-    while (index < lines.size) {
-        val current = lines[index].trim()
-        if (!punctuationOnly.matches(lines[index]) || current.isEmpty()) {
-            index++
-            continue
-        }
-        var previous = index - 1
-        while (previous >= 0 && lines[previous].isBlank()) previous--
-        if (previous < 0) {
-            index++
-            continue
-        }
-        lines[previous] = lines[previous].trimEnd() + current
-        lines.subList(previous + 1, index + 1).clear()
-        index = previous + 1
-    }
-    return lines.joinToString("\n")
-}
-
-/**
- * Rendering-only cleanup for fields whose characters must stay untouched.
- * It removes visual spacer lines and attaches punctuation-only lines to the
- * preceding text, without correcting, deleting, or reordering source text.
- */
-internal fun normalizeVisualLayout(value: String): String {
-    return value.replace("\r\n", "\n").replace('\r', '\n').trim()
-}
-
-internal fun removeStandaloneMarkdownSeparators(value: String): String =
-    value.replace(Regex("""(?m)^[ \t]*---+[ \t]*(?:\r?\n|$)"""), "")
-
-/**
- * Rendering-only whitespace cleanup. Formula source is protected so spaces
- * inside LaTeX are not changed, while accidental prose spacing is compacted.
- */
-internal fun normalizeDisplayWhitespace(value: String): String {
-    if (value.isBlank()) return value
-    val formulas = mutableListOf<String>()
-    val delimiter = Regex("""(\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\)|\$\$[\s\S]*?\$\$|\$(?!\$)[^\$\n]+\$)""")
-    val protected = delimiter.replace(value) { match ->
-        val index = formulas.size
-        formulas += match.value
-        "\uE300$index\uE301"
-    }
-    val cleaned = protected
-        .replace('\u3000', ' ')
-        .replace(Regex("""[ \t\u00A0]{2,}"""), " ")
-        .replace(Regex("""[ \t]+([，。！？；：、）》】）,.!?;:])""")) { it.groupValues[1] }
-        .replace(Regex("""([（《【(])[ \t]+""")) { it.groupValues[1] }
-    return Regex("""\uE300(\d+)\uE301""").replace(cleaned) { match ->
-        formulas.getOrNull(match.groupValues[1].toIntOrNull() ?: -1) ?: match.value
-    }
-}
-
-/**
- * Compact only the ordinary prose of a question into paragraphs.
- * Choice markers stay on separate visual rows, while formulas stay in the
- * question/choice flow instead of being promoted to standalone display lines.
- */
-internal fun normalizeQuestionSource(
-    value: String,
-    preserveReturnedLayout: Boolean,
-    normalizeTerminalPeriod: Boolean
-): String {
-    if (value.isBlank()) return value
-    val formulaTokens = mutableListOf<String>()
-    val protected = Regex("""(?s)\\\[.*?\\\]|\\\(.*?\\\)|\$\$.*?\$\$|\$(?!\$).*?\$""").replace(
-        value.replace("\r\n", "\n").replace('\r', '\n'),
-    ) { match ->
-        val index = formulaTokens.size
-        formulaTokens += match.value
-        "\uE300${index}\uE301"
-    }
-    val placeholder = Regex("""\uE300(\d+)\uE301""")
-    fun isSemanticLine(line: String): Boolean {
-        val trimmed = line.trim()
-        if (trimmed.isBlank()) return true
-        return Regex("""^(?:(?:[（(][A-DＡ-Ｄ][）)]|[A-DＡ-Ｄ](?:[.、:：)）]|\s+))\s*\S+|[①②③④⑤⑥⑦⑧⑨]|\(?\d{1,2}[)）.、:：])\s*\S+|(?:[（(]\s*(?:[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩⅪⅫ]|XII|XI)\s*[）)]|(?:[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩⅪⅫ]|XII|XI)(?:[.、:：])|[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩⅪⅫ](?=\s+))\s*\S+""").containsMatchIn(trimmed)
-    }
-
-    val output = mutableListOf<String>()
-    var pending = ""
-    fun flushPending() {
-        if (pending.isNotBlank()) output += pending.trim()
-        pending = ""
-    }
-    protected.split('\n').forEach { rawLine ->
-        val line = rawLine.trim()
-        when {
-            line.isBlank() -> {
-                flushPending()
-                if (preserveReturnedLayout && output.isNotEmpty() && output.last().isNotBlank()) output += ""
-            }
-            isSemanticLine(line) -> {
-                flushPending()
-                if (output.lastOrNull() != line) output += line
-            }
-            else -> pending = joinQuestionLines(pending, line)
-        }
-    }
-    flushPending()
-    var normalized = output.joinToString("\n")
-        .replace(Regex("(?m)^\\s*(?:#{1,6}\\s*)?(?:\\*\\*)?(?:题目识别|题目)(?:\\*\\*)?\\s*[：:]\\s*"), "")
-        .replace("**", "")
-        .trim()
-    // Models may return semantic lineBreaks for choices, but a single text
-    // segment can still contain `(A) ... (B) ...`. Keep each choice separate
-    // while joining only continuation text/formulas inside that choice.
-    normalized = normalizeQuestionForDisplayLayout(normalized)
-    normalized = placeholder.replace(normalized) { match ->
-        formulaTokens.getOrNull(match.groupValues[1].toIntOrNull() ?: -1) ?: match.value
-    }
-    if (!preserveReturnedLayout) normalized = normalized.replace(Regex("\\n{2,}"), "\\n")
-    return if (normalizeTerminalPeriod) normalizeTextbookPunctuation(normalized) else normalized
-}
-
-internal fun joinQuestionLines(left: String, right: String): String {
-    if (left.isBlank()) return right
-    if (right.isBlank()) return left
-    val leftChar = left.lastOrNull()
-    val rightChar = right.firstOrNull()
-    val cjk = { char: Char? -> char != null && char in '\u2E80'..'\u9FFF' }
-    return if (cjk(leftChar) || cjk(rightChar) ||
-        (leftChar != null && leftChar in "，。！？；：、）》】") ||
-        (rightChar != null && rightChar in "，。！？；：、）》】")
-    ) {
-        left + right
-    } else {
-        "$left $right"
-    }
-}
-
-internal fun stripQuestionCommentary(value: String): String {
-    if (value.isBlank()) return value
-    return value
-        .replace(Regex("""(?s)（\s*(?:原图|图片|照片|OCR|识别|疑似).*?）|\(\s*(?:原图|图片|照片|OCR|识别|疑似).*?\)"""), "")
-        .lineSequence()
-        .filterNot { line ->
-            val compact = line.trim().replace(Regex("""\s+"""), "")
-            compact.startsWith("说明：") || compact.startsWith("注：") ||
-                compact.startsWith("备注：") || compact.startsWith("识别说明：") ||
-                compact.startsWith("图片说明：")
-        }
-        .joinToString("\n")
-        .trim()
-}
-
-/**
- * OCR text models often return visual line breaks from the source image. Those
- * breaks are not part of the question wording; flatten them so the WebView can
- * wrap naturally at the actual window width. Punctuation is kept attached to
- * the neighboring text instead of becoming a line by itself.
- */
-internal fun normalizeQuestionForNaturalWrap(value: String): String {
-    return normalizeQuestionSource(
-        value = value,
-        preserveReturnedLayout = true,
-        normalizeTerminalPeriod = false
-    )
-}
-
 /** Cancels delayed WebView measurements before Compose releases the renderer. */
 internal class MathWebViewGuard {
     private var active = true

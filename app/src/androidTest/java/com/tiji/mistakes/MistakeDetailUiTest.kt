@@ -9,6 +9,7 @@ import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.tiji.mistakes.data.AppDatabase
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Before
@@ -50,5 +51,30 @@ class MistakeDetailUiTest {
         }
         composeRule.onNodeWithText("已掌握").assertExists()
         composeRule.onNodeWithTag("detail_mastery_action").assertExists()
+
+        composeRule.onNodeWithTag("detail_mastery_action").performClick()
+        composeRule.waitUntil(5_000) {
+            runBlocking {
+                AppDatabase.get(context).mistakeDao().findById(fixtureId)?.let {
+                    it.mastery == 3 && !it.inReviewPlan
+                } == true
+            }
+        }
+        composeRule.onNodeWithText("稍后复习").assertExists()
+
+        composeRule.runOnUiThread {
+            composeRule.activity.onBackPressedDispatcher.onBackPressed()
+        }
+        composeRule.waitUntil(5_000) {
+            composeRule.onAllNodesWithTag("mistake_card_$fixtureId").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("mistake_card_$fixtureId").assertExists()
+        composeRule.onNodeWithText("已掌握").assertExists()
+
+        composeRule.onNodeWithTag("mistake_card_$fixtureId").performClick()
+        composeRule.waitUntil(5_000) {
+            composeRule.onAllNodesWithTag("detail_mastery_action").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithText("稍后复习").assertExists()
     }
 }

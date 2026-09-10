@@ -42,72 +42,6 @@ import com.tiji.mistakes.ui.solve.AiSolveScreen
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
-internal data class BottomDestination(
-    val route: String,
-    val label: String,
-    val icon: @Composable () -> Unit
-)
-
-internal val bottomRouteOrder = listOf("home", "library", "solve", "review", "settings")
-
-internal fun bottomRouteIndex(route: String?): Int {
-    val baseRoute = route?.substringBefore('/')
-    return bottomRouteOrder.indexOf(baseRoute).takeIf { it >= 0 } ?: 0
-}
-
-internal fun isSecondaryRoute(route: String?): Boolean =
-    route?.substringBefore('/')?.let { it !in bottomRouteOrder } ?: false
-
-internal fun pageSlideDirection(
-    initialRoute: String?,
-    targetRoute: String?,
-    popping: Boolean
-): AnimatedContentTransitionScope.SlideDirection {
-    if (isSecondaryRoute(initialRoute) || isSecondaryRoute(targetRoute)) {
-        return if (popping) {
-            AnimatedContentTransitionScope.SlideDirection.Left
-        } else {
-            AnimatedContentTransitionScope.SlideDirection.Right
-        }
-    }
-    return if (bottomRouteIndex(targetRoute) >= bottomRouteIndex(initialRoute)) {
-        AnimatedContentTransitionScope.SlideDirection.Left
-    } else {
-        AnimatedContentTransitionScope.SlideDirection.Right
-    }
-}
-
-internal data class TijiNavGraphState(
-    val allMistakes: List<MistakeEntity>,
-    val mistakes: List<MistakeEntity>,
-    val dueMistakes: List<MistakeEntity>,
-    val dueCount: Int,
-    val reviewPlanSnapshots: Map<String, List<Long>>,
-    val reviewMastery: Map<String, Map<Long, String>>,
-    val reviewCheckIns: Set<String>,
-    val reviewPlanEnabled: Boolean,
-    val dailyReviewLimit: Int,
-    val reviewSubjects: String,
-    val randomReview: Boolean,
-    val librarySubject: String?,
-    val aiProfiles: List<AiProfile>,
-    val activeAiProfileId: String,
-    val activeAiProfile: AiProfile,
-    val aiVisualProfiles: List<AiVisualProfile>,
-    val aiVisualBindings: Map<String, String>,
-    val aiSolveInputMode: String,
-    val aiCaptureInputMode: String,
-    val aiUploadConsent: Boolean,
-    val aiExcludeSourceImageByDefault: Boolean,
-    val themeModeKey: String,
-    val themePaletteKey: String,
-    val homeVisitToken: Int,
-    val libraryVisitToken: Int,
-    val solveVisitToken: Int,
-    val reviewVisitToken: Int,
-    val settingsVisitToken: Int
-)
-
 @Composable
 internal fun TijiNavGraph(
     navController: NavHostController,
@@ -122,7 +56,7 @@ internal fun TijiNavGraph(
 ) {
             NavHost(
                 navController,
-                startDestination = "home",
+                startDestination = TijiRoutes.HOME,
                 modifier = modifier,
                 enterTransition = {
                     if (isSecondaryRoute(initialState.destination.route) || isSecondaryRoute(targetState.destination.route)) {
@@ -157,7 +91,7 @@ internal fun TijiNavGraph(
                     } else fadeOut(tween(180))
                 }
             ) {
-                composable("home") {
+                composable(TijiRoutes.HOME) {
                     HomeScreen(
                         mistakes = state.allMistakes,
                         dueCount = state.dueCount,
@@ -166,13 +100,13 @@ internal fun TijiNavGraph(
                         onSubject = { subject ->
                             onLibrarySubject(subject)
                             viewModel.setQuery("")
-                            navController.navigate("library")
+                            navController.navigate(TijiRoutes.LIBRARY)
                         },
                         resetScrollToken = state.homeVisitToken,
                         onNavigate = navController::navigate
                     )
                 }
-                composable("library") {
+                composable(TijiRoutes.LIBRARY) {
                     LibraryScreen(
                         selectedSubject = state.librarySubject,
                         resetScrollToken = state.libraryVisitToken,
@@ -180,11 +114,11 @@ internal fun TijiNavGraph(
                         viewModel = viewModel,
                         mistakes = state.mistakes,
                         exportOriginalImagesOnly = !state.aiExcludeSourceImageByDefault,
-                        onOpen = { navController.navigate("detail/$it") },
-                        onCreate = { navController.navigate("capture") }
+                        onOpen = { navController.navigate(TijiRoutes.detail(it)) },
+                        onCreate = { navController.navigate(TijiRoutes.CAPTURE) }
                     )
                 }
-                composable("review") {
+                composable(TijiRoutes.REVIEW) {
                     ReviewScreen(
                         allMistakes = state.mistakes,
                         dueMistakes = state.dueMistakes,
@@ -199,13 +133,13 @@ internal fun TijiNavGraph(
                         checkedInToday = reviewDateKey() in state.reviewCheckIns,
                         onSavePlanSnapshot = { date, ids -> scope.launch { preferences.ensureReviewPlanSnapshot(date, ids) } },
                         onCheckIn = { scope.launch { preferences.setReviewCheckIn(reviewDateKey(), true) } },
-                        onOpenCalendar = { navController.navigate("review-calendar") },
-                         onOpenSettings = { navController.navigate("settings-detail") },
-                        onOpenDetail = { id, ids -> navController.navigate("review-detail/$id/${Uri.encode(ids.joinToString(","))}") },
+                        onOpenCalendar = { navController.navigate(TijiRoutes.REVIEW_CALENDAR) },
+                         onOpenSettings = { navController.navigate(TijiRoutes.settingsDetail(SettingsSection.OVERVIEW)) },
+                        onOpenDetail = { id, ids -> navController.navigate(TijiRoutes.reviewDetail(id, ids)) },
                         resetScrollToken = state.reviewVisitToken
                     )
                 }
-                composable("solve") {
+                composable(TijiRoutes.SOLVE) {
                     AiSolveScreen(
                         viewModel = viewModel,
                         aiEndpoint = state.activeAiProfile.endpoint,
@@ -217,28 +151,31 @@ internal fun TijiNavGraph(
                         aiUploadConsent = state.aiUploadConsent,
                         aiExcludeSourceImageByDefault = state.aiExcludeSourceImageByDefault,
                         onActiveAiProfile = { id -> scope.launch { preferences.setActiveAiProfile(id, state.aiProfiles) } },
-                        onOpenSettings = { navController.navigate("settings-detail") },
-                        onOpenChatHistory = { navController.navigate("ai-chat-history") },
-                        onOpenSolveHistory = { navController.navigate("ai-solve-history") },
+                        onOpenSettings = { navController.navigate(TijiRoutes.settingsDetail(SettingsSection.OVERVIEW)) },
+                        onOpenChatHistory = { navController.navigate(TijiRoutes.AI_CHAT_HISTORY) },
+                        onOpenSolveHistory = { navController.navigate(TijiRoutes.AI_SOLVE_HISTORY) },
                         onAiUploadConsent = { value -> scope.launch { preferences.setAiUploadConsent(value) } },
                         onAiInputMode = { value -> scope.launch { preferences.setAiSolveInputMode(value.name) } },
                         solveVisitToken = state.solveVisitToken
                     )
                 }
-                composable("settings") {
+                composable(TijiRoutes.SETTINGS) {
                     MyScreen(
                         resetScrollToken = state.settingsVisitToken,
-                        onOpenReviewSettings = { navController.navigate("settings-detail") },
-                        onOpenSubjectSettings = { navController.navigate("settings-detail") },
-                        onOpenAiSettings = { navController.navigate("settings-detail") },
-                        onOpenDataSettings = { navController.navigate("settings-detail") },
-                        onOpenAppearanceSettings = { navController.navigate("settings-detail") },
-                        onOpenAbout = { navController.navigate("settings-detail") }
+                        onOpenReviewSettings = { navController.navigate(TijiRoutes.settingsDetail(SettingsSection.REVIEW)) },
+                        onOpenSubjectSettings = { navController.navigate(TijiRoutes.settingsDetail(SettingsSection.SUBJECT)) },
+                        onOpenAiSettings = { navController.navigate(TijiRoutes.settingsDetail(SettingsSection.AI)) },
+                        onOpenDataSettings = { navController.navigate(TijiRoutes.settingsDetail(SettingsSection.DATA)) },
+                        onOpenAppearanceSettings = { navController.navigate(TijiRoutes.settingsDetail(SettingsSection.APPEARANCE)) },
+                        onOpenAbout = { navController.navigate(TijiRoutes.settingsDetail(SettingsSection.ABOUT)) }
                     )
                 }
-                composable("settings-detail") {
+                composable(TijiRoutes.SETTINGS_DETAIL_PATTERN) { entry ->
+                    val section = SettingsSection.fromKey(entry.arguments?.getString("section"))
                     SettingsScreen(
                         resetScrollToken = state.settingsVisitToken,
+                        pageTag = section.pageTag,
+                        initialItemIndex = section.initialItemIndex,
                         themeMode = ThemeMode.fromKey(state.themeModeKey),
                         themePalette = ThemePalette.fromKey(state.themePaletteKey),
                         aiEndpoint = state.activeAiProfile.endpoint,
@@ -261,7 +198,7 @@ internal fun TijiNavGraph(
                         onSaveAiConfig = { endpoint, model -> scope.launch { preferences.setAiEndpoint(endpoint); preferences.setAiModel(model) } },
                         onAiProfiles = { profiles -> scope.launch { preferences.setAiProfiles(profiles) } },
                         onActiveAiProfile = { id -> scope.launch { preferences.setActiveAiProfile(id, state.aiProfiles) } },
-                        onOpenVisualAssistConfig = { textProfileId -> navController.navigate("visual-config/$textProfileId") },
+                        onOpenVisualAssistConfig = { textProfileId -> navController.navigate(TijiRoutes.visualConfig(textProfileId)) },
                         onDailyReviewLimit = { value -> scope.launch { preferences.setDailyReviewLimit(value) } },
                         onReviewSubjects = { value -> scope.launch { preferences.setReviewSubjects(value) } },
                         onReviewPlanEnabled = { value -> scope.launch { preferences.setReviewPlanEnabled(value) } },
@@ -303,7 +240,7 @@ internal fun TijiNavGraph(
                         }
                     )
                 }
-                composable("ai-solve-history") {
+                composable(TijiRoutes.AI_SOLVE_HISTORY) {
                     AiSolveHistoryScreen(
                         viewModel = viewModel,
                         onBack = { navController.popBackStack() },
@@ -314,7 +251,7 @@ internal fun TijiNavGraph(
                         }
                     )
                 }
-                composable("visual-config/{textProfileId}") { entry ->
+                composable(TijiRoutes.VISUAL_CONFIG_PATTERN) { entry ->
                     val textProfileId = entry.arguments?.getString("textProfileId").orEmpty()
                     val textProfile = state.aiProfiles.firstOrNull { it.id == textProfileId }
                         ?: AiProfile(textProfileId, "当前文本模型", AppPreferences.DEFAULT_ENDPOINT, AppPreferences.DEFAULT_MODEL)
@@ -338,14 +275,14 @@ internal fun TijiNavGraph(
                         }
                     )
                 }
-                composable("ai-chat-history") {
+                composable(TijiRoutes.AI_CHAT_HISTORY) {
                     val aiChatState by viewModel.aiChat.collectAsStateWithLifecycle()
                     AiChatHistoryScreen(
                         messages = aiChatState.messages,
                         onBack = { navController.popBackStack() }
                     )
                 }
-                composable("capture") {
+                composable(TijiRoutes.CAPTURE) {
                     NewCaptureScreen(
                         viewModel = viewModel,
                         onBack = { navController.popBackStack() },
@@ -360,10 +297,10 @@ internal fun TijiNavGraph(
                         onAiUploadConsent = { value -> scope.launch { preferences.setAiUploadConsent(value) } },
                         onActiveAiProfile = { id -> scope.launch { preferences.setActiveAiProfile(id, state.aiProfiles) } },
                          onAiInputMode = { value -> scope.launch { preferences.setAiCaptureInputMode(value.name) } },
-                        onOpenSettings = { navController.navigate("settings-detail") }
+                        onOpenSettings = { navController.navigate(TijiRoutes.settingsDetail(SettingsSection.OVERVIEW)) }
                     )
                 }
-                composable("detail/{id}") { entry ->
+                composable(TijiRoutes.DETAIL_PATTERN) { entry ->
                     DetailScreen(
                         viewModel = viewModel,
                         id = entry.arguments?.getString("id")?.toLongOrNull() ?: 0L,
@@ -386,7 +323,7 @@ internal fun TijiNavGraph(
                         navController.popBackStack()
                     }
                 }
-                composable("review-detail/{id}/{ids}") { entry ->
+                composable(TijiRoutes.REVIEW_DETAIL_PATTERN) { entry ->
                     val ids = Uri.decode(entry.arguments?.getString("ids").orEmpty())
                         .split(',')
                         .mapNotNull { it.toLongOrNull() }
@@ -407,7 +344,7 @@ internal fun TijiNavGraph(
                         }
                     )
                 }
-                composable("review-calendar") {
+                composable(TijiRoutes.REVIEW_CALENDAR) {
                     ReviewCalendarScreen(
                         mistakes = state.mistakes,
                         reviewRecords = state.reviewMastery,

@@ -384,7 +384,9 @@ internal fun LibraryScreen(
                     FilterChip(
                         selected = selected,
                         onClick = { onSelectSubject(value.takeUnless { it == "全部" }) },
-                        modifier = Modifier.height(36.dp),
+                        modifier = Modifier.height(36.dp).testTag(
+                            "library_subject_${if (value == "全部") "all" else value}"
+                        ),
                         label = { Text(value) }
                     )
                 }
@@ -494,7 +496,10 @@ internal fun LibraryScreen(
                 }
             } else LazyColumn(
                 state = mistakeListState,
-                modifier = Modifier.weight(1f).fillMaxWidth(),
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .testTag("library_mistakes_list"),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
                 contentPadding = PaddingValues(bottom = 90.dp)
             ) {
