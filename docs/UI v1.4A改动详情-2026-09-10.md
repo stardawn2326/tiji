@@ -18,6 +18,7 @@
 - 保留现有 `verify` job，继续执行 Kotlin 编译、Android 测试编译、单元测试、Lint 和 Debug APK 打包。
 - 在 `.github/workflows/android.yml` 新增 `Android instrumentation (API 35)` job。
 - instrumentation job 使用 `reactivecircus/android-emulator-runner@v2` 启动 API 35、面向自动化测试的 `google_atd`、`x86_64`、`pixel` 模拟器 profile，配置 4 核、2048M RAM、512M heap 和 900 秒启动窗口，关闭动画后执行 `connectedDebugAndroidTest`。
+- GitHub-hosted Ubuntu runner 检测到 `/dev/kvm` 后保持 Linux 硬件加速（`disable-linux-hw-accel: false`）；此前禁用加速会导致模拟器启动后 instrumentation 进程崩溃并发现 0 个测试，已定位并修复。
 - instrumentation job 与 verify job 同时覆盖 push 到 `main`/`codex/**` 和 Pull Request 合并到 `main` 的场景。
 - CI 中生成幂等的 debug keystore，仅用于自动化 Debug 验证，不替代正式签名。
 - `main` 合并规则要求 Pull Request、`Compile, test, lint and package` 和 `Android instrumentation (API 35)` 两项检查通过，并阻止 force push 和分支删除。
@@ -77,6 +78,8 @@
 - `:app:assembleDebug`：通过，Debug APK 位于 `app/build/outputs/apk/debug/app-debug.apk`。
 - `:app:connectedDebugAndroidTest`：27 个测试完成，4 个环境能力用例跳过，0 个失败。
 - 新增错题库行为测试曾暴露首屏外卡片和筛选弹窗语义歧义，已通过列表滚动语义、fixture 隔离字段和精确节点选择修复，并在 API 35 模拟器上重跑通过。
+- 远端 PR 验证（提交 `065fa46a54b2cd72de8f993d45a2dafce265faee`）：[PR run 34477813593](https://github.com/stardawn2326/tiji/actions/runs/34477813593) 的编译/单测/Lint/打包和 API 35 instrumentation 均通过。
+- 远端 push 验证：[push run 34477809447](https://github.com/stardawn2326/tiji/actions/runs/34477809447) 的两个 job 均通过；PR 当前为 `OPEN`、`MERGEABLE`、`CLEAN`，等待仓库合并流程。
 
 ## 四、v1.4B 明确留待后续
 
@@ -97,5 +100,9 @@
 | `c9b6005` | 增加错题库、详情、复习和“我的”行为测试 |
 | `0bb7e72` | 抽离编辑器字段和数学文本规范化辅助 |
 | `a35a252` | 抽离导航路由、导航状态和设置 section |
+| `c4f72d3` | 调整 API 35 模拟器 profile |
+| `adf6772` | 增加模拟器启动参数、KVM 检测和资源配置 |
+| `4774600` | 切换 API 35 轻量 `google_atd` 镜像 |
+| `065fa46` | 恢复 GitHub runner 的 KVM 硬件加速，修复 instrumentation 进程崩溃 |
 
 本文件作为 v1.4A 代码交付的一部分提交；本轮不提交构建缓存、临时 keystore 或 APK 二进制。
