@@ -60,7 +60,7 @@ jobs:
   instrumentation:
     name: Android instrumentation (API 35)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -98,12 +98,29 @@ jobs:
               -noprompt
           fi
 
+      - name: Enable KVM when available
+        shell: bash
+        run: |
+          if [ -e /dev/kvm ]; then
+            echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+            sudo udevadm control --reload-rules
+            sudo udevadm trigger --name-match=kvm
+            sudo chmod 666 /dev/kvm
+          else
+            echo 'KVM is unavailable on this runner; the emulator will use software acceleration.'
+          fi
+
       - name: Run Android instrumentation tests
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
           target: google_apis
           arch: x86_64
-          profile: pixel_7_pro
+          profile: pixel
+          cores: 4
+          ram-size: 2048M
+          heap-size: 512M
+          emulator-boot-timeout: 900
+          disable-linux-hw-accel: true
           disable-animations: true
           script: ./gradlew connectedDebugAndroidTest --no-daemon

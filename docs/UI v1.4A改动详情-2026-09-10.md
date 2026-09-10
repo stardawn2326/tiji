@@ -17,7 +17,7 @@
 
 - 保留现有 `verify` job，继续执行 Kotlin 编译、Android 测试编译、单元测试、Lint 和 Debug APK 打包。
 - 在 `.github/workflows/android.yml` 新增 `Android instrumentation (API 35)` job。
-- instrumentation job 使用 `reactivecircus/android-emulator-runner@v2` 启动 API 35、`google_apis`、`x86_64`、`pixel_7_pro` 模拟器 profile，关闭动画后执行 `connectedDebugAndroidTest`。
+- instrumentation job 使用 `reactivecircus/android-emulator-runner@v2` 启动 API 35、`google_apis`、`x86_64`、`pixel` 模拟器 profile，配置 4 核、2048M RAM、512M heap 和 900 秒启动窗口，关闭动画后执行 `connectedDebugAndroidTest`。
 - instrumentation job 与 verify job 同时覆盖 push 到 `main`/`codex/**` 和 Pull Request 合并到 `main` 的场景。
 - CI 中生成幂等的 debug keystore，仅用于自动化 Debug 验证，不替代正式签名。
 - `main` 合并规则要求 Pull Request、`Compile, test, lint and package` 和 `Android instrumentation (API 35)` 两项检查通过，并阻止 force push 和分支删除。
