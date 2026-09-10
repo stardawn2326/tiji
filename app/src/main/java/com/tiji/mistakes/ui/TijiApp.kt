@@ -2,105 +2,61 @@
 
 package com.tiji.mistakes.ui
 
-import android.Manifest
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import android.annotation.SuppressLint
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.pdf.PdfRenderer
 import android.content.pm.PackageManager
-import android.net.Uri
+import android.graphics.BitmapFactory
+import android.Manifest
 import android.os.Build
-import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import android.util.Log
-import android.widget.Toast
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
-import com.tiji.mistakes.BuildConfig
-import androidx.compose.animation.AnimatedContentTransitionScope
-import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.core.tween
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.Image as ComposeImage
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTransformGestures
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.foundation.Canvas
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
-import androidx.compose.material.icons.outlined.AddAPhoto
+import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.AutoAwesome
-import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.CameraAlt
-import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.FileDownload
-import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Image
-import androidx.compose.material.icons.outlined.Lightbulb
-import androidx.compose.material.icons.outlined.MoreVert
-import androidx.compose.material.icons.outlined.PictureAsPdf
 import androidx.compose.material.icons.outlined.Person
-import androidx.compose.material.icons.outlined.Replay
 import androidx.compose.material.icons.outlined.Remove
-import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.Replay
 import androidx.compose.material.icons.outlined.StopCircle
-import androidx.compose.material.icons.outlined.Style
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -109,299 +65,78 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.saveable.listSaver
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Shadow
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
-import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.webkit.WebViewAssetLoader
-import androidx.webkit.WebViewClientCompat
-import androidx.navigation.NavHostController
-import androidx.navigation.NavGraph.Companion.findStartDestination
-import androidx.navigation.compose.NavHost
-import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.webkit.WebViewAssetLoader
+import androidx.webkit.WebViewClientCompat
 import coil.compose.AsyncImage
 import coil.request.CachePolicy
 import coil.request.ImageRequest
 import com.tiji.mistakes.data.AiProfile
-import com.tiji.mistakes.data.AiVisualProfile
 import com.tiji.mistakes.data.AppPreferences
-import com.tiji.mistakes.data.MistakeEntity
-import com.tiji.mistakes.domain.ReviewGrade
-import com.tiji.mistakes.domain.ReviewPreview
-import com.tiji.mistakes.domain.ReviewScheduler
-import com.tiji.mistakes.ui.settings.MyScreen
-import com.tiji.mistakes.ui.home.HomeScreen
-import com.tiji.mistakes.ui.library.LibraryScreen
-import com.tiji.mistakes.ui.review.ReviewScreen
-import com.tiji.mistakes.ui.review.ReviewQuestionScreen
-import com.tiji.mistakes.ui.settings.SettingsScreen
-import com.tiji.mistakes.ui.settings.VisualAssistConfigScreen
-import com.tiji.mistakes.ui.solve.AiSolveScreen
-import com.tiji.mistakes.ui.detail.DetailScreen
-import com.tiji.mistakes.ui.capture.AiInputMode
-import com.tiji.mistakes.ui.capture.NewCaptureScreen
-import com.tiji.mistakes.ui.capture.PhotoRole
-import com.tiji.mistakes.ui.capture.StandaloneImageEditor
-import com.tiji.mistakes.ui.review.ReviewCalendarScreen
-import com.tiji.mistakes.ui.solve.AiChatHistoryScreen
-import com.tiji.mistakes.ui.solve.AiSolveHistoryScreen
-import com.tiji.mistakes.ui.solve.ContentBlockImages
-import com.tiji.mistakes.ui.navigation.*
-import com.tiji.mistakes.service.BackupImportMode
-import com.tiji.mistakes.service.BackupPreview
-import com.tiji.mistakes.service.BackupService
-import com.tiji.mistakes.service.HtmlPdfExportService
-import com.tiji.mistakes.service.AiVisionService
-import com.tiji.mistakes.service.AiProviderPreset
-import com.tiji.mistakes.service.AiChatMessage
-import com.tiji.mistakes.service.PersistedAiChatState
-import com.tiji.mistakes.service.hasAiChatActivity
-import com.tiji.mistakes.service.replaceImageAtSamePosition
-import com.tiji.mistakes.service.AiRecognitionMode
-import com.tiji.mistakes.service.AiRecognitionResult
-import com.tiji.mistakes.service.AiRecognitionStatus
-import com.tiji.mistakes.service.AiSolveStatus
-import com.tiji.mistakes.service.AiSolveHistoryRecord
-import com.tiji.mistakes.service.AiDrawingRenderer
-import com.tiji.mistakes.service.AiStructuredSolutionCodec
-import com.tiji.mistakes.service.stripAiProtocolForDisplay
-import com.tiji.mistakes.service.buildStructuredCorrectionContext
-import com.tiji.mistakes.service.followUpReplyForDisplay
 import com.tiji.mistakes.service.ContentBlockRole
-import com.tiji.mistakes.service.ImageOperation
 import com.tiji.mistakes.service.ImageProcessor
 import com.tiji.mistakes.service.ImageStorage
-import com.tiji.mistakes.service.OcrModelDownloadService
+import com.tiji.mistakes.service.normalizeQuestionForDisplayLayout
 import com.tiji.mistakes.service.OcrModelManager
 import com.tiji.mistakes.service.OcrModelStatus
-import com.tiji.mistakes.service.OCR_USER_WARNING
-import com.tiji.mistakes.service.QuestionContentBlockCodec
-import com.tiji.mistakes.service.ContentBlockKind
-import com.tiji.mistakes.service.SecureKeyStore
-import com.tiji.mistakes.service.normalizeQuestionForDisplayLayout
-import com.tiji.mistakes.service.shouldOfferAiSettings
-import kotlinx.coroutines.CoroutineScope
+import com.tiji.mistakes.ui.capture.PhotoRole
+import com.tiji.mistakes.ui.capture.StandaloneImageEditor
+import com.tiji.mistakes.ui.common.imageReloadVersions
+import com.tiji.mistakes.ui.common.imageRequestRevision
+import com.tiji.mistakes.ui.common.notifyImageReplaced
+import com.tiji.mistakes.ui.common.parseErrorReasons
+import com.tiji.mistakes.ui.common.TijiErrorReasonOptions
+import com.tiji.mistakes.ui.navigation.BottomDestination
+import com.tiji.mistakes.ui.navigation.TijiNavGraph
+import com.tiji.mistakes.ui.navigation.TijiNavGraphState
+import com.tiji.mistakes.ui.solve.ContentBlockImages
+import java.io.File
+import java.util.Locale
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
-import java.io.File
-import java.text.DateFormat
-import java.text.SimpleDateFormat
-import java.util.Calendar
-import java.util.Date
-import java.util.Locale
-import java.util.UUID
-import kotlin.math.roundToInt
-
-internal fun cameraUri(context: Context, file: File): Result<Uri> = runCatching {
-    FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
-}
-
-internal enum class MistakeOrder(val label: String) { NEWEST("最新"), OLDEST("最早"), UPDATED("最近修改") }
-internal val weekLabels = listOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
-
-internal enum class CropDragMode {
-    MOVE,
-    LEFT,
-    TOP,
-    RIGHT,
-    BOTTOM,
-    LEFT_TOP,
-    RIGHT_TOP,
-    LEFT_BOTTOM,
-    RIGHT_BOTTOM
-}
-internal data class CropSelection(val left: Float, val top: Float, val right: Float, val bottom: Float)
-internal fun initialCropSelection() = CropSelection(0.05f, 0.05f, 0.95f, 0.95f)
-
-/** Every visible instance of one in-place replaced file observes this key. */
-internal val imageReloadVersions = mutableStateMapOf<String, Int>()
-
-internal fun notifyImageReplaced(path: String) {
-    imageReloadVersions[path] = (imageReloadVersions[path] ?: 0) + 1
-}
-
-internal fun imageRequestRevision(path: String, version: Int): String {
-    val file = File(path)
-    return "$path#$version#${file.lastModified()}#${file.length()}"
-}
-
-internal fun formatUploadTime(value: Long): String = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(value))
-
-internal fun formatLocalDate(value: Long = System.currentTimeMillis()): String =
-    SimpleDateFormat("yyyy年M月d日", Locale.getDefault()).format(Date(value))
-
-internal fun reviewDateKey(value: Long = System.currentTimeMillis()): String =
-    SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(value))
-
-internal data class StreamingAiMeta(val difficulty: Int, val subject: String, val questionType: String, val title: String)
-
-internal fun streamingAiMeta(value: String): StreamingAiMeta? {
-    val start = value.indexOf("[[TIJI_META:")
-    if (start < 0) return null
-    val jsonStart = start + "[[TIJI_META:".length
-    var depth = 0
-    var inString = false
-    var escaped = false
-    var jsonEnd = -1
-    for (index in jsonStart until value.length) {
-        val char = value[index]
-        if (inString) {
-            if (escaped) escaped = false
-            else if (char == '\\') escaped = true
-            else if (char == '"') inString = false
-            continue
-        }
-        when (char) {
-            '"' -> inString = true
-            '{' -> depth++
-            '}' -> {
-                depth--
-                if (depth == 0) {
-                    jsonEnd = index + 1
-                    break
-                }
-            }
-        }
-    }
-    if (jsonEnd <= jsonStart) return null
-    return runCatching {
-        val json = JSONObject(value.substring(jsonStart, jsonEnd))
-        StreamingAiMeta(
-            difficulty = json.optInt("difficulty", 0).coerceIn(0, 5),
-            subject = json.optString("subject").trim(),
-            questionType = json.optString("questionType").trim(),
-            title = json.optString("title").trim()
-        )
-    }.getOrNull()
-}
-
-internal fun visibleAiSolution(value: String): String {
-    return AiDrawingRenderer.stripMarkers(stripAiProtocolForDisplay(value))
-}
-
-internal data class AiSolutionSections(
-    val recognition: String,
-    val approach: String,
-    val derivation: String,
-    val finalAnswer: String,
-    val raw: String,
-    val structured: Boolean,
-    val schemaVersion: Int = 1
-)
-
-internal fun parseAiSolutionSections(value: String): AiSolutionSections {
-    AiStructuredSolutionCodec.parse(value)?.let { solution ->
-        return AiSolutionSections(
-            recognition = solution.section("recognition")?.displaySource().orEmpty(),
-            approach = solution.section("approach")?.displaySource().orEmpty(),
-            derivation = solution.section("derivation")?.displaySource().orEmpty(),
-            finalAnswer = solution.section("finalAnswer")?.displaySource().orEmpty(),
-            raw = solution.copyText(),
-            structured = true,
-            schemaVersion = solution.schemaVersion
-        )
-    }
-    val text = visibleAiSolution(value).trim()
-    if (text.isBlank()) return AiSolutionSections("", "", "", "", "", false)
-
-    val headingRegex = Regex(
-        """^\s*#{0,6}\s*(?:\*\*)?(题目识别|题目|解题思路|逐步推导|最终答案|答案)\s*(?:\*\*)?\s*(?:[：:]\s*(?:\*\*)?\s*(.*?))?\s*$"""
-    )
-    val recognition = StringBuilder()
-    val approach = StringBuilder()
-    val derivation = StringBuilder()
-    val finalAnswer = StringBuilder()
-    var current: StringBuilder? = null
-    var headingCount = 0
-
-    fun sectionFor(label: String): StringBuilder = when (label) {
-        "题目识别", "题目" -> recognition
-        "解题思路" -> approach
-        "逐步推导" -> derivation
-        else -> finalAnswer
-    }
-
-    text.lineSequence().forEach { line ->
-        val match = headingRegex.matchEntire(line)
-        if (match != null) {
-            current = sectionFor(match.groupValues[1])
-            headingCount++
-            match.groupValues.getOrNull(2)?.trim()?.removeSuffix("**")?.trim()?.takeIf(String::isNotBlank)?.let {
-                current?.append(it)?.append('\n')
-            }
-        } else {
-            current?.append(line.trimEnd())?.append('\n')
-        }
-    }
-
-    if (headingCount < 2) return AiSolutionSections("", "", "", "", text, false)
-    return AiSolutionSections(
-        // The recognized question is source material. Preserve its line breaks;
-        // only the section heading itself is removed by the parser above.
-        recognition = recognition.toString().trim(),
-        approach = approach.toString().trim().replace(Regex("""\n{2,}"""), "\n"),
-        derivation = derivation.toString().trim().replace(Regex("""\n{2,}"""), "\n"),
-        finalAnswer = finalAnswer.toString().trim().replace(Regex("""\n{2,}"""), "\n"),
-        raw = text,
-        structured = true
-    )
-}
 
 /** Apply Chinese textbook punctuation outside mathematical expressions. */
 internal fun normalizeTextbookPunctuation(value: String): String {
@@ -542,9 +277,6 @@ internal fun normalizeDelimitedFormulaSegments(value: String, normalizeProse: Bo
 /** Normalize only option/step labels; do not rewrite ordinary Chinese prose. */
 internal fun normalizeAsciiPunctuation(value: String): String = normalizeChoiceAndListLabels(value)
 
-internal fun reviewStatusLabel(value: String?): String =
-    value?.let { runCatching { ReviewGrade.valueOf(it).label }.getOrNull() } ?: "未选择"
-
 @Composable
 fun TijiApp() {
     val context = LocalContext.current
@@ -614,6 +346,37 @@ fun TijiApp() {
         )
     }
 
+    val navState = TijiNavGraphState(
+        allMistakes = allMistakes,
+        mistakes = mistakes,
+        dueMistakes = dueMistakes,
+        dueCount = dueCount,
+        reviewPlanSnapshots = reviewPlanSnapshots,
+        reviewMastery = reviewMastery,
+        reviewCheckIns = reviewCheckIns,
+        reviewPlanEnabled = reviewPlanEnabled,
+        dailyReviewLimit = dailyReviewLimit,
+        reviewSubjects = reviewSubjects,
+        randomReview = randomReview,
+        librarySubject = librarySubject,
+        aiProfiles = aiProfiles,
+        activeAiProfileId = activeAiProfileId,
+        activeAiProfile = activeAiProfile,
+        aiVisualProfiles = aiVisualProfiles,
+        aiVisualBindings = aiVisualBindings,
+        aiSolveInputMode = aiSolveInputMode,
+        aiCaptureInputMode = aiCaptureInputMode,
+        aiUploadConsent = aiUploadConsent,
+        aiExcludeSourceImageByDefault = aiExcludeSourceImageByDefault,
+        themeModeKey = themeModeKey,
+        themePaletteKey = themePaletteKey,
+        homeVisitToken = homeVisitToken,
+        libraryVisitToken = libraryVisitToken,
+        solveVisitToken = solveVisitToken,
+        reviewVisitToken = reviewVisitToken,
+        settingsVisitToken = settingsVisitToken
+    )
+
     TijiTheme(mode = ThemeMode.fromKey(themeModeKey), palette = ThemePalette.fromKey(themePaletteKey)) {
         Scaffold(
             snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -664,304 +427,17 @@ fun TijiApp() {
                 }
             }
         ) { padding ->
-            NavHost(
-                navController,
-                startDestination = "home",
+            TijiNavGraph(
+                navController = navController,
                 modifier = Modifier.padding(padding),
-                enterTransition = {
-                    if (isSecondaryRoute(initialState.destination.route) || isSecondaryRoute(targetState.destination.route)) {
-                        slideIntoContainer(
-                            pageSlideDirection(initialState.destination.route, targetState.destination.route, popping = false),
-                            tween(220)
-                        )
-                    } else fadeIn(tween(180))
-                },
-                exitTransition = {
-                    if (isSecondaryRoute(initialState.destination.route) || isSecondaryRoute(targetState.destination.route)) {
-                        slideOutOfContainer(
-                            pageSlideDirection(initialState.destination.route, targetState.destination.route, popping = false),
-                            tween(220)
-                        )
-                    } else fadeOut(tween(180))
-                },
-                popEnterTransition = {
-                    if (isSecondaryRoute(initialState.destination.route) || isSecondaryRoute(targetState.destination.route)) {
-                        slideIntoContainer(
-                            pageSlideDirection(initialState.destination.route, targetState.destination.route, popping = true),
-                            tween(220)
-                        )
-                    } else fadeIn(tween(180))
-                },
-                popExitTransition = {
-                    if (isSecondaryRoute(initialState.destination.route) || isSecondaryRoute(targetState.destination.route)) {
-                        slideOutOfContainer(
-                            pageSlideDirection(initialState.destination.route, targetState.destination.route, popping = true),
-                            tween(220)
-                        )
-                    } else fadeOut(tween(180))
-                }
-            ) {
-                composable("home") {
-                    HomeScreen(
-                        mistakes = allMistakes,
-                        dueCount = dueCount,
-                        reviewTotal = reviewPlanSnapshots[reviewDateKey()].orEmpty().size.takeIf { it > 0 } ?: dueCount,
-                        reviewCompleted = reviewMastery[reviewDateKey()].orEmpty().keys.count { id -> id in reviewPlanSnapshots[reviewDateKey()].orEmpty() },
-                        onSubject = { subject ->
-                            librarySubject = subject
-                            viewModel.setQuery("")
-                            navController.navigate("library")
-                        },
-                        resetScrollToken = homeVisitToken,
-                        onNavigate = navController::navigate
-                    )
-                }
-                composable("library") {
-                    LibraryScreen(
-                        selectedSubject = librarySubject,
-                        resetScrollToken = libraryVisitToken,
-                        onSelectSubject = { subject -> librarySubject = subject },
-                        viewModel = viewModel,
-                        mistakes = mistakes,
-                        exportOriginalImagesOnly = !aiExcludeSourceImageByDefault,
-                        onOpen = { navController.navigate("detail/$it") },
-                        onCreate = { navController.navigate("capture") }
-                    )
-                }
-                composable("review") {
-                    ReviewScreen(
-                        allMistakes = mistakes,
-                        dueMistakes = dueMistakes,
-                        viewModel = viewModel,
-                        exportOriginalImagesOnly = !aiExcludeSourceImageByDefault,
-                        reviewPlanEnabled = reviewPlanEnabled,
-                        dailyLimit = dailyReviewLimit,
-                        reviewSubjects = reviewSubjects,
-                        randomMode = randomReview,
-                        reviewStatuses = reviewMastery[reviewDateKey()].orEmpty(),
-                        savedPlanIds = reviewPlanSnapshots[reviewDateKey()],
-                        checkedInToday = reviewDateKey() in reviewCheckIns,
-                        onSavePlanSnapshot = { date, ids -> scope.launch { preferences.ensureReviewPlanSnapshot(date, ids) } },
-                        onCheckIn = { scope.launch { preferences.setReviewCheckIn(reviewDateKey(), true) } },
-                        onOpenCalendar = { navController.navigate("review-calendar") },
-                         onOpenSettings = { navController.navigate("settings-detail") },
-                        onOpenDetail = { id, ids -> navController.navigate("review-detail/$id/${Uri.encode(ids.joinToString(","))}") },
-                        resetScrollToken = reviewVisitToken
-                    )
-                }
-                composable("solve") {
-                    AiSolveScreen(
-                        viewModel = viewModel,
-                        aiEndpoint = activeAiProfile.endpoint,
-                        aiModel = activeAiProfile.model,
-                        aiProfiles = aiProfiles,
-                        activeAiProfileId = activeAiProfileId,
-                        visualAssistProfile = aiVisualProfiles.firstOrNull { it.id == aiVisualBindings[activeAiProfileId] },
-                        initialAiInputMode = aiSolveInputMode,
-                        aiUploadConsent = aiUploadConsent,
-                        aiExcludeSourceImageByDefault = aiExcludeSourceImageByDefault,
-                        onActiveAiProfile = { id -> scope.launch { preferences.setActiveAiProfile(id, aiProfiles) } },
-                        onOpenSettings = { navController.navigate("settings-detail") },
-                        onOpenChatHistory = { navController.navigate("ai-chat-history") },
-                        onOpenSolveHistory = { navController.navigate("ai-solve-history") },
-                        onAiUploadConsent = { value -> scope.launch { preferences.setAiUploadConsent(value) } },
-                        onAiInputMode = { value -> scope.launch { preferences.setAiSolveInputMode(value.name) } },
-                        solveVisitToken = solveVisitToken
-                    )
-                }
-                composable("settings") {
-                    MyScreen(
-                        resetScrollToken = settingsVisitToken,
-                        onOpenReviewSettings = { navController.navigate("settings-detail") },
-                        onOpenSubjectSettings = { navController.navigate("settings-detail") },
-                        onOpenAiSettings = { navController.navigate("settings-detail") },
-                        onOpenDataSettings = { navController.navigate("settings-detail") },
-                        onOpenAppearanceSettings = { navController.navigate("settings-detail") },
-                        onOpenAbout = { navController.navigate("settings-detail") }
-                    )
-                }
-                composable("settings-detail") {
-                    SettingsScreen(
-                        resetScrollToken = settingsVisitToken,
-                        themeMode = ThemeMode.fromKey(themeModeKey),
-                        themePalette = ThemePalette.fromKey(themePaletteKey),
-                        aiEndpoint = activeAiProfile.endpoint,
-                        aiModel = activeAiProfile.model,
-                        aiProfiles = aiProfiles,
-                        activeAiProfileId = activeAiProfileId,
-                        aiVisualProfiles = aiVisualProfiles,
-                        aiVisualBindings = aiVisualBindings,
-                        dailyReviewLimit = dailyReviewLimit,
-                        reviewSubjects = reviewSubjects,
-                        reviewPlanEnabled = reviewPlanEnabled,
-                        randomReview = randomReview,
-                        mistakes = mistakes,
-                        backgroundScope = scope,
-                        ocrModelManager = ocrModelManager,
-                        aiExcludeSourceImageByDefault = aiExcludeSourceImageByDefault,
-                        onAiExcludeSourceImageByDefault = { value -> scope.launch { preferences.setAiExcludeSourceImageByDefault(value) } },
-                        onThemeMode = { value -> scope.launch { preferences.setThemeMode(value.key) } },
-                        onThemePalette = { value -> scope.launch { preferences.setThemePalette(value.key) } },
-                        onSaveAiConfig = { endpoint, model -> scope.launch { preferences.setAiEndpoint(endpoint); preferences.setAiModel(model) } },
-                        onAiProfiles = { profiles -> scope.launch { preferences.setAiProfiles(profiles) } },
-                        onActiveAiProfile = { id -> scope.launch { preferences.setActiveAiProfile(id, aiProfiles) } },
-                        onOpenVisualAssistConfig = { textProfileId -> navController.navigate("visual-config/$textProfileId") },
-                        onDailyReviewLimit = { value -> scope.launch { preferences.setDailyReviewLimit(value) } },
-                        onReviewSubjects = { value -> scope.launch { preferences.setReviewSubjects(value) } },
-                        onReviewPlanEnabled = { value -> scope.launch { preferences.setReviewPlanEnabled(value) } },
-                        onRandomReview = { value -> scope.launch { preferences.setRandomReview(value) } },
-                        onDeleteAiProfile = { id ->
-                            val previousProfiles = aiProfiles
-                            val remainingProfiles = previousProfiles.filterNot { it.id == id }
-                            val fallback = remainingProfiles.firstOrNull()
-                                ?: AiProfile(AppPreferences.DEFAULT_PROFILE_ID, "默认 AI", AppPreferences.DEFAULT_ENDPOINT, AppPreferences.DEFAULT_MODEL)
-                            val nextProfiles = remainingProfiles.ifEmpty { listOf(fallback) }
-                            scope.launch {
-                                preferences.setAiProfiles(nextProfiles)
-                                preferences.setActiveAiProfile(fallback.id, nextProfiles)
-                                preferences.removeAiVisualForTextProfile(id)
-                                val result = snackbarHostState.showSnackbar(
-                                    message = "AI 配置已删除",
-                                    actionLabel = "撤回",
-                                    withDismissAction = true,
-                                    duration = SnackbarDuration.Long
-                                )
-                                if (result == SnackbarResult.ActionPerformed) {
-                                    preferences.setAiProfiles(previousProfiles)
-                                    preferences.setActiveAiProfile(activeAiProfileId, previousProfiles)
-                                    snackbarHostState.showSnackbar("已撤回删除", duration = SnackbarDuration.Short)
-                                }
-                            }
-                        },
-                        onResetData = { onFinished ->
-                            scope.launch {
-                                runCatching {
-                                    viewModel.resetAllData()
-                                    preferences.resetReviewData()
-                                }.onSuccess {
-                                    onFinished(null)
-                                }.onFailure { error ->
-                                    onFinished("重置失败：${error.message ?: "未知错误"}")
-                                }
-                            }
-                        }
-                    )
-                }
-                composable("ai-solve-history") {
-                    AiSolveHistoryScreen(
-                        viewModel = viewModel,
-                        onBack = { navController.popBackStack() },
-                        onRestoreConfiguration = { record ->
-                            if (aiProfiles.any { it.id == record.configurationId }) {
-                                scope.launch { preferences.setActiveAiProfile(record.configurationId, aiProfiles) }
-                            }
-                        }
-                    )
-                }
-                composable("visual-config/{textProfileId}") { entry ->
-                    val textProfileId = entry.arguments?.getString("textProfileId").orEmpty()
-                    val textProfile = aiProfiles.firstOrNull { it.id == textProfileId }
-                        ?: AiProfile(textProfileId, "当前文本模型", AppPreferences.DEFAULT_ENDPOINT, AppPreferences.DEFAULT_MODEL)
-                    val boundId = aiVisualBindings[textProfileId]
-                    val visualProfile = aiVisualProfiles.firstOrNull { it.id == boundId }
-                        ?: aiVisualProfiles.firstOrNull { it.textProfileId == textProfileId }
-                    VisualAssistConfigScreen(
-                        textProfile = textProfile,
-                        existingProfile = visualProfile,
-                        onBack = { navController.popBackStack() },
-                        onSave = { profile ->
-                            scope.launch {
-                                preferences.setAiVisualProfiles(aiVisualProfiles.filterNot { it.id == profile.id } + profile)
-                                preferences.setAiVisualBinding(textProfileId, profile.id)
-                            }
-                            navController.popBackStack()
-                        },
-                        onDelete = { profile ->
-                            scope.launch { preferences.removeAiVisualProfile(profile.id) }
-                            navController.popBackStack()
-                        }
-                    )
-                }
-                composable("ai-chat-history") {
-                    val aiChatState by viewModel.aiChat.collectAsStateWithLifecycle()
-                    AiChatHistoryScreen(
-                        messages = aiChatState.messages,
-                        onBack = { navController.popBackStack() }
-                    )
-                }
-                composable("capture") {
-                    NewCaptureScreen(
-                        viewModel = viewModel,
-                        onBack = { navController.popBackStack() },
-                        aiEndpoint = activeAiProfile.endpoint,
-                        aiModel = activeAiProfile.model,
-                        aiProfiles = aiProfiles,
-                        activeAiProfileId = activeAiProfileId,
-                        initialAiInputMode = aiCaptureInputMode,
-                        visualAssistProfile = aiVisualProfiles.firstOrNull { it.id == aiVisualBindings[activeAiProfileId] },
-                        aiUploadConsent = aiUploadConsent,
-                        aiExcludeSourceImageByDefault = aiExcludeSourceImageByDefault,
-                        onAiUploadConsent = { value -> scope.launch { preferences.setAiUploadConsent(value) } },
-                        onActiveAiProfile = { id -> scope.launch { preferences.setActiveAiProfile(id, aiProfiles) } },
-                         onAiInputMode = { value -> scope.launch { preferences.setAiCaptureInputMode(value.name) } },
-                        onOpenSettings = { navController.navigate("settings-detail") }
-                    )
-                }
-                composable("detail/{id}") { entry ->
-                    DetailScreen(
-                        viewModel = viewModel,
-                        id = entry.arguments?.getString("id")?.toLongOrNull() ?: 0L,
-                        onDelete = { id ->
-                            scope.launch {
-                                viewModel.delete(id).join()
-                                val result = snackbarHostState.showSnackbar(
-                                    message = "错题已删除",
-                                    actionLabel = "撤回",
-                                    withDismissAction = true,
-                                    duration = SnackbarDuration.Long
-                                )
-                                if (result == SnackbarResult.ActionPerformed) {
-                                    viewModel.restore(id)
-                                    snackbarHostState.showSnackbar("已撤回删除", duration = SnackbarDuration.Short)
-                                } else viewModel.purgeDeleted(id)
-                            }
-                        }
-                    ) {
-                        navController.popBackStack()
-                    }
-                }
-                composable("review-detail/{id}/{ids}") { entry ->
-                    val ids = Uri.decode(entry.arguments?.getString("ids").orEmpty())
-                        .split(',')
-                        .mapNotNull { it.toLongOrNull() }
-                    ReviewQuestionScreen(
-                        viewModel = viewModel,
-                        id = entry.arguments?.getString("id")?.toLongOrNull() ?: 0L,
-                        reviewIds = ids,
-                        reviewStatuses = reviewMastery[reviewDateKey()].orEmpty(),
-                        onBack = { navController.popBackStack() },
-                        onRemovedFromPlan = { questionId, onDone ->
-                            scope.launch {
-                                preferences.removeFromReviewPlanSnapshot(reviewDateKey(), questionId)
-                                viewModel.setReviewPlan(questionId, false, onUpdated = onDone)
-                            }
-                        },
-                        onReviewed = { questionId, grade ->
-                            scope.launch { preferences.recordReviewStatus(reviewDateKey(), questionId, grade.name) }
-                        }
-                    )
-                }
-                composable("review-calendar") {
-                    ReviewCalendarScreen(
-                        mistakes = mistakes,
-                        reviewRecords = reviewMastery,
-                        checkedInDates = reviewCheckIns,
-                        todayQuestionIds = reviewPlanSnapshots[reviewDateKey()].orEmpty(),
-                        onCheckIn = { scope.launch { preferences.setReviewCheckIn(reviewDateKey(), true) } },
-                        onBack = { navController.popBackStack() }
-                    )
-                }
-            }
+                viewModel = viewModel,
+                preferences = preferences,
+                scope = scope,
+                snackbarHostState = snackbarHostState,
+                ocrModelManager = ocrModelManager,
+                state = navState,
+                onLibrarySubject = { subject -> librarySubject = subject }
+            )
         }
     }
 }
@@ -1306,14 +782,6 @@ internal fun DifficultyPicker(difficulty: Int, onDifficulty: (Int) -> Unit) {
     }
 }
 
-internal val TijiErrorReasonOptions = listOf("概念不清", "计算错误", "粗心", "审题错误", "方法不熟")
-
-internal fun parseErrorReasons(raw: String): List<String> = raw
-    .split(',', '，', ';', '；', '|')
-    .map(String::trim)
-    .filter(String::isNotBlank)
-    .distinct()
-
 @Composable
 internal fun ErrorReasonPicker(
     value: String,
@@ -1344,16 +812,6 @@ internal fun ErrorReasonPicker(
             }
         }
     }
-}
-
-internal fun reviewIntervalLabel(preview: ReviewPreview): String = when (preview.intervalDays) {
-    1 -> "明天"
-    else -> "${preview.intervalDays} 天后"
-}
-
-internal fun reviewGradeUiLabel(grade: ReviewGrade): String = when (grade) {
-    ReviewGrade.GOOD -> "会了"
-    else -> grade.label
 }
 
 @Composable
@@ -1803,27 +1261,6 @@ internal fun ImagePreview(
             }
         )
     }
-}
-
-internal fun parseTagValues(raw: String): List<String> = raw
-    .split(',', '，', ';', '；', '|')
-    .map(String::trim)
-    .filter(String::isNotBlank)
-    .distinct()
-
-internal fun difficultyFilterLabel(value: Int): String = when (value) {
-    1 -> "简单"
-    2 -> "中等"
-    else -> "困难"
-}
-
-internal fun masteryLabel(value: Int): String = when (value) { 0 -> "未掌握"; 1 -> "学习中"; 2 -> "基本掌握"; else -> "已掌握" }
-
-internal fun isPhotoEntryImagePath(path: String?): Boolean {
-    val name = path?.let { runCatching { File(it).name }.getOrDefault("") }.orEmpty()
-    return name.startsWith("question_") ||
-        name.startsWith("answer_") ||
-        name.startsWith("explanation_")
 }
 
 internal val simpleEquationRegex = Regex(

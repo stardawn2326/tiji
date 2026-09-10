@@ -27,10 +27,23 @@ class LargeFontAccessibilityTest {
     @After
     fun restoreFontScale() {
         shell("settings put system font_scale 1.0")
+        shell("cmd uimode night no")
     }
 
     @Test
     fun navigationKeepsLabelsAndClickSemanticsAtLargeFont() {
+        listOf("home", "library", "solve", "review", "profile").forEach { route ->
+            composeRule.onNodeWithTag("nav_$route").assertExists().performClick()
+        }
+    }
+
+    @Test
+    fun navigationKeepsLabelsAndClickSemanticsInDarkModeAtLargestFont() {
+        shell("settings put system font_scale 1.5")
+        shell("cmd uimode night yes")
+        composeRule.activityRule.scenario.recreate()
+        composeRule.waitForIdle()
+
         listOf("home", "library", "solve", "review", "profile").forEach { route ->
             composeRule.onNodeWithTag("nav_$route").assertExists().performClick()
         }

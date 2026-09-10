@@ -2,110 +2,39 @@
 
 package com.tiji.mistakes.ui.library
 
-import android.Manifest
-import android.annotation.SuppressLint
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.pdf.PdfRenderer
-import android.content.pm.PackageManager
-import android.net.Uri
-import android.os.Build
-import android.os.ParcelFileDescriptor
-import android.os.SystemClock
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import android.util.Log
 import android.widget.Toast
-import android.webkit.RenderProcessGoneDetail
-import android.webkit.WebResourceRequest
-import android.webkit.WebResourceResponse
-import android.webkit.WebView
-import com.tiji.mistakes.BuildConfig
-import androidx.compose.animation.AnimatedContentTransitionScope
-import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.core.tween
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.Image as ComposeImage
-import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTransformGestures
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.foundation.Canvas
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.outlined.AddAPhoto
-import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.AutoAwesome
-import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.CalendarMonth
-import androidx.compose.material.icons.outlined.CameraAlt
-import androidx.compose.material.icons.outlined.CheckCircle
-import androidx.compose.material.icons.outlined.Delete
-import androidx.compose.material.icons.outlined.FileDownload
-import androidx.compose.material.icons.outlined.FolderOpen
-import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.Image
-import androidx.compose.material.icons.outlined.Lightbulb
-import androidx.compose.material.icons.outlined.MoreVert
-import androidx.compose.material.icons.outlined.PictureAsPdf
-import androidx.compose.material.icons.outlined.Person
-import androidx.compose.material.icons.outlined.Replay
-import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.Visibility
-import androidx.compose.material.icons.outlined.StopCircle
-import androidx.compose.material.icons.outlined.Style
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -114,129 +43,46 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.saveable.listSaver
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Shadow
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
-import androidx.compose.ui.zIndex
-import androidx.core.content.ContextCompat
-import androidx.core.content.FileProvider
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.webkit.WebViewAssetLoader
-import androidx.webkit.WebViewClientCompat
-import androidx.navigation.NavHostController
-import androidx.navigation.NavGraph.Companion.findStartDestination
-import androidx.navigation.compose.NavHost
-import androidx.navigation.compose.composable
-import androidx.navigation.compose.currentBackStackEntryAsState
-import androidx.navigation.compose.rememberNavController
-import coil.compose.AsyncImage
-import coil.request.CachePolicy
-import coil.request.ImageRequest
-import com.tiji.mistakes.data.AiProfile
-import com.tiji.mistakes.data.AiVisualProfile
-import com.tiji.mistakes.data.AppPreferences
 import com.tiji.mistakes.data.MistakeEntity
-import com.tiji.mistakes.domain.ReviewGrade
-import com.tiji.mistakes.domain.ReviewPreview
-import com.tiji.mistakes.domain.ReviewScheduler
-import com.tiji.mistakes.ui.settings.MyScreen
-import com.tiji.mistakes.ui.home.HomeScreen
-import com.tiji.mistakes.service.BackupImportMode
-import com.tiji.mistakes.service.BackupPreview
-import com.tiji.mistakes.service.BackupService
 import com.tiji.mistakes.service.HtmlPdfExportService
-import com.tiji.mistakes.service.AiVisionService
-import com.tiji.mistakes.service.AiProviderPreset
-import com.tiji.mistakes.service.AiChatMessage
-import com.tiji.mistakes.service.PersistedAiChatState
-import com.tiji.mistakes.service.hasAiChatActivity
-import com.tiji.mistakes.service.replaceImageAtSamePosition
-import com.tiji.mistakes.service.AiRecognitionMode
-import com.tiji.mistakes.service.AiRecognitionResult
-import com.tiji.mistakes.service.AiRecognitionStatus
-import com.tiji.mistakes.service.AiSolveStatus
-import com.tiji.mistakes.service.AiSolveHistoryRecord
-import com.tiji.mistakes.service.AiDrawingRenderer
-import com.tiji.mistakes.service.AiStructuredSolutionCodec
-import com.tiji.mistakes.service.stripAiProtocolForDisplay
-import com.tiji.mistakes.service.buildStructuredCorrectionContext
-import com.tiji.mistakes.service.followUpReplyForDisplay
-import com.tiji.mistakes.service.ContentBlockRole
-import com.tiji.mistakes.service.ImageOperation
-import com.tiji.mistakes.service.ImageProcessor
-import com.tiji.mistakes.service.ImageStorage
-import com.tiji.mistakes.service.OcrModelDownloadService
-import com.tiji.mistakes.service.OcrModelManager
-import com.tiji.mistakes.service.OcrModelStatus
-import com.tiji.mistakes.service.OCR_USER_WARNING
-import com.tiji.mistakes.service.QuestionContentBlockCodec
-import com.tiji.mistakes.service.ContentBlockKind
-import com.tiji.mistakes.service.SecureKeyStore
-import com.tiji.mistakes.service.normalizeQuestionForDisplayLayout
-import com.tiji.mistakes.service.shouldOfferAiSettings
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import org.json.JSONObject
+import com.tiji.mistakes.ui.BatchBarAction
+import com.tiji.mistakes.ui.common.difficultyFilterLabel
+import com.tiji.mistakes.ui.common.discardPdfPreview
+import com.tiji.mistakes.ui.common.launchDurablePdfExport
+import com.tiji.mistakes.ui.common.masteryLabel
+import com.tiji.mistakes.ui.common.MistakeOrder
+import com.tiji.mistakes.ui.common.parseTagValues
+import com.tiji.mistakes.ui.common.PdfPreviewDialog
+import com.tiji.mistakes.ui.common.PdfPreviewLoadingDialog
+import com.tiji.mistakes.ui.common.PendingPdfExportStore
+import com.tiji.mistakes.ui.ConceptPageHeader
+import com.tiji.mistakes.ui.MistakeViewModel
+import com.tiji.mistakes.ui.normalizedSubject
+import com.tiji.mistakes.ui.subjectCounts
+import com.tiji.mistakes.ui.TijiDimens
+import com.tiji.mistakes.ui.TijiSurfaceCard
 import java.io.File
-import java.text.DateFormat
-import java.text.SimpleDateFormat
-import java.util.Calendar
-import java.util.Date
-import java.util.Locale
-import java.util.UUID
-import kotlin.math.roundToInt
-import com.tiji.mistakes.ui.*
-import com.tiji.mistakes.ui.capture.PendingPdfExportStore
-import com.tiji.mistakes.ui.capture.PdfPreviewDialog
-import com.tiji.mistakes.ui.capture.PdfPreviewLoadingDialog
-import com.tiji.mistakes.ui.capture.discardPdfPreview
-import com.tiji.mistakes.ui.capture.launchDurablePdfExport
+import kotlinx.coroutines.launch
 
 @Composable
 internal fun LibraryScreen(
@@ -526,10 +372,13 @@ internal fun LibraryScreen(
                 placeholder = { Text("搜索题目、答案、解析、标签或 OCR 文本") },
                 singleLine = true,
                 shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
+                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("library_search")
             )
             Spacer(Modifier.height(10.dp))
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.testTag("library_subject_filters")
+            ) {
                 items(subjectTabs) { value ->
                     val selected = if (value == "全部") selectedSubject == null else selectedSubject == value
                     FilterChip(
@@ -547,7 +396,7 @@ internal fun LibraryScreen(
                         FilterChip(
                             selected = tagFilter != null,
                             onClick = { tagMenuExpanded = true },
-                            modifier = Modifier.height(36.dp),
+                            modifier = Modifier.height(36.dp).testTag("library_knowledge_filter"),
                             label = { Text(tagFilter ?: "知识点") }
                         )
                         DropdownMenu(expanded = tagMenuExpanded, onDismissRequest = { tagMenuExpanded = false }) {
@@ -566,7 +415,7 @@ internal fun LibraryScreen(
                     FilterChip(
                         selected = masteryFilter != null,
                         onClick = { showFilterDialog = true },
-                        modifier = Modifier.height(36.dp),
+                        modifier = Modifier.height(36.dp).testTag("library_mastery_filter"),
                         label = { Text(masteryFilter?.let(::masteryLabel) ?: "掌握状态") }
                     )
                 }
@@ -574,7 +423,7 @@ internal fun LibraryScreen(
                     FilterChip(
                         selected = difficultyFilter != null,
                         onClick = { showFilterDialog = true },
-                        modifier = Modifier.height(36.dp),
+                        modifier = Modifier.height(36.dp).testTag("library_difficulty_filter"),
                         label = { Text(difficultyFilter?.let(::difficultyFilterLabel) ?: "难度") }
                     )
                 }
@@ -583,7 +432,7 @@ internal fun LibraryScreen(
                         FilterChip(
                             selected = order != MistakeOrder.NEWEST,
                             onClick = { sortMenuExpanded = true },
-                            modifier = Modifier.height(36.dp),
+                            modifier = Modifier.height(36.dp).testTag("library_sort_filter"),
                             label = { Text(if (order == MistakeOrder.NEWEST) "排序" else order.label) }
                         )
                         DropdownMenu(expanded = sortMenuExpanded, onDismissRequest = { sortMenuExpanded = false }) {
