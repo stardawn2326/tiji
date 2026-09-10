@@ -121,6 +121,9 @@ jobs:
           ram-size: 2048M
           heap-size: 512M
           emulator-boot-timeout: 900
-          disable-linux-hw-accel: true
+          # GitHub-hosted Ubuntu runners expose /dev/kvm. Keep hardware
+          # acceleration enabled so the API 35 x86_64 test device does not
+          # crash while Gradle starts instrumentation.
+          disable-linux-hw-accel: false
           disable-animations: true
           script: ./gradlew connectedDebugAndroidTest --no-daemon
