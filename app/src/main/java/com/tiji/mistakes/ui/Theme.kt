@@ -9,7 +9,10 @@ import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
@@ -29,6 +32,27 @@ enum class ThemePalette(val key: String, val label: String, val preview: Color) 
     BLUE("blue", "柔和学术", Color(0xFF6366F1));
     companion object { fun fromKey(key: String) = entries.firstOrNull { it.key == key } ?: BLUE }
 }
+
+@Immutable
+internal data class TijiSemanticColors(
+    val reviewInProgress: Color,
+    val reviewMastered: Color,
+    val reviewEasy: Color
+)
+
+private val LightTijiSemanticColors = TijiSemanticColors(
+    reviewInProgress = Color(0xFFB45309),
+    reviewMastered = Color(0xFF047857),
+    reviewEasy = Color(0xFF2563EB)
+)
+
+private val DarkTijiSemanticColors = TijiSemanticColors(
+    reviewInProgress = Color(0xFFFBBF24),
+    reviewMastered = Color(0xFF34D399),
+    reviewEasy = Color(0xFF93C5FD)
+)
+
+internal val LocalTijiSemanticColors = staticCompositionLocalOf { LightTijiSemanticColors }
 
 private fun lightColors(@Suppress("UNUSED_PARAMETER") palette: ThemePalette) = lightColorScheme(
     primary = Color(0xFF6366F1), onPrimary = Color.White,
@@ -99,16 +123,18 @@ fun TijiTheme(
 ) {
     val dark = when (mode) { ThemeMode.SYSTEM -> isSystemInDarkTheme(); ThemeMode.LIGHT -> false; ThemeMode.DARK -> true }
     val colors = if (dark) darkColors(palette) else lightColors(palette)
-    MaterialTheme(
-        colorScheme = colors,
-        typography = TijiTypography,
-        shapes = Shapes(
-            small = RoundedCornerShape(10.dp),
-            medium = RoundedCornerShape(12.dp),
-            large = RoundedCornerShape(16.dp)
-        )
-    ) {
-        SystemBars(dark, colors.background)
-        content()
+    CompositionLocalProvider(LocalTijiSemanticColors provides if (dark) DarkTijiSemanticColors else LightTijiSemanticColors) {
+        MaterialTheme(
+            colorScheme = colors,
+            typography = TijiTypography,
+            shapes = Shapes(
+                small = RoundedCornerShape(10.dp),
+                medium = RoundedCornerShape(12.dp),
+                large = RoundedCornerShape(16.dp)
+            )
+        ) {
+            SystemBars(dark, colors.background)
+            content()
+        }
     }
 }

@@ -336,9 +336,11 @@ object BackupService {
             stableId = stableId,
             title = title,
             questionText = json.optString("questionText"),
+            userAnswer = json.optString("userAnswer"),
             answerText = json.optString("answerText"),
             explanation = json.optString("explanation"),
             note = json.optString("note"),
+            errorReason = json.optString("errorReason"),
             subject = json.optString("subject", "未分类"),
             questionType = json.optString("questionType", "未分类"),
             tags = json.optString("tags"),
@@ -379,9 +381,11 @@ object BackupService {
         put("stableId", mistake.stableId)
         put("title", mistake.title)
         put("questionText", mistake.questionText)
+        put("userAnswer", mistake.userAnswer)
         put("answerText", mistake.answerText)
         put("explanation", mistake.explanation)
         put("note", mistake.note)
+        put("errorReason", mistake.errorReason)
         put("subject", mistake.subject)
         put("questionType", mistake.questionType)
         put("tags", mistake.tags)

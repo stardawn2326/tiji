@@ -51,6 +51,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
@@ -76,12 +77,14 @@ import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Lightbulb
+import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.PictureAsPdf
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Replay
 import androidx.compose.material.icons.outlined.Remove
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.StopCircle
 import androidx.compose.material.icons.outlined.Style
 import androidx.compose.material3.Button
@@ -92,8 +95,9 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -101,6 +105,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -293,23 +298,6 @@ private fun formatLocalDate(value: Long = System.currentTimeMillis()): String =
 
 private fun reviewDateKey(value: Long = System.currentTimeMillis()): String =
     SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(value))
-
-private fun difficultyStars(value: Int): String {
-    val normalized = value.coerceIn(0, 5)
-    return "★".repeat(normalized) + "☆".repeat(5 - normalized)
-}
-
-private fun metadataLabel(
-    subject: String,
-    questionType: String,
-    difficulty: Int,
-    mastery: Int? = null
-): String = buildList {
-    subject.trim().takeIf(String::isNotBlank)?.let(::add)
-    questionType.trim().takeIf(String::isNotBlank)?.let(::add)
-    add(difficultyStars(difficulty))
-    mastery?.let { add(masteryLabel(it)) }
-}.joinToString(" · ")
 
 private data class StreamingAiMeta(val difficulty: Int, val subject: String, val questionType: String, val title: String)
 
@@ -605,8 +593,14 @@ fun TijiApp() {
     val route = backStack?.destination?.route
     var solveVisitToken by remember { mutableIntStateOf(0) }
     var homeVisitToken by remember { mutableIntStateOf(0) }
+    var libraryVisitToken by remember { mutableIntStateOf(0) }
+    var reviewVisitToken by remember { mutableIntStateOf(0) }
+    var settingsVisitToken by remember { mutableIntStateOf(0) }
     LaunchedEffect(route) {
         if (route == "solve") solveVisitToken += 1
+        if (route == "library") libraryVisitToken += 1
+        if (route == "review") reviewVisitToken += 1
+        if (route == "settings") settingsVisitToken += 1
     }
     val snackbarHostState = remember { SnackbarHostState() }
     val destinations = remember {
@@ -623,15 +617,25 @@ fun TijiApp() {
         Scaffold(
             snackbarHost = { SnackbarHost(snackbarHostState) },
             bottomBar = {
-                if (route != "capture" && route != "ai-chat-history" && route != "ai-solve-history" && route?.startsWith("visual-config") != true) {
-                    NavigationBar(containerColor = MaterialTheme.colorScheme.surface, modifier = Modifier.navigationBarsPadding()) {
+                if (route in setOf("home", "library", "solve", "review", "settings")) {
+                    NavigationBar(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        tonalElevation = 0.dp,
+                        modifier = Modifier.navigationBarsPadding()
+                    ) {
                         destinations.forEach { destination ->
                             NavigationBarItem(
                                 selected = route == destination.route ||
                                     (destination.route == "library" && route == "detail/{id}") ||
                                     (destination.route == "review" && (route == "review-calendar" || route == "review-detail/{id}/{ids}")),
                                 onClick = {
-                                    if (destination.route == "home") homeVisitToken += 1
+                                    when (destination.route) {
+                                        "home" -> homeVisitToken += 1
+                                        "library" -> libraryVisitToken += 1
+                                        "solve" -> solveVisitToken += 1
+                                        "review" -> reviewVisitToken += 1
+                                        "settings" -> settingsVisitToken += 1
+                                    }
                                     if (route != destination.route) {
                                         navController.navigate(destination.route) {
                                             popUpTo(navController.graph.findStartDestination().id) { saveState = false }
@@ -641,7 +645,14 @@ fun TijiApp() {
                                     }
                                 },
                                 icon = destination.icon,
-                                label = { Text(destination.label) }
+                                label = { Text(destination.label) },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = MaterialTheme.colorScheme.primary,
+                                    selectedTextColor = MaterialTheme.colorScheme.primary,
+                                    indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             )
                         }
                     }
@@ -703,6 +714,7 @@ fun TijiApp() {
                 composable("library") {
                     LibraryScreen(
                         selectedSubject = librarySubject,
+                        resetScrollToken = libraryVisitToken,
                         onSelectSubject = { subject -> librarySubject = subject },
                         viewModel = viewModel,
                         mistakes = mistakes,
@@ -727,7 +739,9 @@ fun TijiApp() {
                         onSavePlanSnapshot = { date, ids -> scope.launch { preferences.ensureReviewPlanSnapshot(date, ids) } },
                         onCheckIn = { scope.launch { preferences.setReviewCheckIn(reviewDateKey(), true) } },
                         onOpenCalendar = { navController.navigate("review-calendar") },
-                        onOpenDetail = { id, ids -> navController.navigate("review-detail/$id/${Uri.encode(ids.joinToString(","))}") }
+                         onOpenSettings = { navController.navigate("settings") },
+                        onOpenDetail = { id, ids -> navController.navigate("review-detail/$id/${Uri.encode(ids.joinToString(","))}") },
+                        resetScrollToken = reviewVisitToken
                     )
                 }
                 composable("solve") {
@@ -752,6 +766,7 @@ fun TijiApp() {
                 }
                 composable("settings") {
                     SettingsScreen(
+                        resetScrollToken = settingsVisitToken,
                         themeMode = ThemeMode.fromKey(themeModeKey),
                         themePalette = ThemePalette.fromKey(themePaletteKey),
                         aiEndpoint = activeAiProfile.endpoint,
@@ -1190,7 +1205,9 @@ private fun NewCaptureScreen(
     val mode = EntryMode.entries.firstOrNull { it.name == modeName } ?: EntryMode.PHOTO
     var title by rememberSaveable { mutableStateOf("") }; var question by rememberSaveable { mutableStateOf("") }
     var answer by rememberSaveable { mutableStateOf("") }; var explanation by rememberSaveable { mutableStateOf("") }
+    var userAnswer by rememberSaveable { mutableStateOf("") }
     var note by rememberSaveable { mutableStateOf("") }; var subject by rememberSaveable { mutableStateOf("") }
+    var errorReason by rememberSaveable { mutableStateOf("") }
     var questionType by rememberSaveable { mutableStateOf("") }; var tags by rememberSaveable { mutableStateOf("") }
     var difficulty by rememberSaveable { mutableIntStateOf(0) }
     var photoQuestionImage by rememberSaveable { mutableStateOf<String?>(null) }
@@ -1220,9 +1237,11 @@ private fun NewCaptureScreen(
     fun clearTextDraft() {
         title = ""
         question = ""
+        userAnswer = ""
         answer = ""
         explanation = ""
         note = ""
+        errorReason = ""
         subject = ""
         questionType = ""
         tags = ""
@@ -1262,8 +1281,10 @@ private fun NewCaptureScreen(
             pendingRecognition = null
             title = ""
             question = ""
+            userAnswer = ""
             answer = ""
             explanation = ""
+            errorReason = ""
         }
         if (!(mode == EntryMode.AI && selectedRole == PhotoRole.QUESTION)) {
             when (selectedRole) {
@@ -1525,278 +1546,320 @@ private fun NewCaptureScreen(
     Scaffold(
         bottomBar = {
             Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 1.dp) {
-                Column(Modifier.imePadding().padding(horizontal = 16.dp, vertical = 10.dp)) {
-                Button(
-                    enabled = !saving && !aiRecognitionState.running && (mode == EntryMode.MANUAL && question.isNotBlank() ||
-                        (mode == EntryMode.PHOTO && photoQuestionImage != null) ||
-                        (mode == EntryMode.AI && aiRecognitionImages.isNotEmpty() && aiFilled)),
-                    onClick = {
-                        saving = true
-                        val sourceImages = buildList {
-                            if (mode == EntryMode.AI) addAll(aiRecognitionImages) else photoQuestionImage?.let(::add)
-                        }
-                        val sourceImagePaths = org.json.JSONArray().apply { sourceImages.forEach(::put) }.toString()
-                        viewModel.save(MistakeEntity(
-                            title = title.ifBlank { "未命名错题" },
-                            questionText = question,
-                            answerText = answer,
-                            explanation = explanation,
-                            note = note,
-                            subject = subject,
-                            questionType = questionType,
-                            tags = tags,
-                            difficulty = difficulty,
-                            includeSourceImageInPdf = mode != EntryMode.AI || !aiExcludeSourceImageByDefault,
-                            imagePath = activeQuestionImage,
-                            sourceImagePaths = sourceImagePaths,
-                            contentBlocks = if (mode == EntryMode.AI) contentBlocksJson else "",
-                            answerImagePath = answerImage,
-                            explanationImagePath = explanationImage
-                        ), onSaved = { saving = false; onBack() }, onFailure = {
-                            saving = false
-                            captureMessage = "保存失败：${it.message ?: "请重试"}"
-                        })
-                    },
-                    shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
-                ) { Text(if (aiRecognitionState.running) "正在识别…" else if (saving) "正在保存…" else "保存错题") }
+                Column(
+                    Modifier.imePadding().padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(0.dp)
+                ) {
+                    Button(
+                        enabled = !saving && !aiRecognitionState.running && (mode == EntryMode.MANUAL && question.isNotBlank() ||
+                            (mode == EntryMode.PHOTO && photoQuestionImage != null) ||
+                            (mode == EntryMode.AI && aiRecognitionImages.isNotEmpty() && aiFilled)),
+                        onClick = {
+                            saving = true
+                            val sourceImages = buildList {
+                                if (mode == EntryMode.AI) addAll(aiRecognitionImages) else photoQuestionImage?.let(::add)
+                            }
+                            val sourceImagePaths = org.json.JSONArray().apply { sourceImages.forEach(::put) }.toString()
+                            viewModel.save(MistakeEntity(
+                                title = title.ifBlank { "未命名错题" },
+                                questionText = question,
+                                userAnswer = userAnswer,
+                                answerText = answer,
+                                explanation = explanation,
+                                note = note,
+                                errorReason = errorReason,
+                                subject = subject,
+                                questionType = questionType,
+                                tags = tags,
+                                difficulty = difficulty,
+                                includeSourceImageInPdf = mode != EntryMode.AI || !aiExcludeSourceImageByDefault,
+                                imagePath = activeQuestionImage,
+                                sourceImagePaths = sourceImagePaths,
+                                contentBlocks = if (mode == EntryMode.AI) contentBlocksJson else "",
+                                answerImagePath = answerImage,
+                                explanationImagePath = explanationImage
+                            ), onSaved = { saving = false; onBack() }, onFailure = {
+                                saving = false
+                                captureMessage = "保存失败：${it.message ?: "请重试"}"
+                            })
+                        },
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
+                    ) { Text(if (aiRecognitionState.running) "正在识别…" else if (saving) "正在保存…" else "保存错题") }
                 }
             }
         },
         topBar = {
             TopAppBar(
                 title = { Text("录入错题") },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, null) } },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回") } },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
         }
     ) { padding ->
-        LazyColumn(Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        LazyColumn(
+            Modifier.padding(padding).fillMaxSize(),
+            contentPadding = PaddingValues(
+                start = TijiDimens.pagePadding,
+                top = 20.dp,
+                end = TijiDimens.pagePadding,
+                bottom = 112.dp
+            ),
+            verticalArrangement = Arrangement.spacedBy(TijiDimens.sectionGap)
+        ) {
             item {
-                EntryModeSegmented(
-                    selected = mode,
-                    enabled = !saving && !aiRecognitionState.running,
-                    onSelected = ::switchMode
-                )
+                TijiSurfaceCard {
+                    EntryModeSegmented(
+                        selected = mode,
+                        enabled = !saving && !aiRecognitionState.running,
+                        onSelected = ::switchMode
+                    )
+                }
             }
             if (mode != EntryMode.AI && captureMessage.isNotBlank()) {
-                item { Text(captureMessage, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                item { ConceptTag(captureMessage, containerColor = MaterialTheme.colorScheme.primaryContainer) }
             }
             if (mode == EntryMode.PHOTO) {
-                item { Text("先添加题目图片，答案和解析可以稍后补充。", color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 item {
-                    TextButton(onClick = { showSupplementImages = !showSupplementImages }) {
-                        Text(if (showSupplementImages) "收起答案与解析图片" else "添加答案 / 解析图片（选填）")
-                    }
-                }
-                PhotoRole.entries.filter { it == PhotoRole.QUESTION || showSupplementImages }.forEach { role ->
-                    item {
-                        val path = when (role) {
-                            PhotoRole.QUESTION -> photoQuestionImage
-                            PhotoRole.ANSWER -> answerImage
-                            PhotoRole.EXPLANATION -> explanationImage
-                        }
-                        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), modifier = Modifier.fillMaxWidth()) {
-                            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text(role.label, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                                if (path == null) {
-                                    TijiUploadPlaceholder(
-                                        icon = if (role == PhotoRole.QUESTION) Icons.Outlined.AddAPhoto else Icons.Outlined.Image,
-                                        title = "添加${role.label}",
-                                        subtitle = "拍照或从相册选择"
-                                    )
-                                } else ImagePreview(path)
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                                    OutlinedButton(onClick = { selectedRole = role; galleryLauncher.launch("image/*") }, modifier = Modifier.weight(1f)) {
+                    TijiSurfaceCard {
+                        if (photoQuestionImage == null) {
+                            ConceptDashedDropZone(
+                                title = "拍照或选择图片",
+                                subtitle = "支持拍照或从相册选择",
+                                icon = Icons.Outlined.AddAPhoto,
+                                onClick = { selectedRole = PhotoRole.QUESTION; galleryLauncher.launch("image/*") },
+                                minHeight = 160.dp,
+                                compact = true,
+                                actions = {
+                                    OutlinedButton(
+                                        onClick = { selectedRole = PhotoRole.QUESTION; galleryLauncher.launch("image/*") },
+                                        modifier = Modifier.weight(1f).heightIn(min = 40.dp),
+                                        contentPadding = PaddingValues(horizontal = 8.dp)
+                                    ) {
                                         Icon(Icons.Outlined.Image, contentDescription = null)
                                         Spacer(Modifier.size(5.dp))
                                         Text("相册")
                                     }
-                                    OutlinedButton(onClick = { requestCamera(role) }, modifier = Modifier.weight(1f)) {
+                                    Button(
+                                        onClick = { requestCamera(PhotoRole.QUESTION) },
+                                        modifier = Modifier.weight(1f).heightIn(min = 40.dp),
+                                        contentPadding = PaddingValues(horizontal = 8.dp)
+                                    ) {
                                         Icon(Icons.Outlined.CameraAlt, contentDescription = null)
                                         Spacer(Modifier.size(5.dp))
                                         Text("拍照")
                                     }
                                 }
+                            )
+                        } else {
+                            ImagePreview(photoQuestionImage!!)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                OutlinedButton(onClick = { selectedRole = PhotoRole.QUESTION; galleryLauncher.launch("image/*") }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 8.dp)) {
+                                    Icon(Icons.Outlined.Image, contentDescription = null); Spacer(Modifier.size(5.dp)); Text("相册")
+                                }
+                                Button(onClick = { requestCamera(PhotoRole.QUESTION) }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 8.dp)) {
+                                    Icon(Icons.Outlined.CameraAlt, contentDescription = null); Spacer(Modifier.size(5.dp)); Text("拍照")
+                                }
                             }
                         }
                     }
                 }
                 item {
-                    CaptureFields(
-                        title = title,
-                        note = note,
-                        subject = subject,
-                        questionType = questionType,
-                        tags = tags,
-                        difficulty = difficulty,
-                        onTitle = { title = it },
-                        onNote = { note = it },
-                        onSubject = { subject = it },
-                        onQuestionType = { questionType = it },
-                        onTags = { tags = it },
-                        onDifficulty = { difficulty = it }
-                    )
+                    TijiSurfaceCard {
+                        Text("记录信息", style = MaterialTheme.typography.titleMedium)
+                        CaptureFields(
+                            title = title,
+                            userAnswer = userAnswer,
+                            note = note,
+                            subject = subject,
+                            errorReason = errorReason,
+                            questionType = questionType,
+                            tags = tags,
+                            difficulty = difficulty,
+                            onTitle = { title = it },
+                            onUserAnswer = { userAnswer = it },
+                            onNote = { note = it },
+                            onSubject = { subject = it },
+                            onErrorReason = { errorReason = it },
+                            onQuestionType = { questionType = it },
+                            onTags = { tags = it },
+                            onDifficulty = { difficulty = it }
+                        )
+                    }
+                }
+                item {
+                    TijiSurfaceCard {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text("补充图片", style = MaterialTheme.typography.titleMedium)
+                                Text("答案和解析图片为选填项", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            TextButton(onClick = { showSupplementImages = !showSupplementImages }) { Text(if (showSupplementImages) "收起" else "添加") }
+                        }
+                        if (showSupplementImages) {
+                            PhotoRole.entries.filter { it != PhotoRole.QUESTION }.forEach { role ->
+                                val path = if (role == PhotoRole.ANSWER) answerImage else explanationImage
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text(role.label, style = MaterialTheme.typography.titleSmall)
+                                    if (path == null) {
+                                        ConceptDashedDropZone(
+                                            title = "添加${role.label}",
+                                            subtitle = "拍照或从相册选择",
+                                            icon = Icons.Outlined.Image,
+                                            onClick = { selectedRole = role; galleryLauncher.launch("image/*") },
+                                            modifier = Modifier.heightIn(min = 112.dp)
+                                        )
+                                    } else ImagePreview(path)
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                        OutlinedButton(onClick = { selectedRole = role; galleryLauncher.launch("image/*") }, modifier = Modifier.weight(1f)) { Text("相册") }
+                                        OutlinedButton(onClick = { requestCamera(role) }, modifier = Modifier.weight(1f)) { Text("拍照") }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             } else if (mode == EntryMode.AI) {
                 item {
-                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), modifier = Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Outlined.AutoAwesome, null, tint = MaterialTheme.colorScheme.primary)
-                                Spacer(Modifier.size(8.dp))
-                                Text("AI 识题", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    TijiSurfaceCard {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                            Surface(color = MaterialTheme.colorScheme.tertiaryContainer, shape = RoundedCornerShape(12.dp)) {
+                                Icon(Icons.Outlined.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.padding(10.dp).size(23.dp))
                             }
-                            Text("选择 AI 配置后，可分多次拍摄或选择题目、答案、解析图片，AI 会合并识别结果。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            TextButton(onClick = { showCaptureConfiguration = !showCaptureConfiguration }) {
-                                Text(if (showCaptureConfiguration) "收起识别设置" else "识别设置 · ${aiProfiles.firstOrNull { it.id == activeAiProfileId }?.name ?: aiModel}")
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text("AI 识题", style = MaterialTheme.typography.titleMedium)
+                                Text("识别题目、答案和解析，科目随后自动归类", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            if (showCaptureConfiguration) {
+                        }
+                        TextButton(onClick = { showCaptureConfiguration = !showCaptureConfiguration }) {
+                            Text(if (showCaptureConfiguration) "收起设置" else "设置：${aiProfiles.firstOrNull { it.id == activeAiProfileId }?.name ?: aiModel}")
+                        }
+                        if (showCaptureConfiguration) {
                             Text("当前 AI 配置", style = MaterialTheme.typography.labelLarge)
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 items(aiProfiles, key = { it.id }) { profile ->
-                                    FilterChip(
-                                        selected = profile.id == activeAiProfileId,
-                                        onClick = { onActiveAiProfile(profile.id) },
-                                        label = { Text(profile.name) }
-                                    )
+                                    FilterChip(selected = profile.id == activeAiProfileId, onClick = { onActiveAiProfile(profile.id) }, label = { Text(profile.name) })
                                 }
                             }
-                            AiInputModeSelector(
-                                selected = aiInputMode,
-                                onSelected = { aiInputModeName = it.name; onAiInputMode(it) },
-                                title = "识别与处理方式"
+                            AiInputModeSelector(selected = aiInputMode, onSelected = { aiInputModeName = it.name; onAiInputMode(it) }, title = "识别方式")
+                        }
+                        if (aiRecognitionImages.isEmpty()) {
+                            ConceptDashedDropZone(
+                                title = "拍照或选择图片",
+                                subtitle = "支持多张图片，AI 会按顺序合并识别",
+                                icon = Icons.Outlined.AddAPhoto,
+                                onClick = { selectedRole = PhotoRole.QUESTION; galleryLauncher.launch("image/*") }
                             )
-                            }
-                            if (aiRecognitionImages.isEmpty()) {
-                                Text("还没有添加图片", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            } else {
-                                Text("题目图片 ${aiRecognitionImages.size} 张（按显示顺序提交）", style = MaterialTheme.typography.labelLarge)
-                                aiRecognitionImages.forEachIndexed { index, path ->
-                                    Text("第 ${index + 1} 张", style = MaterialTheme.typography.bodySmall)
-                                    ImagePreview(
-                                        path = path,
-                                        onDelete = { removeAiRecognitionImage(path) },
-                                        overlayActionLabel = "重新处理",
-                                        onOverlayAction = {
-                                            selectedRole = PhotoRole.QUESTION
-                                            aiRecognitionEditingOriginalPath = path
-                                            editingPath = path
-                                        }
-                                    )
-                                }
-                                Text("已添加 ${aiRecognitionImages.size} 张图片，可继续添加；点击图片可放大或删除", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-                            }
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                                OutlinedButton(
-                                    onClick = { selectedRole = PhotoRole.QUESTION; galleryLauncher.launch("image/*") },
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Icon(Icons.Outlined.Image, contentDescription = null)
-                                    Spacer(Modifier.size(5.dp))
-                                    Text("相册")
-                                }
-                                OutlinedButton(
-                                    onClick = { requestCamera(PhotoRole.QUESTION) },
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Icon(Icons.Outlined.CameraAlt, contentDescription = null)
-                                    Spacer(Modifier.size(5.dp))
-                                    Text("拍照")
+                        } else {
+                            Text("已添加 ${aiRecognitionImages.size} 张图片", style = MaterialTheme.typography.titleSmall)
+                            aiRecognitionImages.forEachIndexed { index, path ->
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text("第 ${index + 1} 张", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    ImagePreview(path, onDelete = { removeAiRecognitionImage(path) }, overlayActionLabel = "重新处理", onOverlayAction = {
+                                        selectedRole = PhotoRole.QUESTION
+                                        aiRecognitionEditingOriginalPath = path
+                                        editingPath = path
+                                    })
                                 }
                             }
-                            Button(
-                                onClick = { if (aiUploadConsent) recognizeQuestionWithAi() else showAiConsentDialog = true },
-                                enabled = aiRecognitionImages.isNotEmpty() && !aiRecognitionState.running,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Icon(Icons.Outlined.AutoAwesome, null)
-                                Spacer(Modifier.size(6.dp))
-                                Text("AI 识别并填入")
-                            }
-                            if (visualAssistBindingMissing) {
-                                Card(
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = MaterialTheme.colorScheme.primaryContainer
-                                    ),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text(
-                                        "此模型尚未配置视觉辅助。",
-                                        modifier = Modifier.padding(12.dp),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                                    )
-                                }
-                            }
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                            OutlinedButton(onClick = { selectedRole = PhotoRole.QUESTION; galleryLauncher.launch("image/*") }, modifier = Modifier.weight(1f)) { Icon(Icons.Outlined.Image, contentDescription = null); Spacer(Modifier.size(5.dp)); Text("相册") }
+                            OutlinedButton(onClick = { requestCamera(PhotoRole.QUESTION) }, modifier = Modifier.weight(1f)) { Icon(Icons.Outlined.CameraAlt, contentDescription = null); Spacer(Modifier.size(5.dp)); Text("拍照") }
+                        }
+                        Button(onClick = { if (aiUploadConsent) recognizeQuestionWithAi() else showAiConsentDialog = true }, enabled = aiRecognitionImages.isNotEmpty() && !aiRecognitionState.running, modifier = Modifier.fillMaxWidth()) {
+                            Icon(Icons.Outlined.AutoAwesome, contentDescription = null); Spacer(Modifier.size(6.dp)); Text("AI 识别并填入")
+                        }
+                        if (visualAssistBindingMissing) {
+                            ConceptTag("此模型尚未配置视觉辅助", containerColor = MaterialTheme.colorScheme.primaryContainer)
                         }
                     }
                 }
                 if (mode == EntryMode.AI && (aiRecognitionState.running || captureMessage.isNotBlank())) {
                     item {
-                        val recognitionProgress = if (aiRecognitionState.progress > 0f) {
-                            aiRecognitionState.progress.coerceIn(0f, 1f)
-                        } else if (aiRecognitionState.totalCount > 0) {
-                            (aiRecognitionState.completedCount.toFloat() / aiRecognitionState.totalCount).coerceIn(0f, 1f)
-                        } else 0f
-                        val statusText = if (aiRecognitionState.running) {
-                            "AI 正在后台识别 ${aiRecognitionState.completedCount}/${aiRecognitionState.totalCount} 张图片，切换页面不会中断…"
-                        } else captureMessage
-                        val failed = statusText.startsWith("AI 识别失败")
-                        Card(
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                if (aiRecognitionState.running) {
-                                    LinearProgressIndicator(
-                                        progress = { recognitionProgress },
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
-                                }
-                                Text(
-                                    statusText,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = if (failed) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onPrimaryContainer
-                                )
-                                if (aiRecognitionState.running) {
-                                    OutlinedButton(
-                                        onClick = viewModel::stopAiRecognition,
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) { Text("停止识别") }
-                                } else if (failed) {
-                                    TextButton(onClick = onOpenSettings) { Text("打开设置") }
-                                }
-                            }
+                        val recognitionProgress = if (aiRecognitionState.progress > 0f) aiRecognitionState.progress.coerceIn(0f, 1f) else if (aiRecognitionState.totalCount > 0) (aiRecognitionState.completedCount.toFloat() / aiRecognitionState.totalCount).coerceIn(0f, 1f) else 0f
+                        val statusText = if (aiRecognitionState.running) "AI 正在后台识别 ${aiRecognitionState.completedCount}/${aiRecognitionState.totalCount} 张图片" else captureMessage
+                        TijiSurfaceCard {
+                            Text("识别状态", style = MaterialTheme.typography.titleSmall)
+                            if (aiRecognitionState.running) LinearProgressIndicator(progress = { recognitionProgress }, modifier = Modifier.fillMaxWidth())
+                            Text(statusText, style = MaterialTheme.typography.bodySmall, color = if (statusText.startsWith("AI 识别失败")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+                            if (aiRecognitionState.running) OutlinedButton(onClick = viewModel::stopAiRecognition, modifier = Modifier.fillMaxWidth()) { Text("停止识别") }
+                            else if (statusText.startsWith("AI 识别失败")) TextButton(onClick = onOpenSettings) { Text("打开设置") }
                         }
                     }
                 }
                 if (aiFilled) {
                     item {
-                        val aiContentBlocks = remember(contentBlocksJson) {
-                            QuestionContentBlockCodec.decode(contentBlocksJson)
+                        val aiContentBlocks = remember(contentBlocksJson) { QuestionContentBlockCodec.decode(contentBlocksJson) }
+                        TijiSurfaceCard {
+                            Text("识别结果", style = MaterialTheme.typography.titleMedium)
+                            Text("确认内容后再点击底部保存，科目将沿用识别结果。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            MistakeFields(
+                                title = title,
+                                question = question,
+                                userAnswer = userAnswer,
+                                answer = answer,
+                                explanation = explanation,
+                                note = note,
+                                errorReason = errorReason,
+                                subject = subject,
+                                tags = tags,
+                                difficulty = difficulty,
+                                onTitle = { title = it },
+                                onQuestion = { question = it },
+                                onUserAnswer = { userAnswer = it },
+                                onAnswer = { answer = it },
+                                onExplanation = { explanation = it },
+                                onNote = { note = it },
+                                onErrorReason = { errorReason = it },
+                                onSubject = { subject = it },
+                                onTags = { tags = it },
+                                onDifficulty = { difficulty = it },
+                                questionType = questionType,
+                                onQuestionType = { questionType = it },
+                                showRenderedPreview = true,
+                                contentBlocks = aiContentBlocks,
+                                onDeleteBlock = { block ->
+                                    viewModel.removeAiRecognitionContentBlock(block.path)
+                                    viewModel.deleteImagesNow(listOf(block.path))
+                                    contentBlocksJson = removeContentBlockPath(contentBlocksJson, block.path)
+                                }
+                            )
                         }
-                        Text("AI 识别结果", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                        MistakeFields(
-                            title, question, answer, explanation, note, subject, tags, difficulty,
-                            { title = it }, { question = it }, { answer = it }, { explanation = it },
-                            { note = it }, { subject = it }, { tags = it }, { difficulty = it },
-                            questionType, { questionType = it }, showRenderedPreview = true,
-                            contentBlocks = aiContentBlocks,
-                            onDeleteBlock = { block ->
-                                viewModel.removeAiRecognitionContentBlock(block.path)
-                                viewModel.deleteImagesNow(listOf(block.path))
-                                contentBlocksJson = removeContentBlockPath(contentBlocksJson, block.path)
-                            }
-                        )
                     }
                 }
             } else {
                 item {
-                    MistakeFields(title, question, answer, explanation, note, subject, tags, difficulty, {title=it},{question=it},{answer=it},{explanation=it},{note=it},{subject=it},{tags=it},{difficulty=it},questionType,{questionType=it})
+                    TijiSurfaceCard {
+                        Text("题目内容", style = MaterialTheme.typography.titleMedium)
+                        Text("保存后会按识别结果自动归类，标签和难度可以继续补充。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        MistakeFields(
+                            title = title,
+                            question = question,
+                            userAnswer = userAnswer,
+                            answer = answer,
+                            explanation = explanation,
+                            note = note,
+                            errorReason = errorReason,
+                            subject = subject,
+                            tags = tags,
+                            difficulty = difficulty,
+                            onTitle = { title = it },
+                            onQuestion = { question = it },
+                            onUserAnswer = { userAnswer = it },
+                            onAnswer = { answer = it },
+                            onExplanation = { explanation = it },
+                            onNote = { note = it },
+                            onErrorReason = { errorReason = it },
+                            onSubject = { subject = it },
+                            onTags = { tags = it },
+                            onDifficulty = { difficulty = it },
+                            questionType = questionType,
+                            onQuestionType = { questionType = it }
+                        )
+                    }
                 }
             }
-
         }
     }
 }
@@ -2015,6 +2078,12 @@ private fun StandaloneImageEditor(
     }
 }
 
+private data class WeakPointStat(
+    val label: String,
+    val count: Int,
+    val weakness: Float
+)
+
 @Composable
 private fun HomeScreen(
     mistakes: List<MistakeEntity>,
@@ -2029,19 +2098,21 @@ private fun HomeScreen(
     val weakPoints = remember(mistakes) {
         mistakes.asSequence()
             .flatMap { mistake ->
-                mistake.tags
-                    .split(',', '，', ';', '；', '|')
-                    .map(String::trim)
-                    .filter(String::isNotBlank)
-                    .map { it to mistake.mastery }
+                parseTagValues(mistake.tags).map { it to mistake.mastery }
             }
             .filter { (_, mastery) -> mastery < 2 }
-            .groupingBy { it.first }
-            .eachCount()
+            .groupBy { it.first }
             .entries
-            .sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key })
+            .sortedWith(compareByDescending<Map.Entry<String, List<Pair<String, Int>>>> { it.value.size }.thenBy { it.key })
             .take(3)
-            .map { it.key }
+            .map { (label, rows) ->
+                val averageMastery = rows.map { it.second.coerceIn(0, 3) }.average().toFloat()
+                WeakPointStat(
+                    label = label,
+                    count = rows.size,
+                    weakness = (1f - averageMastery / 3f).coerceIn(0.12f, 1f)
+                )
+            }
     }
     val recentMistakes = remember(mistakes) { mistakes.sortedByDescending { it.updatedAt }.take(2) }
     val listState = rememberLazyListState()
@@ -2050,44 +2121,54 @@ private fun HomeScreen(
     }
     LazyColumn(
         state = listState,
-        contentPadding = PaddingValues(horizontal = TijiDimens.pagePadding, vertical = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(TijiDimens.sectionGap),
+        contentPadding = PaddingValues(horizontal = TijiDimens.pagePadding, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier.fillMaxSize()
     ) {
         item {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("题迹", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                Text("晚上好，", style = MaterialTheme.typography.headlineSmall)
-                Text("让每一次错误都成为进步的痕迹。", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
+                ConceptPageHeader(
+                    title = "晚上好，",
+                    subtitle = "保持专注，未来会感谢现在的你。",
+                    action = {
+                        IconButton(onClick = { onNavigate("review-calendar") }) {
+                            Icon(Icons.Outlined.CalendarMonth, contentDescription = "复习日历")
+                        }
+                    }
+                )
         }
         item {
-            TijiSurfaceCard {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            TijiSurfaceCard(contentPadding = 12.dp) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
                     Surface(
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(13.dp),
                         color = MaterialTheme.colorScheme.primaryContainer
                     ) {
                         Icon(
                             Icons.Outlined.CalendarMonth,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(10.dp).size(22.dp)
+                            modifier = Modifier.padding(11.dp).size(24.dp)
                         )
                     }
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text("今日复习", style = MaterialTheme.typography.titleMedium)
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                            Text("今日复习", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                            Text(formatLocalDate(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                         Text(
-                            if (reviewTotal > 0) "先完成今天的复习队列" else "暂时没有待复习题",
+                            if (reviewTotal > 0) "今天还有 ${(reviewTotal - reviewCompleted).coerceAtLeast(0)} 道题需要复习" else "今天暂时没有待复习题",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    Text(
-                        "${reviewCompleted}/${reviewTotal}",
-                        style = MaterialTheme.typography.titleLarge,
-                        color = MaterialTheme.colorScheme.primary
-                    )
+                    Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("${reviewCompleted}/${reviewTotal}", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
+                        Text("已完成", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
                 LinearProgressIndicator(
                     progress = { (reviewCompleted.toFloat() / reviewTotal.coerceAtLeast(1)).coerceIn(0f, 1f) },
@@ -2096,69 +2177,118 @@ private fun HomeScreen(
                 )
                 Button(
                     onClick = { onNavigate("review") },
-                    enabled = reviewTotal > 0 || dueCount > 0,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                 ) {
-                    Text(if (reviewCompleted > 0) "继续复习" else "开始今日复习")
+                    Text(
+                        when {
+                            reviewCompleted > 0 -> "继续复习"
+                            reviewTotal > 0 || dueCount > 0 -> "开始今日复习"
+                            else -> "查看复习计划"
+                        }
+                    )
                 }
             }
         }
         item {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("按科目查看", style = MaterialTheme.typography.titleLarge)
-                Spacer(Modifier.weight(1f))
-                TextButton(onClick = { onSubject(null) }) { Text("全部错题") }
-            }
+            ConceptSectionHeader(
+                title = "各科错题",
+                action = { TextButton(onClick = { onSubject(null) }) { Text("查看全部") } }
+            )
         }
         if (subjects.isEmpty()) {
-            item { EmptyState("还没有保存错题", "拍照录入或让 AI 解题，保存后会在这里形成你的错题库。") }
+            item {
+                TijiSurfaceCard {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(9.dp)
+                    ) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.primary,
+                            shape = RoundedCornerShape(14.dp)
+                        ) {
+                            Icon(Icons.Outlined.AddAPhoto, contentDescription = null, modifier = Modifier.padding(12.dp).size(26.dp))
+                        }
+                        Text("从一道错题开始", style = MaterialTheme.typography.titleLarge)
+                        Text(
+                            "拍照录题或使用 AI 解题，保存后会自动按科目整理。",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        OutlinedButton(onClick = { onNavigate("capture") }) { Text("录入第一道错题") }
+                    }
+                }
+            }
         } else {
-            items(subjects.chunked(2)) { row ->
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    row.forEach { (subject, count) ->
+            item {
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    contentPadding = PaddingValues(end = 2.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(subjects, key = { it.first }) { (subject, count) ->
                         TijiSurfaceCard(
                             onClick = { onSubject(subject) },
-                            modifier = Modifier.weight(1f)
+                            contentPadding = 12.dp,
+                            modifier = Modifier.width(96.dp)
                         ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.primaryContainer) {
-                                    Text(
-                                        subjectGlyph(subject),
-                                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 7.dp),
-                                        color = MaterialTheme.colorScheme.primary,
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                                Spacer(Modifier.weight(1f))
-                                Text(count.toString(), style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
+                            Surface(
+                                color = MaterialTheme.colorScheme.primaryContainer,
+                                contentColor = MaterialTheme.colorScheme.primary,
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Icon(
+                                    Icons.AutoMirrored.Outlined.MenuBook,
+                                    contentDescription = null,
+                                    modifier = Modifier.padding(7.dp).size(18.dp)
+                                )
                             }
-                            Text(subject, style = MaterialTheme.typography.titleSmall)
-                            Text("道错题", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(subject, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+                                Text(count.toString(), style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
+                                Spacer(Modifier.size(4.dp))
+                                Text("道错题", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 3.dp))
+                            }
                         }
                     }
-                    repeat(2 - row.size) { Spacer(Modifier.weight(1f)) }
                 }
             }
         }
         item {
-            TijiSurfaceCard {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Text("薄弱知识点", style = MaterialTheme.typography.titleLarge)
-                        Text("用几分钟，补上最容易忘记的地方。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Icon(Icons.Outlined.Lightbulb, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary)
-                }
+            ConceptSectionHeader(
+                title = "薄弱知识点",
+                action = { TextButton(onClick = { onNavigate("library") }) { Text("查看全部") } }
+            )
+        }
+        item {
+            TijiSurfaceCard(contentPadding = 12.dp) {
                 if (weakPoints.isEmpty()) {
-                    Text("保存带有标签的错题后，这里会显示需要巩固的知识点。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("保存带有标签的错题后，这里会显示需要巩固的知识点。", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } else {
                     weakPoints.forEach { point ->
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Surface(shape = RoundedCornerShape(999.dp), color = MaterialTheme.colorScheme.tertiaryContainer) {
-                                Text("重点", modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(9.dp)
+                            ) {
+                                Surface(
+                                    color = MaterialTheme.colorScheme.tertiaryContainer,
+                                    contentColor = MaterialTheme.colorScheme.tertiary,
+                                    shape = RoundedCornerShape(9.dp)
+                                ) {
+                                    Icon(Icons.Outlined.Lightbulb, contentDescription = null, modifier = Modifier.padding(6.dp).size(18.dp))
+                                }
+                                Text(point.label, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                                Text("${point.count} 道", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("${(point.weakness * 100).toInt()}%", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                             }
-                            Text(point, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            LinearProgressIndicator(
+                                progress = { point.weakness },
+                                modifier = Modifier.fillMaxWidth().height(6.dp),
+                                trackColor = MaterialTheme.colorScheme.primaryContainer
+                            )
                         }
                     }
                 }
@@ -2166,24 +2296,20 @@ private fun HomeScreen(
         }
         if (recentMistakes.isNotEmpty()) {
             item {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text("最近记录", style = MaterialTheme.typography.titleLarge)
-                    Spacer(Modifier.weight(1f))
-                    TextButton(onClick = { onSubject(null) }) { Text("打开错题库") }
-                }
+                ConceptSectionHeader(
+                    title = "最近记录",
+                    subtitle = "继续整理最近保存的题目",
+                    action = { TextButton(onClick = { onSubject(null) }) { Text("打开错题库") } }
+                )
             }
             items(recentMistakes, key = { it.id }) { mistake ->
                 TijiSurfaceCard(onClick = { onNavigate("detail/${mistake.id}") }) {
                     Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            ConceptTag(normalizedSubject(mistake.subject))
+                            Text(mistake.title.ifBlank { "未命名错题" }, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text(
-                                "${normalizedSubject(mistake.subject)} · ${mistake.title.ifBlank { "未命名错题" }}",
-                                style = MaterialTheme.typography.titleSmall,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                mistake.questionText.ifBlank { "照片题目，点击查看详情" },
+                                mistake.questionText.ifBlank { "图片题目，点击查看详情" },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 2,
@@ -2201,6 +2327,7 @@ private fun HomeScreen(
 @Composable
 private fun LibraryScreen(
     selectedSubject: String?,
+    resetScrollToken: Int,
     onSelectSubject: (String?) -> Unit,
     viewModel: MistakeViewModel,
     mistakes: List<MistakeEntity>,
@@ -2219,6 +2346,9 @@ private fun LibraryScreen(
     var showFilterDialog by remember { mutableStateOf(false) }
     var masteryFilter by remember { mutableStateOf<Int?>(null) }
     var difficultyFilter by remember { mutableStateOf<Int?>(null) }
+    var tagFilter by remember { mutableStateOf<String?>(null) }
+    var tagMenuExpanded by remember { mutableStateOf(false) }
+    var sortMenuExpanded by remember { mutableStateOf(false) }
     var visibleLimit by remember { mutableIntStateOf(40) }
     var pendingExportIds by rememberSaveable { mutableStateOf(longArrayOf()) }
     var previewPath by rememberSaveable {
@@ -2227,6 +2357,9 @@ private fun LibraryScreen(
     var previewFilename by rememberSaveable { mutableStateOf(PendingPdfExportStore.libraryFilename) }
     var isPreparingPreview by remember { mutableStateOf(false) }
     val mistakeListState = rememberLazyListState()
+    LaunchedEffect(resetScrollToken) {
+        if (resetScrollToken > 0) mistakeListState.scrollToItem(0)
+    }
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
         val requestedIds = pendingExportIds.takeIf { it.isNotEmpty() } ?: PendingPdfExportStore.libraryIds
         val idSet = requestedIds.toSet()
@@ -2261,15 +2394,18 @@ private fun LibraryScreen(
     val subjectTabs = remember(mistakes, selectedSubject) {
         buildList {
             add("全部")
-            addAll(listOf("数学", "英语", "物理", "化学"))
             addAll(subjectCounts(mistakes).map { it.first }.filterNot { it in this })
             if (selectedSubject != null && selectedSubject !in this) add(selectedSubject)
         }
     }
-    val visibleMistakes = remember(mistakes, order, selectedSubject, masteryFilter, difficultyFilter) {
+    val availableTags = remember(mistakes) {
+        mistakes.flatMap { parseTagValues(it.tags) }.distinct().sorted()
+    }
+    val visibleMistakes = remember(mistakes, order, selectedSubject, masteryFilter, difficultyFilter, tagFilter) {
         val filtered = mistakes.filter {
             (selectedSubject == null || normalizedSubject(it.subject) == selectedSubject) &&
                 (masteryFilter == null || it.mastery == masteryFilter) &&
+                (tagFilter?.let { filter -> filter in parseTagValues(it.tags) } ?: true) &&
                 (difficultyFilter == null || when (difficultyFilter) {
                     1 -> it.difficulty in 1..2
                     2 -> it.difficulty == 3
@@ -2278,7 +2414,7 @@ private fun LibraryScreen(
         }
         when(order) { MistakeOrder.NEWEST -> filtered.sortedByDescending { it.uploadedAt }; MistakeOrder.OLDEST -> filtered.sortedBy { it.uploadedAt }; MistakeOrder.UPDATED -> filtered.sortedByDescending { it.updatedAt } }
     }
-    LaunchedEffect(query, order, selectedSubject, masteryFilter, difficultyFilter) {
+    LaunchedEffect(query, order, selectedSubject, masteryFilter, difficultyFilter, tagFilter) {
         selectedIds = emptySet()
         selectionMode = false
         visibleLimit = 40
@@ -2376,6 +2512,19 @@ private fun LibraryScreen(
                             FilterChip(selected = masteryFilter == value, onClick = { masteryFilter = value }, label = { Text(label) })
                         }
                     }
+                    Text("知识点", style = MaterialTheme.typography.titleSmall)
+                    if (availableTags.isEmpty()) {
+                        Text("暂无已保存的知识点标签", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else {
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            item {
+                                FilterChip(selected = tagFilter == null, onClick = { tagFilter = null }, label = { Text("全部") })
+                            }
+                            items(availableTags) { tag ->
+                                FilterChip(selected = tagFilter == tag, onClick = { tagFilter = tag }, label = { Text(tag) })
+                            }
+                        }
+                    }
                     Text("难度", style = MaterialTheme.typography.titleSmall)
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         item {
@@ -2389,7 +2538,7 @@ private fun LibraryScreen(
             },
             confirmButton = { TextButton(onClick = { showFilterDialog = false }) { Text("完成") } },
             dismissButton = {
-                TextButton(onClick = { masteryFilter = null; difficultyFilter = null; showFilterDialog = false }) { Text("清除筛选") }
+                TextButton(onClick = { masteryFilter = null; difficultyFilter = null; tagFilter = null; showFilterDialog = false }) { Text("清除筛选") }
             }
         )
     }
@@ -2436,27 +2585,23 @@ private fun LibraryScreen(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
             )
         },
-        floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = onCreate,
-                icon = { Icon(Icons.Outlined.AddAPhoto, contentDescription = null) },
-                text = { Text("录入错题") },
-                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.primary
-            )
-        }
     ) { padding ->
         Column(Modifier.padding(padding).padding(horizontal = TijiDimens.pagePadding, vertical = 20.dp).fillMaxSize()) {
-            ScreenHeading(
+            ConceptPageHeader(
                 title = "错题库",
                 subtitle = "按科目、状态和难度，找到下一道要解决的题。"
             ) {
                 if (!selectionMode) {
-                    TextButton(
-                        onClick = { selectionMode = true },
-                        modifier = Modifier.height(40.dp),
-                        contentPadding = PaddingValues(horizontal = 8.dp)
-                    ) { Text("批量选择") }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = onCreate) {
+                            Icon(Icons.Outlined.AddAPhoto, contentDescription = "录入错题")
+                        }
+                        TextButton(
+                            onClick = { selectionMode = true },
+                            modifier = Modifier.height(40.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp)
+                        ) { Text("批量选择") }
+                    }
                 }
             }
             Spacer(Modifier.height(12.dp))
@@ -2484,15 +2629,58 @@ private fun LibraryScreen(
             Spacer(Modifier.height(8.dp))
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 item {
+                    Box {
+                        FilterChip(
+                            selected = tagFilter != null,
+                            onClick = { tagMenuExpanded = true },
+                            modifier = Modifier.height(36.dp),
+                            label = { Text(tagFilter ?: "知识点") }
+                        )
+                        DropdownMenu(expanded = tagMenuExpanded, onDismissRequest = { tagMenuExpanded = false }) {
+                            DropdownMenuItem(text = { Text("全部知识点") }, onClick = { tagFilter = null; tagMenuExpanded = false })
+                            if (availableTags.isEmpty()) {
+                                DropdownMenuItem(text = { Text("暂无标签") }, enabled = false, onClick = {})
+                            } else {
+                                availableTags.forEach { tag ->
+                                    DropdownMenuItem(text = { Text(tag) }, onClick = { tagFilter = tag; tagMenuExpanded = false })
+                                }
+                            }
+                        }
+                    }
+                }
+                item {
                     FilterChip(
-                        selected = masteryFilter != null || difficultyFilter != null,
+                        selected = masteryFilter != null,
                         onClick = { showFilterDialog = true },
                         modifier = Modifier.height(36.dp),
-                        label = { Text(if (masteryFilter != null || difficultyFilter != null) "筛选已启用" else "筛选") }
+                        label = { Text(masteryFilter?.let(::masteryLabel) ?: "掌握状态") }
                     )
                 }
-                items(MistakeOrder.entries) { value ->
-                    FilterChip(selected = order == value, onClick = { order = value }, modifier = Modifier.height(36.dp), label = { Text(value.label) })
+                item {
+                    FilterChip(
+                        selected = difficultyFilter != null,
+                        onClick = { showFilterDialog = true },
+                        modifier = Modifier.height(36.dp),
+                        label = { Text(difficultyFilter?.let(::difficultyFilterLabel) ?: "难度") }
+                    )
+                }
+                item {
+                    Box {
+                        FilterChip(
+                            selected = order != MistakeOrder.NEWEST,
+                            onClick = { sortMenuExpanded = true },
+                            modifier = Modifier.height(36.dp),
+                            label = { Text(if (order == MistakeOrder.NEWEST) "排序" else order.label) }
+                        )
+                        DropdownMenu(expanded = sortMenuExpanded, onDismissRequest = { sortMenuExpanded = false }) {
+                            MistakeOrder.entries.forEach { value ->
+                                DropdownMenuItem(
+                                    text = { Text(value.label) },
+                                    onClick = { order = value; sortMenuExpanded = false }
+                                )
+                            }
+                        }
+                    }
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp, bottom = 8.dp)) {
@@ -2500,15 +2688,55 @@ private fun LibraryScreen(
                 Spacer(Modifier.weight(1f))
                 if (selectedSubject != null) Text("当前：$selectedSubject", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            if (visibleMistakes.isEmpty()) EmptyState("没有匹配的错题", "换个关键词或点击右下角录入新题。")
-            else LazyColumn(
+            if (visibleMistakes.isEmpty()) {
+                val hasFilter = query.isNotBlank() || selectedSubject != null || masteryFilter != null || difficultyFilter != null || tagFilter != null
+                TijiSurfaceCard {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(9.dp)
+                    ) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.primary,
+                            shape = RoundedCornerShape(14.dp)
+                        ) {
+                            Icon(
+                                if (hasFilter) Icons.Outlined.Search else Icons.Outlined.AddAPhoto,
+                                contentDescription = null,
+                                modifier = Modifier.padding(12.dp).size(26.dp)
+                            )
+                        }
+                        Text(
+                            if (hasFilter) "没有匹配的错题" else "错题库还是空的",
+                            style = MaterialTheme.typography.titleLarge
+                        )
+                        Text(
+                            if (hasFilter) "换个关键词或清除筛选，找到需要复习的题。" else "拍照录题或使用 AI 解题，保存后会自动整理到这里。",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        if (hasFilter) {
+                            OutlinedButton(onClick = {
+                                viewModel.setQuery("")
+                                onSelectSubject(null)
+                                masteryFilter = null
+                                difficultyFilter = null
+                                tagFilter = null
+                            }) { Text("清除筛选") }
+                        } else {
+                            OutlinedButton(onClick = onCreate) { Text("录入第一道错题") }
+                        }
+                    }
+                }
+            } else LazyColumn(
                 state = mistakeListState,
                 modifier = Modifier.weight(1f).fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
                 contentPadding = PaddingValues(bottom = 90.dp)
             ) {
                 items(displayedMistakes, key = { it.id }) { mistake ->
-                    MistakeCard(mistake, selected = mistake.id in selectedIds, selectionMode = selectionMode, onSelected = {
+                    ConceptMistakeCard(mistake, selected = mistake.id in selectedIds, selectionMode = selectionMode, onSelected = {
                         selectedIds = if (mistake.id in selectedIds) selectedIds - mistake.id else selectedIds + mistake.id
                     }) { if (selectionMode) { selectedIds = if (mistake.id in selectedIds) selectedIds - mistake.id else selectedIds + mistake.id } else onOpen(mistake.id) }
                 }
@@ -2541,7 +2769,9 @@ private fun ReviewScreen(
     onSavePlanSnapshot: (String, List<Long>) -> Unit,
     onCheckIn: () -> Unit,
     onOpenCalendar: () -> Unit,
-    onOpenDetail: (Long, List<Long>) -> Unit
+    onOpenSettings: () -> Unit,
+    onOpenDetail: (Long, List<Long>) -> Unit,
+    resetScrollToken: Int
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -2578,6 +2808,10 @@ private fun ReviewScreen(
     }
     val completedToday = planned.count { it.id in reviewStatuses }
     val canCheckIn = planned.isNotEmpty() && completedToday == planned.size
+    val reviewListState = rememberLazyListState()
+    LaunchedEffect(resetScrollToken) {
+        if (resetScrollToken > 0) reviewListState.scrollToItem(0)
+    }
     var pendingExportIds by rememberSaveable { mutableStateOf(longArrayOf()) }
     var previewPath by rememberSaveable {
         mutableStateOf(PendingPdfExportStore.reviewPreviewPath.takeIf { File(it).isFile }.orEmpty())
@@ -2674,53 +2908,121 @@ private fun ReviewScreen(
             }
         )
     }
-    LazyColumn(
-        contentPadding = PaddingValues(20.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-        modifier = Modifier.fillMaxSize()
-    ) {
-        item {
-            ScreenHeading("今日复习", formatLocalDate()) {
-                TextButton(onClick = onOpenCalendar) { Text("日历") }
-            }
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("复习") },
+                actions = { IconButton(onClick = onOpenCalendar) { Icon(Icons.Outlined.CalendarMonth, contentDescription = "复习日历") } },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
+            )
         }
+    ) { padding ->
+        LazyColumn(
+            state = reviewListState,
+            contentPadding = PaddingValues(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            modifier = Modifier.padding(padding).fillMaxSize()
+        ) {
         item {
             ReviewProgressCard(completed = completedToday, total = planned.size, randomMode = randomMode)
         }
-        item {
-            OutlinedButton(
-                onClick = { requestReviewPreview("今日复习题.pdf") },
-                enabled = planned.isNotEmpty(),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Icon(Icons.Outlined.FileDownload, null)
-                Spacer(Modifier.size(6.dp))
-                Text("导出复习 PDF")
-            }
-        }
-        if (planned.isEmpty()) item {
-            EmptyState(
-                if (reviewPlanEnabled) "今天没有待复习题" else "复习计划未开启",
-                if (reviewPlanEnabled) "可以在错题详情中把题目加入复习计划。" else "请在设置中开启复习计划后开始安排每日复习。"
-            )
-        }
-        else items(planned, key = { it.id }) { mistake -> ReviewCard(mistake, onClick = { onOpenDetail(mistake.id, planned.map { it.id }) }) }
-        item {
-            Button(
-                onClick = onCheckIn,
-                enabled = canCheckIn && !checkedInToday,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Icon(Icons.Outlined.CheckCircle, null)
-                Spacer(Modifier.size(6.dp))
-                Text(
-                    when {
-                        checkedInToday -> "今日已打卡"
-                        canCheckIn -> "完成今日打卡"
-                        else -> "完成全部题目后解锁打卡"
+        if (planned.isEmpty()) {
+            item {
+                TijiSurfaceCard {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(9.dp)
+                    ) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.primary,
+                            shape = RoundedCornerShape(14.dp)
+                        ) {
+                            Icon(Icons.Outlined.Replay, contentDescription = null, modifier = Modifier.padding(12.dp).size(26.dp))
+                        }
+                        Text(
+                            if (reviewPlanEnabled) "今天没有待复习题" else "复习计划尚未开启",
+                            style = MaterialTheme.typography.titleLarge
+                        )
+                        Text(
+                            if (reviewPlanEnabled) "新的错题会在合适的时间出现在这里。" else "开启计划后，题迹会按遗忘曲线安排每天的复习。",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        if (reviewPlanEnabled) {
+                            OutlinedButton(onClick = onOpenCalendar) { Text("查看复习日历") }
+                        } else {
+                            Button(onClick = onOpenSettings) { Text("开启复习计划") }
+                        }
                     }
-                )
+                }
             }
+        } else {
+            item {
+                val first = planned.first()
+                TijiSurfaceCard {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        ConceptTag(normalizedSubject(first.subject))
+                        Spacer(Modifier.weight(1f))
+                        Text("第 1 / ${planned.size} 题", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Text(first.title.ifBlank { "先独立回想，再查看答案" }, style = MaterialTheme.typography.titleLarge)
+                    MathText(
+                        first.questionText.ifBlank { "（图片题，请打开查看题目图片）" },
+                        maxLines = 5,
+                        compact = true,
+                        interactive = false,
+                        naturalQuestionWrap = true,
+                        compactQuestionLayout = true,
+                        compactVerticalSpacing = true
+                    )
+                    Button(
+                        onClick = { onOpenDetail(first.id, planned.map { it.id }) },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                    ) { Text(if (first.id in reviewStatuses) "查看复习结果" else "开始复习") }
+                }
+            }
+            if (planned.size > 1) {
+                item {
+                    ConceptSectionHeader("接下来的题目", "还有 ${planned.size - 1} 道题等待复习")
+                }
+                items(planned.drop(1), key = { it.id }) { mistake ->
+                    ConceptMistakeCard(mistake, onClick = { onOpenDetail(mistake.id, planned.map { it.id }) })
+                }
+            }
+            item {
+                OutlinedButton(
+                    onClick = { requestReviewPreview("今日复习题.pdf") },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Outlined.FileDownload, null)
+                    Spacer(Modifier.size(6.dp))
+                    Text("导出复习 PDF")
+                }
+            }
+            item {
+                Button(
+                    onClick = onCheckIn,
+                    enabled = canCheckIn && !checkedInToday,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Outlined.CheckCircle, null)
+                    Spacer(Modifier.size(6.dp))
+                    Text(
+                        when {
+                            checkedInToday -> "今日已打卡"
+                            canCheckIn -> "完成今日打卡"
+                            else -> "完成全部题目后解锁打卡"
+                        }
+                    )
+                }
+            }
+        }
         }
     }
 }
@@ -2730,22 +3032,24 @@ private fun ReviewProgressCard(completed: Int, total: Int, randomMode: Boolean) 
     val complete = total > 0 && completed >= total
     val progress = if (complete) 1f else (completed.toFloat() / total.coerceAtLeast(1)).coerceIn(0f, 1f)
     TijiSurfaceCard {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.weight(1f)) {
-                    Text("复习进度", style = MaterialTheme.typography.titleLarge)
-                    Text("已完成 $completed / $total 题", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Column(horizontalAlignment = Alignment.End) {
-                    Text("显示模式", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(if (randomMode) "全随机" else "遗忘曲线", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                }
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("今日复习", style = MaterialTheme.typography.titleLarge)
+                Text("已完成 $completed / $total 题", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            LinearProgressIndicator(
-                progress = { progress },
-                color = MaterialTheme.colorScheme.primary,
-                trackColor = MaterialTheme.colorScheme.surfaceVariant,
-                modifier = Modifier.fillMaxWidth().height(8.dp)
-            )
+            Text("$completed/$total", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Text("复习节奏", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.weight(1f))
+            ConceptTag(if (randomMode) "全随机" else "遗忘曲线")
+        }
+        LinearProgressIndicator(
+            progress = { progress },
+            color = MaterialTheme.colorScheme.primary,
+            trackColor = MaterialTheme.colorScheme.surfaceVariant,
+            modifier = Modifier.fillMaxWidth().height(8.dp)
+        )
     }
 }
 
@@ -3033,6 +3337,7 @@ private fun VisualAssistConfigScreen(
 
 @Composable
 private fun SettingsScreen(
+    resetScrollToken: Int,
     themeMode: ThemeMode,
     themePalette: ThemePalette,
     aiEndpoint: String,
@@ -3065,6 +3370,10 @@ private fun SettingsScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val settingsListState = rememberLazyListState()
+    LaunchedEffect(resetScrollToken) {
+        if (resetScrollToken > 0) settingsListState.scrollToItem(0)
+    }
     val secureStore = remember { SecureKeyStore(context) }
     val ocrModelState by ocrModelManager.combinedState.collectAsStateWithLifecycle()
     var backupMessage by remember { mutableStateOf("") }
@@ -3217,9 +3526,9 @@ private fun SettingsScreen(
             }
         )
     }
-    LazyColumn(contentPadding = PaddingValues(horizontal = 20.dp, vertical = 20.dp), verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.fillMaxSize()) {
+    LazyColumn(state = settingsListState, contentPadding = PaddingValues(horizontal = 20.dp, vertical = 20.dp), verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.fillMaxSize()) {
         item {
-            ScreenHeading("我的", "管理复习计划、AI 配置和题迹数据。")
+            ConceptPageHeader("我的", "管理复习计划、AI 配置和题迹数据。")
         }
         item {
             SettingCard("外观", Icons.Outlined.Style) {
@@ -4110,6 +4419,13 @@ private fun AiSolveScreen(
     val hasSolution = completeSolution.isNotBlank() && !isLoading
     val savedCurrent = aiMistakeSaveState.requestId == aiSolveState.requestId && aiMistakeSaveState.mistakeId != null
     Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("AI 解题") },
+                actions = { TextButton(onClick = onOpenSolveHistory) { Text("历史记录") } },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
+            )
+        },
         bottomBar = {
             if (hasSolution) Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 1.dp) {
                 Column(Modifier.imePadding().padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -4139,133 +4455,113 @@ private fun AiSolveScreen(
             }
         }
     ) { padding ->
-        LazyColumn(contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.padding(padding).fillMaxSize()) {
-            item {
-                ScreenHeading(
-                    title = "AI 解题",
-                    subtitle = if (hasSolution) "查看分步解析，继续追问或保存为错题。" else "拍照、选图或输入文字，确认后开始解题。",
-                    action = {
-                        TextButton(onClick = onOpenSolveHistory) {
-                            Text("解题记录", color = MaterialTheme.colorScheme.primary)
-                        }
-                    }
-                )
-            }
+        LazyColumn(
+            contentPadding = PaddingValues(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            modifier = Modifier.padding(padding).fillMaxSize()
+        ) {
             if (hasSolution) item {
-                TextButton(onClick = { showSolveInputs = !showSolveInputs }) { Text(if (showSolveInputs) "收起原题与设置" else "查看原题 / 修改输入") }
-            }
-            if (!hasSolution || showSolveInputs) {
-            item {
-                TextButton(onClick = { showSolveConfiguration = !showSolveConfiguration }) {
-                    Text(if (showSolveConfiguration) "收起解题设置" else "解题设置 · ${aiProfiles.firstOrNull { it.id == activeAiProfileId }?.name ?: aiModel}")
+                TijiSurfaceCard {
+                    ConceptSectionHeader(
+                        "本次解题",
+                        "原题输入已折叠，继续追问或重新开始",
+                        action = { TextButton(onClick = { showSolveInputs = !showSolveInputs }) { Text(if (showSolveInputs) "收起" else "查看原题") } }
+                    )
                 }
             }
-            if (showSolveConfiguration) {
-            item {
-                Text("当前 AI 配置", style = MaterialTheme.typography.labelLarge)
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    items(aiProfiles, key = { it.id }) { profile ->
-                        FilterChip(
-                            selected = profile.id == activeAiProfileId,
-                            onClick = { onActiveAiProfile(profile.id) },
-                            label = { Text(profile.name) }
-                        )
+            if (!hasSolution || showSolveInputs) item {
+                TijiSurfaceCard(contentPadding = 12.dp) {
+                    ConceptSectionHeader(
+                        "输入题目",
+                        "拍照、选择图片，或直接输入题目文字",
+                        action = { TextButton(onClick = { showSolveConfiguration = !showSolveConfiguration }) { Text(if (showSolveConfiguration) "收起设置" else "设置") } }
+                    )
+                    if (showSolveConfiguration) {
+                        Text("当前 AI 配置", style = MaterialTheme.typography.labelLarge)
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            items(aiProfiles, key = { it.id }) { profile ->
+                                FilterChip(selected = profile.id == activeAiProfileId, onClick = { onActiveAiProfile(profile.id) }, label = { Text(profile.name) })
+                            }
+                        }
+                        AiInputModeSelector(selected = aiInputMode, onSelected = { aiInputModeName = it.name; onAiInputMode(it) }, title = "解题方式")
                     }
-                }
-            }
-            item {
-                AiInputModeSelector(
-                    selected = aiInputMode,
-                    onSelected = { aiInputModeName = it.name; onAiInputMode(it) },
-                    title = "当前解题方式"
-                )
-            }
-            }
-            item {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    OutlinedButton(onClick = { galleryLauncher.launch("image/*") }, modifier = Modifier.weight(1f)) { Icon(Icons.Outlined.Image, null); Spacer(Modifier.size(5.dp)); Text("相册") }
-                    OutlinedButton(onClick = {
-                        cameraFile = ImageStorage.cameraFile(context)
-                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-                            cameraUri(context, cameraFile).onSuccess { cameraLauncher.launch(it) }
-                                .onFailure { message = "无法打开相机：${it.message ?: "请检查应用权限"}" }
-                        } else permissionLauncher.launch(Manifest.permission.CAMERA)
-                    }, modifier = Modifier.weight(1f)) { Icon(Icons.Outlined.CameraAlt, null); Spacer(Modifier.size(5.dp)); Text("拍照") }
-                }
-            }
-            item {
-                OutlinedTextField(
-                    questionDraft,
-                    { questionDraft = it },
-                    label = { Text("补充或输入题目文字") },
-                    minLines = 3,
-                    maxLines = 5,
-                    modifier = Modifier.fillMaxWidth().heightIn(max = 168.dp)
-                )
-            }
-            if (imagePaths.isNotEmpty()) {
-                item {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("题目图片 ${imagePaths.size} 张（按显示顺序提交）", style = MaterialTheme.typography.labelLarge)
+                    if (imagePaths.isEmpty()) {
+                        ConceptDashedDropZone(
+                            title = "拍照或选择图片",
+                            subtitle = "支持多张图片，AI 会按顺序识别",
+                            icon = Icons.Outlined.AddAPhoto,
+                            onClick = { galleryLauncher.launch("image/*") },
+                            minHeight = 140.dp,
+                            compact = true,
+                            actions = {
+                                OutlinedButton(
+                                    onClick = { galleryLauncher.launch("image/*") },
+                                    modifier = Modifier.weight(1f).heightIn(min = 40.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp)
+                                ) {
+                                    Icon(Icons.Outlined.Image, contentDescription = null)
+                                    Spacer(Modifier.size(5.dp))
+                                    Text("相册")
+                                }
+                                OutlinedButton(
+                                    onClick = {
+                                        cameraFile = ImageStorage.cameraFile(context)
+                                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                                            cameraUri(context, cameraFile).onSuccess { cameraLauncher.launch(it) }
+                                                .onFailure { message = "无法打开相机：${it.message ?: "请检查应用权限"}" }
+                                        } else permissionLauncher.launch(Manifest.permission.CAMERA)
+                                    },
+                                    modifier = Modifier.weight(1f).heightIn(min = 40.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp)
+                                ) {
+                                    Icon(Icons.Outlined.CameraAlt, contentDescription = null)
+                                    Spacer(Modifier.size(5.dp))
+                                    Text("拍照")
+                                }
+                            }
+                        )
+                    } else {
+                        Text("题目图片 ${imagePaths.size} 张", style = MaterialTheme.typography.titleSmall)
                         imagePaths.forEachIndexed { index, path ->
-                            Text("第 ${index + 1} 张", style = MaterialTheme.typography.bodySmall)
-                            ImagePreview(
-                                path = path,
-                                onDelete = {
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text("第 ${index + 1} 张", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                ImagePreview(path, onDelete = {
                                     imagePaths = imagePaths - path
                                     imageHistory = imagePaths
                                     imagePath = imagePaths.firstOrNull()
                                     viewModel.removeAiSolveImage(path)
                                     message = "已删除第 ${index + 1} 张图片"
-                                },
-                                overlayActionLabel = "重新处理",
-                                onOverlayAction = {
+                                }, overlayActionLabel = "重新处理", onOverlayAction = {
                                     editingOriginalPath = path
                                     imagePath = path
                                     imageEditing = true
-                                }
-                            )
+                                })
+                            }
+                        }
                     }
+                    if (imagePaths.isNotEmpty()) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                            OutlinedButton(onClick = { galleryLauncher.launch("image/*") }, modifier = Modifier.weight(1f)) { Icon(Icons.Outlined.Image, contentDescription = null); Spacer(Modifier.size(5.dp)); Text("相册") }
+                            OutlinedButton(onClick = {
+                                cameraFile = ImageStorage.cameraFile(context)
+                                if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                                    cameraUri(context, cameraFile).onSuccess { cameraLauncher.launch(it) }.onFailure { message = "无法打开相机：${it.message ?: "请检查应用权限"}" }
+                                } else permissionLauncher.launch(Manifest.permission.CAMERA)
+                            }, modifier = Modifier.weight(1f)) { Icon(Icons.Outlined.CameraAlt, contentDescription = null); Spacer(Modifier.size(5.dp)); Text("拍照") }
+                        }
+                    }
+                    OutlinedTextField(questionDraft, { questionDraft = it }, label = { Text("补充或输入题目文字") }, minLines = 2, maxLines = 4, modifier = Modifier.fillMaxWidth().heightIn(max = 132.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        Button(enabled = !isLoading, onClick = { if (aiUploadConsent) runSolve() else showPrivacyDialog = true }, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Outlined.AutoAwesome, contentDescription = null); Spacer(Modifier.size(6.dp))
+                            Text(when { isLoading -> "正在解题…"; aiSolveState.status == AiSolveStatus.IDLE -> "开始 AI 解题"; else -> "重新解题" })
+                        }
+                        if (isLoading) OutlinedButton(onClick = viewModel::stopAiSolve) { Text("停止") }
+                    }
+                    if (visualAssistBindingMissing) ConceptTag("此模型尚未配置视觉辅助", containerColor = MaterialTheme.colorScheme.primaryContainer)
                 }
-            }
-            }
             }
             item {
-                if (!hasSolution || showSolveInputs) Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    Button(
-                        enabled = !isLoading,
-                        onClick = { if (aiUploadConsent) runSolve() else showPrivacyDialog = true },
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Icon(Icons.Outlined.AutoAwesome, null)
-                        Spacer(Modifier.size(6.dp))
-                        Text(
-                            when {
-                                isLoading -> "正在解题…"
-                                aiSolveState.status == AiSolveStatus.IDLE -> "开始 AI 解题"
-                                else -> "重新解题"
-                            }
-                        )
-                    }
-                    if (isLoading) {
-                        OutlinedButton(onClick = viewModel::stopAiSolve) { Text("停止解题") }
-                    }
-                }
-                if (visualAssistBindingMissing) {
-                    Card(
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.primaryContainer
-                        ),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(
-                            "此模型尚未配置视觉辅助。",
-                            modifier = Modifier.padding(12.dp),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                    }
-                }
                 val generalStatusMessage = message
                     .takeUnless { it.startsWith("AI 对话失败：") || it.startsWith("AI 正在后台回答追问") }
                     .orEmpty()
@@ -4283,8 +4579,8 @@ private fun AiSolveScreen(
                 }
                 if (statusMessage.isNotBlank()) {
                     val failed = aiSolveState.error != null
-                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), modifier = Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TijiSurfaceCard {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             if (isLoading) {
                                 LinearProgressIndicator(
                                     progress = { aiSolveState.progress.coerceIn(0f, 1f) },
@@ -4304,21 +4600,12 @@ private fun AiSolveScreen(
                 }
             }
             if (completeSolution.isNotBlank() && !isLoading) item {
-                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), modifier = Modifier.fillMaxWidth()) {
-                    Column(
-                        Modifier.padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(2.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text("AI 解题内容", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                            Spacer(Modifier.weight(1f))
-                            TextButton(onClick = { aiSolutionExpanded = !aiSolutionExpanded }) {
-                                Text(if (aiSolutionExpanded) "收起" else "展开")
-                            }
-                        }
+                TijiSurfaceCard {
+                    ConceptSectionHeader(
+                        "AI 解题内容",
+                        "题目识别、解题思路和最终答案",
+                        action = { TextButton(onClick = { aiSolutionExpanded = !aiSolutionExpanded }) { Text(if (aiSolutionExpanded) "收起" else "展开") } }
+                    )
                         if (aiSolutionExpanded) {
                             if (solutionSections.structured) {
                                 AiSolutionSection(
@@ -4388,7 +4675,6 @@ private fun AiSolveScreen(
                             ) { Text("对话记录", style = MaterialTheme.typography.labelMedium, maxLines = 1) }
                         }
                     }
-                }
                 val aiChatStatusMessage = when {
                     aiChatStatusOverride.isNotBlank() -> aiChatStatusOverride
                     hasAiChatActivity && aiChatState.running -> "AI 正在后台回答追问，切换页面不会中断…"
@@ -4398,23 +4684,16 @@ private fun AiSolveScreen(
                     else -> ""
                 }
                 if (latestChat != null || hasAiChatActivity) {
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text("最新对话", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                                Spacer(Modifier.weight(1f))
+                    TijiSurfaceCard {
+                        ConceptSectionHeader(
+                            "最新对话",
+                            "围绕当前题目继续追问",
+                            action = {
                                 if (latestChat != null && !followUpLoading) {
-                                    TextButton(onClick = { latestChatExpanded = !latestChatExpanded }) {
-                                        Text(if (latestChatExpanded) "收起" else "展开")
-                                    }
+                                    TextButton(onClick = { latestChatExpanded = !latestChatExpanded }) { Text(if (latestChatExpanded) "收起" else "展开") }
                                 }
                             }
+                        )
                             if (followUpLoading) {
                                 LinearProgressIndicator(
                                     progress = { aiChatState.progress.coerceIn(0f, 1f) },
@@ -4449,7 +4728,6 @@ private fun AiSolveScreen(
                                     color = if (chatFailed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
-                        }
                     }
                 }
                 if (aiMistakeSaveState.requestId == aiSolveState.requestId && aiMistakeSaveState.canRetry) {
@@ -4802,9 +5080,11 @@ private fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long)
         entity.copy(
             title = entity.title.orEmpty(),
             questionText = entity.questionText.orEmpty(),
+            userAnswer = entity.userAnswer.orEmpty(),
             answerText = entity.answerText.orEmpty(),
             explanation = entity.explanation.orEmpty(),
             note = entity.note.orEmpty(),
+            errorReason = entity.errorReason.orEmpty(),
             subject = entity.subject.orEmpty(),
             questionType = entity.questionType.orEmpty(),
             tags = entity.tags.orEmpty()
@@ -4835,15 +5115,19 @@ private fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long)
     }
     var title by remember(current.id) { mutableStateOf(current.title) }
     var question by remember(current.id) { mutableStateOf(current.questionText) }
+    var userAnswer by remember(current.id) { mutableStateOf(current.userAnswer) }
     var answer by remember(current.id) { mutableStateOf(current.answerText) }
     var explanation by remember(current.id) { mutableStateOf(current.explanation) }
     var note by remember(current.id) { mutableStateOf(current.note) }
+    var errorReason by remember(current.id) { mutableStateOf(current.errorReason) }
     var subject by remember(current.id) { mutableStateOf(current.subject) }
     var questionType by remember(current.id) { mutableStateOf(current.questionType) }
     var tags by remember(current.id) { mutableStateOf(current.tags) }
     var difficulty by remember(current.id) { mutableIntStateOf(current.difficulty) }
     var inReviewPlan by remember(current.id) { mutableStateOf(current.inReviewPlan) }
     var editing by remember(current.id) { mutableStateOf(false) }
+    var explanationExpanded by remember(current.id) { mutableStateOf(false) }
+    var detailMenuExpanded by remember(current.id) { mutableStateOf(false) }
     var saveMessage by remember(current.id) { mutableStateOf("") }
     var questionImage by remember(current.id) { mutableStateOf(current.imagePath) }
     var answerImage by remember(current.id) { mutableStateOf(current.answerImagePath) }
@@ -4983,13 +5267,87 @@ private fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long)
         if (editing) detailListState.scrollToItem(0)
     }
     Scaffold(
+        bottomBar = {
+            Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 1.dp) {
+                Row(
+                    Modifier.navigationBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (editing) {
+                        Button(
+                            onClick = {
+                                viewModel.save(current.copy(title = normalizeAsciiPunctuation(title), questionText = normalizeAsciiPunctuation(question), userAnswer = normalizeAsciiPunctuation(userAnswer), answerText = normalizeAsciiPunctuation(answer), explanation = normalizeAsciiPunctuation(explanation), note = normalizeAsciiPunctuation(note), errorReason = normalizeAsciiPunctuation(errorReason), subject = normalizeAsciiPunctuation(subject), questionType = normalizeAsciiPunctuation(questionType), tags = normalizeAsciiPunctuation(tags), difficulty = difficulty, includeSourceImageInPdf = current.includeSourceImageInPdf, imagePath = questionImage, sourceImagePaths = org.json.JSONArray(originalQuestionImages).toString(), contentBlocks = QuestionContentBlockCodec.encode(detailContentBlocks), answerImagePath = answerImage, explanationImagePath = explanationImage))
+                                editing = false
+                                saveMessage = "已保存修改"
+                            },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
+                        ) { Text("保存修改") }
+                    } else {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = {
+                                    if (inReviewPlan) {
+                                        inReviewPlan = false
+                                        viewModel.save(current.copy(mastery = 3, inReviewPlan = false)) {
+                                            saveMessage = "已标记为已掌握"
+                                        }
+                                    } else {
+                                        inReviewPlan = true
+                                        viewModel.setReviewPlan(id, true) { saveMessage = "已加入复习计划" }
+                                    }
+                                },
+                                modifier = Modifier.weight(0.9f).heightIn(min = 52.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp)
+                            ) {
+                                Text(if (inReviewPlan) "已掌握" else "稍后复习", maxLines = 1)
+                            }
+                            Button(
+                                onClick = { explanationExpanded = !explanationExpanded },
+                                modifier = Modifier.weight(1.35f).heightIn(min = 52.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp)
+                            ) {
+                                Icon(Icons.Outlined.Visibility, contentDescription = null)
+                                Spacer(Modifier.size(6.dp))
+                                Text(if (explanationExpanded) "收起完整解析" else "查看完整解析", maxLines = 1)
+                            }
+                        }
+                    }
+                }
+            }
+        },
         topBar = {
             TopAppBar(
                 title = { Text("错题详情") },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回错题库") } },
                 actions = {
-                    IconButton(onClick = { onDelete(id); onBack() }) {
-                        Icon(Icons.Outlined.Delete, contentDescription = "删除错题")
+                    IconButton(onClick = { detailMenuExpanded = true }) {
+                        Icon(Icons.Outlined.MoreVert, contentDescription = "更多操作")
+                    }
+                    DropdownMenu(
+                        expanded = detailMenuExpanded,
+                        onDismissRequest = { detailMenuExpanded = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("编辑错题") },
+                            onClick = { detailMenuExpanded = false; editing = true; saveMessage = "" }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(if (inReviewPlan) "移出复习" else "加入复习") },
+                            onClick = {
+                                detailMenuExpanded = false
+                                val enabled = !inReviewPlan
+                                viewModel.setReviewPlan(id, enabled)
+                                inReviewPlan = enabled
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("删除错题") },
+                            leadingIcon = { Icon(Icons.Outlined.Delete, contentDescription = null) },
+                            onClick = { detailMenuExpanded = false; onDelete(id); onBack() }
+                        )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
@@ -4998,59 +5356,129 @@ private fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long)
     ) { padding ->
         LazyColumn(
             state = detailListState,
-            contentPadding = PaddingValues(horizontal = TijiDimens.pagePadding, vertical = 12.dp),
+            contentPadding = PaddingValues(
+                start = TijiDimens.pagePadding,
+                top = 12.dp,
+                end = TijiDimens.pagePadding,
+                bottom = 104.dp
+            ),
             verticalArrangement = Arrangement.spacedBy(TijiDimens.cardGap),
             modifier = Modifier.padding(padding).fillMaxSize()
         ) {
             if (!editing) {
                 item {
-                    Column(verticalArrangement = Arrangement.spacedBy(TijiDimens.cardGap)) {
-                        TijiSurfaceCard {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                    Text(
-                                        "${normalizedSubject(subject)}${questionType.trim().takeIf(String::isNotBlank)?.let { " · $it" } ?: ""}",
-                                        style = MaterialTheme.typography.labelLarge,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Text(
-                                        title.ifBlank { if (photoOnly) "照片错题" else "未命名错题" },
-                                        style = MaterialTheme.typography.titleLarge,
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
+                    TijiSurfaceCard {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    ConceptTag(normalizedSubject(subject))
+                                    if (questionType.isNotBlank() && questionType != "未分类") {
+                                        ConceptTag(questionType, containerColor = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer)
+                                    }
                                 }
-                                TijiStatusBadge(current.mastery)
+                                Text(
+                                    title.ifBlank { if (photoOnly) "照片错题" else "未命名错题" },
+                                    style = MaterialTheme.typography.headlineSmall,
+                                    maxLines = 3,
+                                    overflow = TextOverflow.Ellipsis
+                                )
                             }
-                            Text(
-                                "上传于 ${formatUploadTime(current.uploadedAt)}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            TijiStatusBadge(current.mastery)
                         }
+                        Text("保存于 ${formatUploadTime(current.uploadedAt)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                if (originalQuestionImages.isNotEmpty()) item {
+                    TijiSurfaceCard {
+                        ConceptSectionHeader("题目图片", if (originalQuestionImages.size > 1) "${originalQuestionImages.size} 张，按保存顺序排列" else "原题图片")
                         originalQuestionImages.forEachIndexed { index, path ->
-                            TijiSurfaceCard {
-                                Text(if (originalQuestionImages.size == 1) "题目图片" else "题目图片 ${index + 1}", style = MaterialTheme.typography.titleSmall)
-                                ImagePreview(path, onDelete = { removeDetailImage(PhotoRole.QUESTION, path) })
+                            if (originalQuestionImages.size > 1) Text("第 ${index + 1} 张", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            ImagePreview(path, onDelete = { removeDetailImage(PhotoRole.QUESTION, path) })
+                        }
+                    }
+                }
+                if (!photoOnly && question.isNotBlank()) item {
+                    TijiSurfaceCard {
+                        ConceptSectionHeader("题目", "先回想自己的解法")
+                        MathText(question, preserveSourceExactly = true, naturalQuestionWrap = true, compactQuestionLayout = true, compactVerticalSpacing = true)
+                        ContentBlockImages(detailContentBlocks.filter { it.role == ContentBlockRole.QUESTION }, onDelete = ::removeDetailContentBlock)
+                    }
+                }
+                if (!photoOnly) item {
+                    TijiSurfaceCard {
+                        ConceptSectionHeader("我的答案", "回看当时写下的思路")
+                        if (userAnswer.isBlank()) {
+                            Text("还没有记录你的作答", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        } else {
+                            MathText(userAnswer, compactVerticalSpacing = true)
+                        }
+                    }
+                }
+                if (!photoOnly) item {
+                    TijiSurfaceCard {
+                        ConceptSectionHeader("正确答案", "对照检查你的思路")
+                        if (answer.isBlank()) {
+                            Text("暂未补充正确答案", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        } else {
+                            MathText(answer, compactVerticalSpacing = true)
+                        }
+                        ContentBlockImages(detailContentBlocks.filter { it.role == ContentBlockRole.ANSWER }, onDelete = ::removeDetailContentBlock)
+                    }
+                }
+                if (!photoOnly) item {
+                    TijiSurfaceCard {
+                        ConceptSectionHeader("错因标签", "用几个词标记这次为什么会错")
+                        val reasons = parseErrorReasons(errorReason)
+                        if (reasons.isEmpty()) {
+                            Text("还没有记录错因，可在编辑中补充。", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        } else {
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                items(reasons) { reason ->
+                                    ConceptTag(reason, containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.onErrorContainer)
+                                }
                             }
                         }
-                        answerImage?.let {
-                            TijiSurfaceCard {
-                                Text("答案图片", style = MaterialTheme.typography.titleSmall)
-                                ImagePreview(it, onDelete = { removeDetailImage(PhotoRole.ANSWER, it) })
-                            }
+                    }
+                }
+                answerImage?.let { image ->
+                    item {
+                        TijiSurfaceCard {
+                            ConceptSectionHeader("答案图片")
+                            ImagePreview(image, onDelete = { removeDetailImage(PhotoRole.ANSWER, image) })
                         }
-                        explanationImage?.let {
-                            TijiSurfaceCard {
-                                Text("解析图片", style = MaterialTheme.typography.titleSmall)
-                                ImagePreview(it, onDelete = { removeDetailImage(PhotoRole.EXPLANATION, it) })
-                            }
+                    }
+                }
+                if (!photoOnly) item {
+                    TijiSurfaceCard {
+                        ConceptSectionHeader("我的总结", "记录这次为什么会错")
+                        if (note.isBlank()) {
+                            Text("还没有写下复盘总结。", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        } else {
+                            Text(note, style = MaterialTheme.typography.bodyLarge)
                         }
-                        if (photoOnly) {
-                            Text("照片错题以图片为主，点击图片可放大查看。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                if (!photoOnly && explanation.isNotBlank()) item {
+                    TijiSurfaceCard {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text("解析", style = MaterialTheme.typography.titleMedium)
+                                Text("需要时再展开完整推导", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
+                            TextButton(onClick = { explanationExpanded = !explanationExpanded }) { Text(if (explanationExpanded) "收起" else "查看") }
+                        }
+                        if (explanationExpanded) {
+                            MathText(explanation, normalizeTerminalPeriod = true, compactVerticalSpacing = true)
+                            ContentBlockImages(detailContentBlocks.filter { it.role == ContentBlockRole.EXPLANATION }, onDelete = ::removeDetailContentBlock)
+                        }
+                    }
+                }
+                explanationImage?.let { image ->
+                    item {
+                        TijiSurfaceCard {
+                            ConceptSectionHeader("解析图片")
+                            ImagePreview(image, onDelete = { removeDetailImage(PhotoRole.EXPLANATION, image) })
+                        }
                     }
                 }
             }
@@ -5066,14 +5494,18 @@ private fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long)
                             onGallery = ::chooseGallery,
                             onCamera = ::chooseCamera,
                             title = title,
+                            userAnswer = userAnswer,
                             note = note,
                             subject = subject,
+                            errorReason = errorReason,
                             questionType = questionType,
                             tags = tags,
                             difficulty = difficulty,
                             onTitle = { title = it },
+                            onUserAnswer = { userAnswer = it },
                             onNote = { note = it },
                             onSubject = { subject = it },
+                            onErrorReason = { errorReason = it },
                             onQuestionType = { questionType = it },
                             onTags = { tags = it },
                             onDifficulty = { difficulty = it },
@@ -5087,45 +5519,39 @@ private fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long)
                         )
                     } else {
                         MistakeFields(
-                            title, question, answer, explanation, note, subject, tags, difficulty,
-                            { title = it }, { question = it }, { answer = it }, { explanation = it },
-                            { note = it }, { subject = it }, { tags = it }, { difficulty = it },
-                             questionType, { questionType = it }, showRenderedPreview = true,
-                             contentBlocks = detailContentBlocks,
-                             onDeleteBlock = ::removeDetailContentBlock
+                            title = title,
+                            question = question,
+                            userAnswer = userAnswer,
+                            answer = answer,
+                            explanation = explanation,
+                            note = note,
+                            errorReason = errorReason,
+                            subject = subject,
+                            tags = tags,
+                            difficulty = difficulty,
+                            onTitle = { title = it },
+                            onQuestion = { question = it },
+                            onUserAnswer = { userAnswer = it },
+                            onAnswer = { answer = it },
+                            onExplanation = { explanation = it },
+                            onNote = { note = it },
+                            onErrorReason = { errorReason = it },
+                            onSubject = { subject = it },
+                            onTags = { tags = it },
+                            onDifficulty = { difficulty = it },
+                            questionType = questionType,
+                            onQuestionType = { questionType = it },
+                            showRenderedPreview = true,
+                            contentBlocks = detailContentBlocks,
+                            onDeleteBlock = ::removeDetailContentBlock
                         )
-                    }
-                }
-            }
-            if (!editing && !photoOnly && (question.isNotBlank() || answer.isNotBlank() || explanation.isNotBlank())) item {
-                RenderedMistakeContentCard(question, answer, explanation, detailContentBlocks, ::removeDetailContentBlock)
-            }
-            if (!editing && note.isNotBlank()) item {
-                TijiSurfaceCard {
-                    Text("我的总结", style = MaterialTheme.typography.titleMedium)
-                    Text(note, style = MaterialTheme.typography.bodyLarge)
-                }
-            }
-            if (!editing) item {
-                Row(horizontalArrangement = Arrangement.spacedBy(TijiDimens.controlGap), modifier = Modifier.fillMaxWidth()) {
-                    OutlinedButton(onClick = { editing = true; saveMessage = "" }, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("编辑信息") }
-                    Button(
-                        onClick = {
-                            val enabled = !inReviewPlan
-                            viewModel.setReviewPlan(id, enabled)
-                            inReviewPlan = enabled
-                        },
-                        modifier = Modifier.weight(1.2f).heightIn(min = 48.dp)
-                    ) {
-                        Icon(if (inReviewPlan) Icons.Outlined.CheckCircle else Icons.Outlined.CalendarMonth, contentDescription = null)
-                        Spacer(Modifier.size(6.dp))
-                        Text(if (inReviewPlan) "移出复习" else "加入复习")
                     }
                 }
             }
             item {
                 TijiSurfaceCard {
-                    Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                    ConceptSectionHeader("复习记录", "用间隔复习把错误变成长期记忆")
+                    Row(horizontalArrangement = Arrangement.spacedBy(18.dp), modifier = Modifier.padding(top = 8.dp)) {
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text("复习次数", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text(current.reviewCount.toString(), style = MaterialTheme.typography.titleLarge)
@@ -5137,13 +5563,6 @@ private fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long)
                     }
                 }
             }
-            if (editing) item {
-                Button(onClick = {
-                    viewModel.save(current.copy(title = normalizeAsciiPunctuation(title), questionText = normalizeAsciiPunctuation(question), answerText = normalizeAsciiPunctuation(answer), explanation = normalizeAsciiPunctuation(explanation), note = normalizeAsciiPunctuation(note), subject = normalizeAsciiPunctuation(subject), questionType = normalizeAsciiPunctuation(questionType), tags = normalizeAsciiPunctuation(tags), difficulty = difficulty, includeSourceImageInPdf = current.includeSourceImageInPdf, imagePath = questionImage, sourceImagePaths = org.json.JSONArray(originalQuestionImages).toString(), contentBlocks = QuestionContentBlockCodec.encode(detailContentBlocks), answerImagePath = answerImage, explanationImagePath = explanationImage))
-                    editing = false
-                    saveMessage = "已保存修改，仍停留在当前详情"
-                }, modifier = Modifier.fillMaxWidth()) { Text("保存修改") }
-            }
             if (saveMessage.isNotBlank()) item { Text(saveMessage, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
         }
     }
@@ -5151,8 +5570,10 @@ private fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long)
 
 @Composable
 private fun CaptureFields(
-    title: String, note: String, subject: String, questionType: String, tags: String, difficulty: Int,
-    onTitle: (String) -> Unit, onNote: (String) -> Unit, onSubject: (String) -> Unit,
+    title: String, userAnswer: String, note: String, subject: String, errorReason: String,
+    questionType: String, tags: String, difficulty: Int,
+    onTitle: (String) -> Unit, onUserAnswer: (String) -> Unit, onNote: (String) -> Unit,
+    onSubject: (String) -> Unit, onErrorReason: (String) -> Unit,
     onQuestionType: (String) -> Unit, onTags: (String) -> Unit, onDifficulty: (Int) -> Unit
 ) {
     var showDetails by rememberSaveable { mutableStateOf(false) }
@@ -5164,7 +5585,7 @@ private fun CaptureFields(
         OutlinedTextField(tags, onTags, label = { Text("分类 / 知识点标签") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         DifficultyPicker(difficulty, onDifficulty)
         TextButton(onClick = { showDetails = !showDetails }) {
-            Text(if (showDetails) "收起标题与注释" else "补充标题与注释（选填）")
+            Text(if (showDetails) "收起补充信息" else "补充作答与总结（选填）")
         }
         if (showDetails) {
         OutlinedTextField(
@@ -5175,7 +5596,15 @@ private fun CaptureFields(
             modifier = Modifier.fillMaxWidth()
         )
         FormulaPreview(title)
-        OutlinedTextField(note, onNote, label = { Text("注释") }, minLines = 2, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(
+            userAnswer,
+            onUserAnswer,
+            label = { Text("我的答案（选填）") },
+            minLines = 2,
+            modifier = Modifier.fillMaxWidth()
+        )
+        ErrorReasonPicker(errorReason, onErrorReason)
+        OutlinedTextField(note, onNote, label = { Text("我的总结") }, minLines = 2, modifier = Modifier.fillMaxWidth())
         }
     }
 }
@@ -5189,8 +5618,10 @@ private fun PhotoEditFields(
     onGallery: (PhotoRole) -> Unit,
     onCamera: (PhotoRole) -> Unit,
     title: String,
+    userAnswer: String,
     note: String,
     subject: String,
+    errorReason: String,
     questionType: String,
     tags: String,
     difficulty: Int,
@@ -5200,6 +5631,8 @@ private fun PhotoEditFields(
     onQuestionType: (String) -> Unit,
     onTags: (String) -> Unit,
     onDifficulty: (Int) -> Unit,
+    onUserAnswer: (String) -> Unit,
+    onErrorReason: (String) -> Unit,
     question: String,
     answer: String,
     explanation: String,
@@ -5254,6 +5687,7 @@ private fun PhotoEditFields(
         if (showTextFields) {
             MistakeFields(
                 title = title,
+                userAnswer = userAnswer,
                 question = question,
                 answer = answer,
                 explanation = explanation,
@@ -5262,10 +5696,13 @@ private fun PhotoEditFields(
                 tags = tags,
                 difficulty = difficulty,
                 onTitle = onTitle,
+                onUserAnswer = onUserAnswer,
                 onQuestion = onQuestion,
                 onAnswer = onAnswer,
                 onExplanation = onExplanation,
                 onNote = onNote,
+                errorReason = errorReason,
+                onErrorReason = onErrorReason,
                 onSubject = onSubject,
                 onTags = onTags,
                 onDifficulty = onDifficulty,
@@ -5276,14 +5713,18 @@ private fun PhotoEditFields(
         } else {
             CaptureFields(
                 title = title,
+                userAnswer = userAnswer,
                 note = note,
                 subject = subject,
+                errorReason = errorReason,
                 questionType = questionType,
                 tags = tags,
                 difficulty = difficulty,
                 onTitle = onTitle,
+                onUserAnswer = onUserAnswer,
                 onNote = onNote,
                 onSubject = onSubject,
+                onErrorReason = onErrorReason,
                 onQuestionType = onQuestionType,
                 onTags = onTags,
                 onDifficulty = onDifficulty
@@ -5301,7 +5742,11 @@ private fun MistakeFields(
     questionType: String = "", onQuestionType: (String) -> Unit = {},
     showRenderedPreview: Boolean = false,
     contentBlocks: List<com.tiji.mistakes.service.QuestionContentBlock> = emptyList(),
-    onDeleteBlock: (com.tiji.mistakes.service.QuestionContentBlock) -> Unit = {}
+    onDeleteBlock: (com.tiji.mistakes.service.QuestionContentBlock) -> Unit = {},
+    userAnswer: String = "",
+    errorReason: String = "",
+    onUserAnswer: (String) -> Unit = {},
+    onErrorReason: (String) -> Unit = {}
 ) {
     val editorBodyTextStyle = MaterialTheme.typography.bodyLarge.copy(
         fontFamily = FontFamily.Serif
@@ -5332,9 +5777,17 @@ private fun MistakeFields(
             )
         }
         OutlinedTextField(
+            userAnswer,
+            onUserAnswer,
+            label = { Text("我的答案（选填）") },
+            textStyle = editorBodyTextStyle,
+            minLines = 2,
+            modifier = Modifier.fillMaxWidth()
+        )
+        OutlinedTextField(
             answer,
             onAnswer,
-            label = { Text("答案") },
+            label = { Text("正确答案") },
             textStyle = editorBodyTextStyle,
             minLines = 2,
             modifier = Modifier.fillMaxWidth()
@@ -5357,10 +5810,11 @@ private fun MistakeFields(
         OutlinedTextField(
             note,
             onNote,
-            label = { Text("注释") },
+            label = { Text("我的总结") },
             minLines = 2,
             modifier = Modifier.fillMaxWidth()
         )
+        ErrorReasonPicker(errorReason, onErrorReason)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
             OutlinedTextField(
                 subject,
@@ -5454,9 +5908,44 @@ private fun DifficultyPicker(difficulty: Int, onDifficulty: (Int) -> Unit) {
     }
 }
 
+private val TijiErrorReasonOptions = listOf("概念不清", "计算错误", "粗心", "审题错误", "方法不熟")
+
+private fun parseErrorReasons(raw: String): List<String> = raw
+    .split(',', '，', ';', '；', '|')
+    .map(String::trim)
+    .filter(String::isNotBlank)
+    .distinct()
+
 @Composable
-private fun ReviewCard(mistake: MistakeEntity, onClick: () -> Unit) {
-    MistakeCard(mistake = mistake, onClick = onClick)
+private fun ErrorReasonPicker(
+    value: String,
+    onValueChange: (String) -> Unit
+) {
+    val selected = parseErrorReasons(value)
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("错因标签（可多选）", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(TijiErrorReasonOptions) { reason ->
+                FilterChip(
+                    selected = reason in selected,
+                    onClick = {
+                        val next = if (reason in selected) selected - reason else selected + reason
+                        onValueChange(next.joinToString(", "))
+                    },
+                    modifier = Modifier.height(36.dp),
+                    label = { Text(reason) }
+                )
+            }
+        }
+        val custom = selected.filterNot { it in TijiErrorReasonOptions }
+        if (custom.isNotEmpty()) {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(custom) { reason ->
+                    ConceptTag(reason, containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.onErrorContainer)
+                }
+            }
+        }
+    }
 }
 
 private fun reviewIntervalLabel(grade: ReviewGrade): String = when (grade) {
@@ -5469,6 +5958,89 @@ private fun reviewIntervalLabel(grade: ReviewGrade): String = when (grade) {
 private fun reviewGradeUiLabel(grade: ReviewGrade): String = when (grade) {
     ReviewGrade.GOOD -> "会了"
     else -> grade.label
+}
+
+@Composable
+private fun ConceptMistakeCard(
+    mistake: MistakeEntity,
+    selected: Boolean = false,
+    selectionMode: Boolean = false,
+    onSelected: () -> Unit = {},
+    onClick: () -> Unit
+) {
+    TijiSurfaceCard(selected = selected, onClick = onClick) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            if (selectionMode) {
+                Checkbox(checked = selected, onCheckedChange = { onSelected() })
+            }
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(7.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    ConceptTag(normalizedSubject(mistake.subject))
+                    if (mistake.questionType.isNotBlank() && mistake.questionType != "未分类") {
+                        ConceptTag(
+                            mistake.questionType,
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    }
+                    Spacer(Modifier.weight(1f))
+                    TijiStatusBadge(mistake.mastery)
+                }
+                MathText(
+                    mistake.title.ifBlank { "未命名错题" },
+                    maxLines = 2,
+                    compact = true,
+                    emphasized = true,
+                    interactive = false
+                )
+                if (mistake.questionText.isNotBlank()) {
+                    MathText(
+                        mistake.questionText,
+                        maxLines = 2,
+                        compact = true,
+                        muted = true,
+                        interactive = false,
+                        normalizeTerminalPeriod = true,
+                        compactQuestionLayout = true
+                    )
+                } else {
+                    Text(
+                        "图片题目，打开查看原图",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "${mistake.reviewCount} 次复习",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.size(8.dp))
+                    Text(
+                        formatLocalDate(mistake.updatedAt),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -5486,6 +6058,7 @@ private fun ReviewQuestionScreen(
     var loadError by remember { mutableStateOf<String?>(null) }
     var showAnswer by remember(currentId) { mutableStateOf(false) }
     var showExplanation by remember(currentId) { mutableStateOf(false) }
+    var reviewMenuExpanded by remember(currentId) { mutableStateOf(false) }
     val currentSavedStatus = reviewStatuses[currentId]
     var selectedGrade by remember(currentId, currentSavedStatus) {
         mutableStateOf(currentSavedStatus?.let { runCatching { ReviewGrade.valueOf(it) }.getOrNull() })
@@ -5513,16 +6086,30 @@ private fun ReviewQuestionScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(progressLabel) },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("复习")
+                        if (progressLabel != "复习") {
+                            Text(progressLabel, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回复习") } },
                 actions = {
                     if (current != null) {
                         IconButton(
-                            onClick = {
-                                onRemovedFromPlan(currentId, onBack)
-                            }
+                            onClick = { reviewMenuExpanded = true }
                         ) {
-                            Icon(Icons.Outlined.Remove, contentDescription = "移出复习计划")
+                            Icon(Icons.Outlined.MoreVert, contentDescription = "更多操作")
+                        }
+                        DropdownMenu(
+                            expanded = reviewMenuExpanded,
+                            onDismissRequest = { reviewMenuExpanded = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("移出复习计划") },
+                                onClick = { reviewMenuExpanded = false; onRemovedFromPlan(currentId, onBack) }
+                            )
                         }
                     }
                 },
@@ -5540,30 +6127,32 @@ private fun ReviewQuestionScreen(
             }
         } else {
             LazyColumn(
-                contentPadding = PaddingValues(horizontal = TijiDimens.pagePadding, vertical = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(TijiDimens.sectionGap),
-                modifier = Modifier
-                    .padding(padding)
-                    .fillMaxSize()
+                contentPadding = PaddingValues(start = TijiDimens.pagePadding, top = 8.dp, end = TijiDimens.pagePadding, bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.padding(padding).fillMaxSize()
             ) {
                 item {
-                    TijiSurfaceCard {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                Text(normalizedSubject(current.subject), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text(current.title.ifBlank { "复习题目" }, style = MaterialTheme.typography.titleLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            }
-                            TijiStatusBadge(current.mastery)
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                            Text("今日复习", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.weight(1f))
+                            Text(formatLocalDate(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        current.imagePath?.let {
-                            Text("题目图片", style = MaterialTheme.typography.titleSmall)
-                            ImagePreview(it)
-                        }
+                        LinearProgressIndicator(
+                            progress = { if (reviewIds.isEmpty()) 0f else ((currentIndex + 1).toFloat() / reviewIds.size).coerceIn(0f, 1f) },
+                            modifier = Modifier.fillMaxWidth().height(7.dp),
+                            trackColor = MaterialTheme.colorScheme.primaryContainer
+                        )
                     }
                 }
                 item {
                     TijiSurfaceCard {
-                        Text("题目", style = MaterialTheme.typography.titleMedium)
+                        Row(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
+                            ConceptTag(normalizedSubject(current.subject))
+                            TijiStatusBadge(current.mastery)
+                        }
+                        Text("题目", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                        Text(current.title.ifBlank { "先独立回想，再查看答案" }, style = MaterialTheme.typography.titleLarge)
                         MathText(
                             current.questionText.ifBlank { "（图片题，请查看题目图片）" },
                             preserveSourceExactly = true,
@@ -5571,25 +6160,34 @@ private fun ReviewQuestionScreen(
                             compactQuestionLayout = true,
                             compactVerticalSpacing = true
                         )
+                        current.imagePath?.let { ImagePreview(it) }
                     }
                 }
                 item {
                     Button(
                         onClick = { showAnswer = true; showExplanation = true },
                         enabled = !showAnswer,
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp)
-                    ) { Text(if (showAnswer) "答案已展开" else "查看答案") }
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.primary
+                        ),
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
+                    ) {
+                        Icon(Icons.Outlined.Visibility, contentDescription = null)
+                        Spacer(Modifier.size(6.dp))
+                        Text(if (showAnswer) "答案已展开" else "查看答案")
+                    }
                 }
                 if (showAnswer) {
                     if (current.answerImagePath != null) item {
                         TijiSurfaceCard {
-                            Text("答案图片", style = MaterialTheme.typography.titleSmall)
+                            ConceptSectionHeader("答案图片")
                             ImagePreview(current.answerImagePath)
                         }
                     }
                     item {
                         TijiSurfaceCard {
-                            Text("答案", style = MaterialTheme.typography.titleMedium)
+                            ConceptSectionHeader("参考答案", "对照检查自己的思路")
                             MathText(current.answerText.ifBlank { "未填写答案" })
                         }
                     }
@@ -5597,127 +6195,65 @@ private fun ReviewQuestionScreen(
                 if (showExplanation) {
                     if (current.explanationImagePath != null) item {
                         TijiSurfaceCard {
-                            Text("解析图片", style = MaterialTheme.typography.titleSmall)
+                            ConceptSectionHeader("解析图片")
                             ImagePreview(current.explanationImagePath)
                         }
                     }
                     item {
                         TijiSurfaceCard {
-                            Text("解析", style = MaterialTheme.typography.titleMedium)
+                            ConceptSectionHeader("解析", "把错误归纳成下一次的提醒")
                             MathText(current.explanation.ifBlank { "未填写解析" }, normalizeTerminalPeriod = true)
                         }
                     }
                     item {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("这道题下次什么时候出现？", style = MaterialTheme.typography.titleMedium)
-                            ReviewGrade.values().toList().chunked(2).forEach { rowGrades ->
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                                    rowGrades.forEach { grade ->
-                                        FilterChip(
-                                            selected = selectedGrade == grade,
-                                            enabled = selectedGrade == null,
-                                            onClick = {
+                        val semanticColors = LocalTijiSemanticColors.current
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            ConceptSectionHeader("复习反馈", "选择你对这道题的真实掌握程度")
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                ReviewGrade.values().forEach { grade ->
+                                    val selected = selectedGrade == grade
+                                    val gradeColor = when (grade) {
+                                        ReviewGrade.FORGOT -> MaterialTheme.colorScheme.error
+                                        ReviewGrade.HARD -> semanticColors.reviewInProgress
+                                        ReviewGrade.GOOD -> semanticColors.reviewMastered
+                                        ReviewGrade.EASY -> semanticColors.reviewEasy
+                                    }
+                                    Card(
+                                        onClick = {
+                                            if (selectedGrade == null) {
                                                 viewModel.review(current, grade)
                                                 selectedGrade = grade
                                                 onReviewed(current.id, grade)
-                                            },
-                                            modifier = Modifier.weight(1f).heightIn(min = 60.dp),
-                                            label = {
-                                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                                    Text(reviewGradeUiLabel(grade))
-                                                    Text(reviewIntervalLabel(grade), style = MaterialTheme.typography.labelSmall)
-                                                }
                                             }
-                                        )
+                                        },
+                                        enabled = selectedGrade == null || selected,
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = if (selected) gradeColor.copy(alpha = 0.16f) else gradeColor.copy(alpha = 0.07f)
+                                        ),
+                                        border = BorderStroke(1.dp, if (selected) gradeColor else gradeColor.copy(alpha = 0.28f)),
+                                        shape = RoundedCornerShape(14.dp),
+                                        modifier = Modifier.weight(1f).heightIn(min = 72.dp)
+                                    ) {
+                                        Column(Modifier.fillMaxWidth().padding(8.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                            Text(reviewGradeUiLabel(grade), style = MaterialTheme.typography.titleSmall, color = gradeColor, maxLines = 1)
+                                            Text(reviewIntervalLabel(grade), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                                        }
                                     }
-                                    if (rowGrades.size == 1) Spacer(Modifier.weight(1f))
                                 }
                             }
-                            if (selectedGrade != null) Text("已记录：${reviewGradeUiLabel(selectedGrade!!)}", color = MaterialTheme.colorScheme.primary)
+                            selectedGrade?.let { Text("已记录：${reviewGradeUiLabel(it)}", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall) }
                         }
                     }
                 }
                 item {
                     val isLastQuestion = reviewIds.isNotEmpty() && currentIndex == reviewIds.lastIndex
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                        OutlinedButton(
-                            onClick = { moveBy(-1) },
-                            enabled = currentIndex > 0,
-                            modifier = Modifier.weight(1f)
-                        ) { Text("上一题") }
-                        Text(
-                            if (reviewIds.isEmpty()) "复习题" else "${currentIndex + 1} / ${reviewIds.size}",
-                            modifier = Modifier.padding(horizontal = 12.dp),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        OutlinedButton(
-                            onClick = { if (isLastQuestion) onBack() else moveBy(1) },
-                            enabled = isLastQuestion || currentIndex in 0 until (reviewIds.size - 1),
-                            modifier = Modifier.weight(1f)
-                        ) { Text(if (isLastQuestion) "返回" else "下一题") }
+                        OutlinedButton(onClick = { moveBy(-1) }, enabled = currentIndex > 0, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("上一题") }
+                        Text(if (reviewIds.isEmpty()) "复习题" else "${currentIndex + 1} / ${reviewIds.size}", modifier = Modifier.padding(horizontal = 12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Button(onClick = { if (isLastQuestion) onBack() else moveBy(1) }, enabled = isLastQuestion || currentIndex in 0 until (reviewIds.size - 1), modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text(if (isLastQuestion) "完成" else "下一题") }
                     }
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun MistakeCard(
-    mistake: MistakeEntity,
-    selected: Boolean = false,
-    selectionMode: Boolean = false,
-    onSelected: () -> Unit = {},
-    onClick: () -> Unit
-) {
-    val metadata = metadataLabel(
-        subject = mistake.subject,
-        questionType = mistake.questionType,
-        difficulty = mistake.difficulty,
-        mastery = mistake.mastery
-    )
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), modifier = Modifier.fillMaxWidth()) {
-        Box(Modifier.fillMaxWidth()) {
-            Row(Modifier.padding(14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (selectionMode) Checkbox(checked = selected, onCheckedChange = { onSelected() })
-                BoxWithConstraints(Modifier.weight(1f)) {
-                    val compact = maxWidth < 220.dp
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        MathText(
-                            value = mistake.title.ifBlank { "未命名错题" },
-                            maxLines = 1,
-                            compact = compact,
-                            emphasized = true,
-                            interactive = false
-                        )
-                        if (mistake.questionText.isNotBlank()) {
-                            MathText(
-                                value = mistake.questionText,
-                                maxLines = if (compact) 1 else 2,
-                                compact = true,
-                                muted = true,
-                                interactive = false,
-                                normalizeTerminalPeriod = true,
-                                compactQuestionLayout = true
-                            )
-                        }
-                        Text(
-                            metadata,
-                            style = MaterialTheme.typography.labelSmall,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Text("上传：${formatUploadTime(mistake.uploadedAt)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-            }
-            Box(
-                Modifier
-                    .matchParentSize()
-                    .zIndex(2f)
-                    .clickable(onClick = onClick)
-            )
         }
     }
 }
@@ -5780,29 +6316,6 @@ private fun ReviewAllocationRow(label: String, count: Int, maxCount: Int, onCoun
             },
             dismissButton = { TextButton(onClick = { showCountEditor = false }) { Text("取消") } }
         )
-    }
-}
-
-@Composable
-private fun StatCard(label: String, value: String, icon: androidx.compose.ui.graphics.vector.ImageVector, modifier: Modifier) {
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer), modifier = modifier) { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { Icon(icon, null, tint = MaterialTheme.colorScheme.primary); Text(value, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold); Text(label, style = MaterialTheme.typography.bodySmall) } }
-}
-
-@Composable
-private fun ScreenHeading(
-    title: String,
-    subtitle: String,
-    action: @Composable () -> Unit = {}
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth().heightIn(min = 40.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(normalizeAsciiPunctuation(title), modifier = Modifier.weight(1f), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            action()
-        }
-        Text(subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -5939,17 +6452,6 @@ private fun OcrFrameBadgeIcon() {
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(horizontal = 1.dp)
             )
-        }
-    }
-}
-
-@Composable
-private fun EmptyState(title: String, message: String) {
-    TijiSurfaceCard {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            Icon(Icons.Outlined.Lightbulb, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-            Text(normalizeAsciiPunctuation(title), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Text(normalizeAsciiPunctuation(message), color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -6203,6 +6705,18 @@ private fun ImagePreview(
             }
         )
     }
+}
+
+private fun parseTagValues(raw: String): List<String> = raw
+    .split(',', '，', ';', '；', '|')
+    .map(String::trim)
+    .filter(String::isNotBlank)
+    .distinct()
+
+private fun difficultyFilterLabel(value: Int): String = when (value) {
+    1 -> "简单"
+    2 -> "中等"
+    else -> "困难"
 }
 
 private fun masteryLabel(value: Int): String = when (value) { 0 -> "未掌握"; 1 -> "学习中"; 2 -> "基本掌握"; else -> "已掌握" }
