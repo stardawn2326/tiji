@@ -3,6 +3,7 @@ package com.tiji.mistakes
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
@@ -119,6 +120,8 @@ class FocusedReviewUiTest {
         composeRule.onAllNodesWithText("· 专项复习", substring = true).assertCountEquals(2)
         composeRule.onNodeWithText("2 / 2").assertDoesNotExist()
         gradeCurrentQuestion()
+        composeRule.onNodeWithTag("review_question_content")
+            .performScrollToNode(hasText("下一题"))
         composeRule.onNodeWithText("下一题").performClick()
 
         composeRule.waitUntil(5_000) {
