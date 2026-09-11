@@ -127,6 +127,6 @@ Candidate -> VERIFYING -> PASS / WARNING / FAILED / UNAVAILABLE
 ## 9. Git 发布
 
 - 工作分支：`codex/v1.4f-ai-solve-core`
-- 提交：待提交后回填
-- Pull Request：待推送后回填
+- 首个实现提交：`60fdadd1759404adc5a6dbc13027c568f7d8462d`
+- Pull Request：[stardawn2326/tiji#7](https://github.com/stardawn2326/tiji/pull/7)
 - 仅推送源码、测试和本变更文档；不合并 PR，不提交 APK。
