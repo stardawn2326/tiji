@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -24,9 +25,11 @@ import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.FilterList
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Lightbulb
+import androidx.compose.material.icons.outlined.Replay
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -248,7 +251,8 @@ internal fun KnowledgeDetailScreen(
     reviewRecords: List<ReviewRecordEntity>,
     onBack: () -> Unit,
     onOpenMistake: (Long) -> Unit,
-    onOpenLibrary: (String) -> Unit
+    onOpenLibrary: (String) -> Unit,
+    onStartFocusedReview: (String, String) -> Unit
 ) {
     if (point == null) {
         Scaffold(
@@ -314,6 +318,20 @@ internal fun KnowledgeDetailScreen(
                         progress = { resolvedInsight.weakness },
                         modifier = Modifier.fillMaxWidth().height(8.dp),
                         trackColor = MaterialTheme.colorScheme.primaryContainer
+                    )
+                    Button(
+                        onClick = { onStartFocusedReview(point.stableId, point.name) },
+                        enabled = relatedMistakes.isNotEmpty(),
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("knowledge_start_focused_review")
+                    ) {
+                        Icon(Icons.Outlined.Replay, contentDescription = null)
+                        Spacer(Modifier.size(6.dp))
+                        Text(if (relatedMistakes.isEmpty()) "暂无可练习错题" else "开始专项复习")
+                    }
+                    Text(
+                        "按到期、掌握度和最近“忘记”优先安排题目",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }

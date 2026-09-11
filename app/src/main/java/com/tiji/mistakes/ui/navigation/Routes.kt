@@ -3,6 +3,7 @@ package com.tiji.mistakes.ui.navigation
 import android.net.Uri
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.runtime.Composable
+import java.util.UUID
 
 internal object TijiRoutes {
     const val HOME = "home"
@@ -21,6 +22,8 @@ internal object TijiRoutes {
     const val DETAIL_PATTERN = "$DETAIL/{id}"
     const val REVIEW_DETAIL = "review-detail"
     const val REVIEW_DETAIL_PATTERN = "$REVIEW_DETAIL/{id}/{ids}"
+    const val FOCUSED_REVIEW_DETAIL = "focused-review-detail"
+    const val FOCUSED_REVIEW_DETAIL_PATTERN = "$FOCUSED_REVIEW_DETAIL/{id}/{ids}/{stableId}/{name}/{sessionId}"
     const val REVIEW_CALENDAR = "review-calendar"
     const val KNOWLEDGE = "knowledge"
     const val KNOWLEDGE_DETAIL = "knowledge-detail"
@@ -31,6 +34,15 @@ internal object TijiRoutes {
     fun detail(id: Long): String = "$DETAIL/$id"
     fun reviewDetail(id: Long, ids: List<Long>): String =
         "$REVIEW_DETAIL/$id/${Uri.encode(ids.joinToString(","))}"
+
+    fun focusedReviewDetail(
+        id: Long,
+        ids: List<Long>,
+        stableId: String,
+        name: String,
+        sessionId: String = UUID.randomUUID().toString()
+    ): String =
+        "$FOCUSED_REVIEW_DETAIL/$id/${Uri.encode(ids.joinToString(","))}/${Uri.encode(stableId)}/${Uri.encode(name)}/${Uri.encode(sessionId)}"
 
     fun knowledgeDetail(stableId: String): String = "$KNOWLEDGE_DETAIL/${Uri.encode(stableId)}"
 }

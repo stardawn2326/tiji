@@ -5,6 +5,8 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
+import androidx.room.RawQuery
+import androidx.sqlite.db.SupportSQLiteQuery
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -22,8 +24,17 @@ interface MistakeDao {
     )
     fun observeActiveForKnowledgePoint(stableId: String): Flow<List<MistakeEntity>>
 
-    @Query("SELECT * FROM mistakes WHERE deletedAt IS NULL AND archived = 0 AND (title LIKE '%' || :query || '%' OR questionText LIKE '%' || :query || '%' OR userAnswer LIKE '%' || :query || '%' OR answerText LIKE '%' || :query || '%' OR explanation LIKE '%' || :query || '%' OR note LIKE '%' || :query || '%' OR subject LIKE '%' || :query || '%' OR questionType LIKE '%' || :query || '%' OR tags LIKE '%' || :query || '%' OR errorReason LIKE '%' || :query || '%' OR ocrText LIKE '%' || :query || '%') ORDER BY uploadedAt DESC, updatedAt DESC")
-    fun searchActive(query: String): Flow<List<MistakeEntity>>
+    @Query(
+        """SELECT m.* FROM mistakes m
+            JOIN mistake_knowledge_points mkp ON mkp.mistakeId = m.id
+            JOIN knowledge_points kp ON kp.id = mkp.knowledgePointId
+            WHERE kp.stableId = :stableId AND m.deletedAt IS NULL AND m.archived = 0
+            ORDER BY m.updatedAt DESC, m.id DESC"""
+    )
+    suspend fun listActiveForKnowledgePoint(stableId: String): List<MistakeEntity>
+
+    @RawQuery(observedEntities = [MistakeEntity::class])
+    fun searchActive(query: SupportSQLiteQuery): Flow<List<MistakeEntity>>
 
     @Query("SELECT * FROM mistakes WHERE id = :id LIMIT 1")
     suspend fun findById(id: Long): MistakeEntity?

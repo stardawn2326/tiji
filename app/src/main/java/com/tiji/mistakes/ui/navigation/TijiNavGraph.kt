@@ -32,6 +32,8 @@ import com.tiji.mistakes.ui.knowledge.KnowledgeListScreen
 import com.tiji.mistakes.ui.MistakeViewModel
 import com.tiji.mistakes.ui.ThemeMode
 import com.tiji.mistakes.ui.ThemePalette
+import com.tiji.mistakes.domain.ReviewSessionContext
+import com.tiji.mistakes.domain.ReviewSessionSource
 import com.tiji.mistakes.ui.review.ReviewCalendarScreen
 import com.tiji.mistakes.ui.review.ReviewQuestionScreen
 import com.tiji.mistakes.ui.review.ReviewScreen
@@ -42,7 +44,9 @@ import com.tiji.mistakes.ui.solve.AiChatHistoryScreen
 import com.tiji.mistakes.ui.solve.AiSolveHistoryScreen
 import com.tiji.mistakes.ui.solve.AiSolveScreen
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 internal fun TijiNavGraph(
@@ -210,6 +214,25 @@ internal fun TijiNavGraph(
                         onOpenLibrary = { selectedId ->
                             onLibraryKnowledgePoint(selectedId)
                             navController.navigate(TijiRoutes.LIBRARY)
+                        },
+                        onStartFocusedReview = { selectedId, pointName ->
+                            scope.launch {
+                                val queue = viewModel.focusedReviewQueue(selectedId)
+                                withContext(Dispatchers.Main.immediate) {
+                                    if (queue.isEmpty()) {
+                                        snackbarHostState.showSnackbar("这个知识点暂时没有可练习的错题")
+                                    } else {
+                                        navController.navigate(
+                                            TijiRoutes.focusedReviewDetail(
+                                                id = queue.first().id,
+                                                ids = queue.map { it.id },
+                                                stableId = selectedId,
+                                                name = pointName
+                                            )
+                                        )
+                                    }
+                                }
+                            }
                         }
                     )
                 }
@@ -385,6 +408,33 @@ internal fun TijiNavGraph(
                         onReviewed = { questionId, grade ->
                             scope.launch { preferences.recordReviewStatus(reviewDateKey(), questionId, grade.name) }
                         }
+                    )
+                }
+                composable(TijiRoutes.FOCUSED_REVIEW_DETAIL_PATTERN) { entry ->
+                    val ids = Uri.decode(entry.arguments?.getString("ids").orEmpty())
+                        .split(',')
+                        .mapNotNull { it.toLongOrNull() }
+                    val stableId = Uri.decode(entry.arguments?.getString("stableId").orEmpty())
+                    val pointName = Uri.decode(entry.arguments?.getString("name").orEmpty())
+                    val pointLabel = state.weaknessInsights
+                        .firstOrNull { it.point.stableId == stableId }
+                        ?.label
+                    val sessionId = Uri.decode(entry.arguments?.getString("sessionId").orEmpty())
+                    ReviewQuestionScreen(
+                        viewModel = viewModel,
+                        id = entry.arguments?.getString("id")?.toLongOrNull() ?: 0L,
+                        reviewIds = ids,
+                        reviewStatuses = emptyMap(),
+                        sessionKey = "focused:$sessionId",
+                        sessionContext = ReviewSessionContext(
+                            source = ReviewSessionSource.KNOWLEDGE_POINT,
+                            knowledgePointStableId = stableId,
+                            knowledgePointName = pointName,
+                            knowledgePointLabel = pointLabel
+                        ),
+                        onBack = { navController.popBackStack() },
+                        onRemovedFromPlan = { _, onDone -> onDone() },
+                        onReviewed = { _, _ -> }
                     )
                 }
                 composable(TijiRoutes.REVIEW_CALENDAR) {
