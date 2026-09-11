@@ -42,6 +42,10 @@ interface ReviewRecordDao {
     @Query("SELECT * FROM review_records WHERE mistakeId IN (:mistakeIds) ORDER BY reviewedAt DESC, id DESC")
     suspend fun listByMistakeIds(mistakeIds: List<Long>): List<ReviewRecordEntity>
 
+    /** Rebuilds a session summary from the exact records written by that session. */
+    @Query("SELECT * FROM review_records WHERE id IN (:recordIds) ORDER BY reviewedAt ASC, id ASC")
+    suspend fun listByIds(recordIds: List<Long>): List<ReviewRecordEntity>
+
     @Query(
         """SELECT * FROM review_records
             WHERE mistakeId = :mistakeId AND reviewedAt = :reviewedAt AND grade = :grade

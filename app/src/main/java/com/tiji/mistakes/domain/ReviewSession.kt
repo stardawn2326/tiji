@@ -23,3 +23,14 @@ data class ReviewSessionContext(
             source.label
         }
 }
+
+/** Lightweight session progress persisted by the review ViewModel. */
+data class ReviewSessionUiState(
+    val sessionKey: String,
+    val startedAt: Long,
+    val reviewIds: List<Long>,
+    val currentIndex: Int = 0,
+    val gradesByMistake: Map<Long, String> = emptyMap(),
+    val recordedReviewIds: List<Long> = emptyList(),
+    val summaryVisible: Boolean = false
+)

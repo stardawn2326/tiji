@@ -44,6 +44,12 @@ class MistakeRepository(private val database: AppDatabase) {
         return database.reviewRecordDao().listByMistakeIds(ids)
     }
 
+    suspend fun listReviewRecordsByIds(recordIds: Collection<Long>): List<ReviewRecordEntity> {
+        val ids = recordIds.filter { it > 0L }.distinct()
+        if (ids.isEmpty()) return emptyList()
+        return database.reviewRecordDao().listByIds(ids)
+    }
+
     fun observeKnowledgePoints(): Flow<List<KnowledgePointEntity>> = database.knowledgePointDao().observeAll()
     fun observeKnowledgePoint(stableId: String): Flow<KnowledgePointEntity?> =
         database.knowledgePointDao().observeByStableId(stableId)

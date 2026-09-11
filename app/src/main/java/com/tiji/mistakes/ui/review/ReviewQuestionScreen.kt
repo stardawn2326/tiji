@@ -29,6 +29,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -45,8 +46,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -77,9 +76,6 @@ import com.tiji.mistakes.ui.TijiStatusBadge
 import com.tiji.mistakes.ui.TijiSurfaceCard
 import java.time.ZoneId
 import java.time.temporal.ChronoUnit
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.joinAll
-import kotlinx.coroutines.launch
 
 @Composable
 internal fun ReviewQuestionScreen(
@@ -90,9 +86,10 @@ internal fun ReviewQuestionScreen(
     onBack: () -> Unit,
     onRemovedFromPlan: (Long, () -> Unit) -> Unit,
     onReviewed: (Long, ReviewGrade) -> Unit,
+    sessionKey: String? = null,
     sessionContext: ReviewSessionContext = ReviewSessionContext()
 ) {
-    val sessionKey = remember(reviewIds, sessionContext) {
+    val fallbackSessionKey = remember(reviewIds, sessionContext) {
         buildString {
             append(sessionContext.source.name)
             append('|')
@@ -103,26 +100,44 @@ internal fun ReviewQuestionScreen(
             append(reviewIds.joinToString(","))
         }
     }
-    val sessionStartedAt = rememberSaveable(sessionKey) { System.currentTimeMillis() }
-    val scope = rememberCoroutineScope()
-    val pendingReviewJobs = remember { mutableMapOf<Long, Job>() }
-    var sessionGrades by remember { mutableStateOf<Map<Long, ReviewGrade>>(emptyMap()) }
-    var showSummary by rememberSaveable(sessionKey) { mutableStateOf(false) }
-    var summaryRecords by remember { mutableStateOf<List<ReviewRecordEntity>?>(null) }
-    var summaryLoading by remember { mutableStateOf(false) }
-    var currentId by remember(id) { mutableLongStateOf(id) }
+    val resolvedSessionKey = sessionKey ?: fallbackSessionKey
+    val isFocusedSession = sessionContext.isFocusedKnowledgePoint
+    val savedReviewSession by viewModel.reviewSession.collectAsStateWithLifecycle()
+    val focusedSession = savedReviewSession?.takeIf {
+        isFocusedSession && it.sessionKey == resolvedSessionKey
+    }
+    val summaryState by viewModel.reviewSessionSummary.collectAsStateWithLifecycle()
+    LaunchedEffect(isFocusedSession, resolvedSessionKey, reviewIds) {
+        if (isFocusedSession) viewModel.beginReviewSession(resolvedSessionKey, reviewIds)
+    }
+    LaunchedEffect(isFocusedSession, resolvedSessionKey, focusedSession?.summaryVisible, focusedSession?.recordedReviewIds) {
+        if (isFocusedSession && focusedSession?.summaryVisible == true) {
+            viewModel.ensureReviewSessionSummaryLoaded(resolvedSessionKey)
+        }
+    }
+    var dailyCurrentId by remember(id) { mutableLongStateOf(id) }
+    val effectiveReviewIds = focusedSession?.reviewIds ?: reviewIds
+    val focusedCurrentIndex = focusedSession?.currentIndex ?: effectiveReviewIds.indexOf(id).coerceAtLeast(0)
+    val currentId = if (isFocusedSession) {
+        effectiveReviewIds.getOrNull(focusedCurrentIndex) ?: id
+    } else {
+        dailyCurrentId
+    }
     var mistake by remember { mutableStateOf<MistakeEntity?>(null) }
     var loadError by remember { mutableStateOf<String?>(null) }
     var showAnswer by remember(currentId) { mutableStateOf(false) }
     var showExplanation by remember(currentId) { mutableStateOf(false) }
     var reviewMenuExpanded by remember(currentId) { mutableStateOf(false) }
-    val currentSavedStatus = reviewStatuses[currentId]
-    val sessionGrade = sessionGrades[currentId]
-    var selectedGrade by remember(currentId, currentSavedStatus, sessionGrade) {
+    val currentSavedStatus = if (isFocusedSession) null else reviewStatuses[currentId]
+    val focusedGrade = focusedSession?.gradesByMistake?.get(currentId)?.let {
+        runCatching { ReviewGrade.valueOf(it) }.getOrNull()
+    }
+    var dailySelectedGrade by remember(currentId, currentSavedStatus) {
         mutableStateOf(
-            sessionGrade ?: currentSavedStatus?.let { runCatching { ReviewGrade.valueOf(it) }.getOrNull() }
+            currentSavedStatus?.let { runCatching { ReviewGrade.valueOf(it) }.getOrNull() }
         )
     }
+    val selectedGrade = focusedGrade ?: dailySelectedGrade
 
     LaunchedEffect(currentId) {
         mistake = null
@@ -135,36 +150,45 @@ internal fun ReviewQuestionScreen(
     }
 
     fun moveBy(delta: Int) {
-        val index = reviewIds.indexOf(currentId)
-        val nextIndex = (index + delta).takeIf { index >= 0 && it in reviewIds.indices } ?: return
-        currentId = reviewIds[nextIndex]
+        if (isFocusedSession) {
+            viewModel.moveReviewSession(resolvedSessionKey, delta)
+            return
+        }
+        val index = effectiveReviewIds.indexOf(currentId)
+        val nextIndex = (index + delta).takeIf { index >= 0 && it in effectiveReviewIds.indices } ?: return
+        dailyCurrentId = effectiveReviewIds[nextIndex]
     }
 
     fun completeFocusedSession() {
-        if (!sessionContext.isFocusedKnowledgePoint || summaryLoading) return
-        summaryLoading = true
-        scope.launch {
-            pendingReviewJobs.values.toList().joinAll()
-            summaryRecords = viewModel.listReviewRecordsForMistakes(reviewIds)
-                .filter { it.reviewedAt >= sessionStartedAt }
-                .sortedWith(compareByDescending<ReviewRecordEntity> { it.reviewedAt }.thenByDescending { it.id })
-            summaryLoading = false
-            showSummary = true
-        }
+        if (!isFocusedSession) return
+        viewModel.completeFocusedReviewSession(resolvedSessionKey)
     }
 
     val current = mistake
-    val currentIndex = reviewIds.indexOf(currentId)
-    val progressLabel = if (reviewIds.isEmpty() || currentIndex < 0) "复习" else "${currentIndex + 1} / ${reviewIds.size}"
+    val currentIndex = if (isFocusedSession) {
+        focusedSession?.currentIndex ?: effectiveReviewIds.indexOf(currentId)
+    } else {
+        effectiveReviewIds.indexOf(currentId)
+    }
+    val progressLabel = if (effectiveReviewIds.isEmpty() || currentIndex < 0) "复习" else "${currentIndex + 1} / ${effectiveReviewIds.size}"
     val reviewHistoryFlow = remember(currentId) { viewModel.reviewHistory(currentId) }
     val currentReviewHistory by reviewHistoryFlow.collectAsStateWithLifecycle(emptyList())
     val reviewReason = current?.let { reviewReasonFor(it, currentReviewHistory.firstOrNull(), sessionContext) }
-    if (showSummary && summaryRecords != null) {
+    val exitSession = {
+        if (isFocusedSession) viewModel.clearReviewSession(resolvedSessionKey)
+        onBack()
+    }
+    val showSummary = isFocusedSession && focusedSession?.summaryVisible == true
+    if (showSummary && summaryState.sessionKey == resolvedSessionKey && summaryState.isLoaded) {
         ReviewSessionSummaryScreen(
             context = sessionContext,
-            stats = ReviewSessionAnalytics.summarize(summaryRecords.orEmpty()),
-            onBack = onBack
+            stats = ReviewSessionAnalytics.summarize(summaryState.records),
+            onBack = exitSession
         )
+        return
+    }
+    if (showSummary) {
+        ReviewSessionSummaryLoadingScreen(onBack = exitSession)
         return
     }
     Scaffold(
@@ -182,7 +206,7 @@ internal fun ReviewQuestionScreen(
                         }
                     }
                 },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回复习") } },
+                navigationIcon = { IconButton(onClick = exitSession) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回复习") } },
                 actions = {
                     if (current != null && !sessionContext.isFocusedKnowledgePoint) {
                         IconButton(
@@ -233,7 +257,7 @@ internal fun ReviewQuestionScreen(
                             Text(formatLocalDate(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         LinearProgressIndicator(
-                            progress = { if (reviewIds.isEmpty()) 0f else ((currentIndex + 1).toFloat() / reviewIds.size).coerceIn(0f, 1f) },
+                            progress = { if (effectiveReviewIds.isEmpty()) 0f else ((currentIndex + 1).toFloat() / effectiveReviewIds.size).coerceIn(0f, 1f) },
                             modifier = Modifier.fillMaxWidth().height(7.dp),
                             trackColor = MaterialTheme.colorScheme.primaryContainer
                         )
@@ -337,16 +361,22 @@ internal fun ReviewQuestionScreen(
                                         ReviewGrade.GOOD -> semanticColors.reviewMastered
                                         ReviewGrade.EASY -> semanticColors.reviewEasy
                                     }
-                                    Card(
-                                        onClick = {
-                                            if (selectedGrade == null) {
-                                                pendingReviewJobs[current.id] = viewModel.review(current, grade) {
-                                                    onReviewed(current.id, grade)
+                                        Card(
+                                            onClick = {
+                                                if (selectedGrade == null) {
+                                                    if (isFocusedSession) {
+                                                        viewModel.review(
+                                                            mistake = current,
+                                                            grade = grade,
+                                                            sessionKey = resolvedSessionKey,
+                                                            onRecorded = { onReviewed(current.id, grade) }
+                                                        )
+                                                    } else {
+                                                        dailySelectedGrade = grade
+                                                        viewModel.review(current, grade) { onReviewed(current.id, grade) }
+                                                    }
                                                 }
-                                                sessionGrades = sessionGrades + (current.id to grade)
-                                                selectedGrade = grade
-                                            }
-                                        },
+                                            },
                                         enabled = selectedGrade == null || selected,
                                         colors = CardDefaults.cardColors(
                                             containerColor = if (selected) gradeColor.copy(alpha = 0.16f) else gradeColor.copy(alpha = 0.07f)
@@ -370,25 +400,27 @@ internal fun ReviewQuestionScreen(
                     }
                 }
                 item {
-                    val isLastQuestion = reviewIds.isNotEmpty() && currentIndex == reviewIds.lastIndex
+                    val isLastQuestion = effectiveReviewIds.isNotEmpty() && currentIndex == effectiveReviewIds.lastIndex
+                    val summaryLoading = isFocusedSession &&
+                        summaryState.sessionKey == resolvedSessionKey && summaryState.isLoading
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                         OutlinedButton(onClick = { moveBy(-1) }, enabled = currentIndex > 0, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("上一题") }
-                        Text(if (reviewIds.isEmpty()) "复习题" else "${currentIndex + 1} / ${reviewIds.size}", modifier = Modifier.padding(horizontal = 12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(if (effectiveReviewIds.isEmpty()) "复习题" else "${currentIndex + 1} / ${effectiveReviewIds.size}", modifier = Modifier.padding(horizontal = 12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Button(
                             onClick = {
                                 if (isLastQuestion) {
-                                    if (sessionContext.isFocusedKnowledgePoint) completeFocusedSession() else onBack()
+                                    if (isFocusedSession) completeFocusedSession() else exitSession()
                                 } else moveBy(1)
                             },
-                            enabled = if (isLastQuestion && sessionContext.isFocusedKnowledgePoint) !summaryLoading else {
-                                isLastQuestion || currentIndex in 0 until (reviewIds.size - 1)
+                            enabled = if (isLastQuestion && isFocusedSession) !summaryLoading else {
+                                isLastQuestion || currentIndex in 0 until (effectiveReviewIds.size - 1)
                             },
                             modifier = Modifier.weight(1f).heightIn(min = 48.dp)
                         ) {
                             Text(
                                 when {
-                                    isLastQuestion && sessionContext.isFocusedKnowledgePoint && summaryLoading -> "整理本次记录…"
-                                    isLastQuestion && sessionContext.isFocusedKnowledgePoint -> "查看总结"
+                                    isLastQuestion && isFocusedSession && summaryLoading -> "整理本次记录…"
+                                    isLastQuestion && isFocusedSession -> "查看总结"
                                     isLastQuestion -> "完成"
                                     else -> "下一题"
                                 }
@@ -397,6 +429,35 @@ internal fun ReviewQuestionScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ReviewSessionSummaryLoadingScreen(onBack: () -> Unit) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("本次专项复习") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回复习")
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .padding(padding)
+                .fillMaxSize()
+                .padding(20.dp)
+                .testTag("review_session_summary_loading"),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            CircularProgressIndicator()
+            Text("正在恢复本轮记录…", modifier = Modifier.padding(top = 12.dp))
         }
     }
 }

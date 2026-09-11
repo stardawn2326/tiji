@@ -419,11 +419,13 @@ internal fun TijiNavGraph(
                     val pointLabel = state.weaknessInsights
                         .firstOrNull { it.point.stableId == stableId }
                         ?.label
+                    val sessionId = Uri.decode(entry.arguments?.getString("sessionId").orEmpty())
                     ReviewQuestionScreen(
                         viewModel = viewModel,
                         id = entry.arguments?.getString("id")?.toLongOrNull() ?: 0L,
                         reviewIds = ids,
                         reviewStatuses = emptyMap(),
+                        sessionKey = "focused:$sessionId",
                         sessionContext = ReviewSessionContext(
                             source = ReviewSessionSource.KNOWLEDGE_POINT,
                             knowledgePointStableId = stableId,
