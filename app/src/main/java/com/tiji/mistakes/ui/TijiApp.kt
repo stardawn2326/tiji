@@ -91,7 +91,6 @@ fun TijiApp() {
     var libraryKnowledgePointStableId by rememberSaveable { mutableStateOf<String?>(null) }
     val dueMistakes by viewModel.dueMistakes.collectAsStateWithLifecycle()
     val dueCount by viewModel.dueCount.collectAsStateWithLifecycle()
-    val reviewRecords by viewModel.reviewRecords.collectAsStateWithLifecycle()
     val recentReviewRecords by viewModel.recentReviewRecords.collectAsStateWithLifecycle()
     val knowledgePoints by viewModel.knowledgePoints.collectAsStateWithLifecycle()
     val knowledgePointLinks by viewModel.knowledgePointLinks.collectAsStateWithLifecycle()
@@ -133,7 +132,6 @@ fun TijiApp() {
         mistakes = mistakes,
         dueMistakes = dueMistakes,
         dueCount = dueCount,
-        reviewRecords = reviewRecords,
         knowledgePoints = knowledgePoints,
         knowledgePointLinks = knowledgePointLinks,
         reviewAnalytics = reviewAnalytics,

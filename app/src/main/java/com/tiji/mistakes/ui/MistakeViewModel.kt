@@ -210,8 +210,6 @@ class MistakeViewModel(application: Application) : AndroidViewModel(application)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
     val dueCount: StateFlow<Int> = reviewClock.flatMapLatest(repository::observeDueCount)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
-    val reviewRecords = repository.observeReviewRecords()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val recentReviewRecords = reviewClock.flatMapLatest { now ->
         repository.observeReviewRecordsSince(
             LearningCalendar.startOfRecentDays(now, 30).toEpochMilli()
@@ -283,6 +281,17 @@ class MistakeViewModel(application: Application) : AndroidViewModel(application)
     /** Bounded history stream for the detail page; it never loads unrelated mistakes. */
     fun reviewHistory(mistakeId: Long): Flow<List<com.tiji.mistakes.data.ReviewRecordEntity>> =
         repository.observeReviewRecordsForMistake(mistakeId)
+
+    /** Route-local mistake stream for Knowledge Detail. */
+    fun knowledgePointMistakes(stableId: String): Flow<List<MistakeEntity>> =
+        repository.observeMistakesForKnowledgePoint(stableId)
+
+    /** Route-local latest history stream for Knowledge Detail. */
+    fun knowledgePointReviewHistory(stableId: String, limit: Int = 5): Flow<List<com.tiji.mistakes.data.ReviewRecordEntity>> =
+        repository.observeReviewRecordsForKnowledgePoint(stableId, limit)
+
+    suspend fun listReviewRecordsForMistakes(mistakeIds: Collection<Long>): List<com.tiji.mistakes.data.ReviewRecordEntity> =
+        repository.listReviewRecordsForMistakes(mistakeIds)
 
     /**
      * Runs in a foreground service, outside the Compose screen lifecycle. The persisted state

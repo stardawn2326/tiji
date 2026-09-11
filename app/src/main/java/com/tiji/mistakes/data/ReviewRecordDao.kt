@@ -24,6 +24,24 @@ interface ReviewRecordDao {
     @Query("SELECT * FROM review_records WHERE mistakeId = :mistakeId ORDER BY reviewedAt DESC, id DESC")
     fun observeForMistake(mistakeId: Long): Flow<List<ReviewRecordEntity>>
 
+    /** Bounded history for a single mistake detail. */
+    @Query("SELECT * FROM review_records WHERE mistakeId = :mistakeId ORDER BY reviewedAt DESC, id DESC LIMIT :limit")
+    fun observeLatestForMistake(mistakeId: Long, limit: Int): Flow<List<ReviewRecordEntity>>
+
+    /** Route-local history for Knowledge Detail; unrelated mistakes never enter the stream. */
+    @Query(
+        """SELECT rr.* FROM review_records rr
+            JOIN mistake_knowledge_points mkp ON mkp.mistakeId = rr.mistakeId
+            JOIN knowledge_points kp ON kp.id = mkp.knowledgePointId
+            WHERE kp.stableId = :stableId
+            ORDER BY rr.reviewedAt DESC, rr.id DESC
+            LIMIT :limit"""
+    )
+    fun observeLatestForKnowledgePoint(stableId: String, limit: Int): Flow<List<ReviewRecordEntity>>
+
+    @Query("SELECT * FROM review_records WHERE mistakeId IN (:mistakeIds) ORDER BY reviewedAt DESC, id DESC")
+    suspend fun listByMistakeIds(mistakeIds: List<Long>): List<ReviewRecordEntity>
+
     @Query(
         """SELECT * FROM review_records
             WHERE mistakeId = :mistakeId AND reviewedAt = :reviewedAt AND grade = :grade

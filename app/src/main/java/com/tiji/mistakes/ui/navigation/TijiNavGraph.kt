@@ -196,12 +196,15 @@ internal fun TijiNavGraph(
                 }
                 composable(TijiRoutes.KNOWLEDGE_DETAIL_PATTERN) { entry ->
                     val stableId = Uri.decode(entry.arguments?.getString("stableId").orEmpty())
+                    val relatedMistakes by viewModel.knowledgePointMistakes(stableId)
+                        .collectAsStateWithLifecycle(emptyList())
+                    val reviewHistory by viewModel.knowledgePointReviewHistory(stableId)
+                        .collectAsStateWithLifecycle(emptyList())
                     KnowledgeDetailScreen(
                         point = state.knowledgePoints.firstOrNull { it.stableId == stableId },
                         insight = state.weaknessInsights.firstOrNull { it.point.stableId == stableId },
-                        mistakes = state.allMistakes,
-                        links = state.knowledgePointLinks,
-                        reviewRecords = state.reviewRecords,
+                        relatedMistakes = relatedMistakes,
+                        reviewRecords = reviewHistory,
                         onBack = { navController.popBackStack() },
                         onOpenMistake = { id -> navController.navigate(TijiRoutes.detail(id)) },
                         onOpenLibrary = { selectedId ->

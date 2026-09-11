@@ -48,8 +48,23 @@ class MistakeRepository(private val database: AppDatabase) {
     fun observeReviewRecordsSince(from: Long): Flow<List<ReviewRecordEntity>> =
         database.reviewRecordDao().observeSince(from)
 
-    fun observeReviewRecordsForMistake(mistakeId: Long): Flow<List<ReviewRecordEntity>> =
-        database.reviewRecordDao().observeForMistake(mistakeId)
+    fun observeReviewRecordsForMistake(mistakeId: Long, limit: Int = 5): Flow<List<ReviewRecordEntity>> =
+        database.reviewRecordDao().observeLatestForMistake(mistakeId, limit.coerceAtLeast(1))
+
+    fun observeMistakesForKnowledgePoint(stableId: String): Flow<List<MistakeEntity>> =
+        database.mistakeDao().observeActiveForKnowledgePoint(stableId)
+
+    fun observeReviewRecordsForKnowledgePoint(
+        stableId: String,
+        limit: Int = 5
+    ): Flow<List<ReviewRecordEntity>> = database.reviewRecordDao()
+        .observeLatestForKnowledgePoint(stableId, limit.coerceAtLeast(1))
+
+    suspend fun listReviewRecordsForMistakes(mistakeIds: Collection<Long>): List<ReviewRecordEntity> {
+        val ids = mistakeIds.filter { it > 0L }.distinct()
+        if (ids.isEmpty()) return emptyList()
+        return database.reviewRecordDao().listByMistakeIds(ids)
+    }
 
     fun observeKnowledgePoints(): Flow<List<KnowledgePointEntity>> = database.knowledgePointDao().observeAll()
     fun observeKnowledgePoint(stableId: String): Flow<KnowledgePointEntity?> =

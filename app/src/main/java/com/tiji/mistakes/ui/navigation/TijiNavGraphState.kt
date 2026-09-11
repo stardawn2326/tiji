@@ -5,7 +5,6 @@ import com.tiji.mistakes.data.AiVisualProfile
 import com.tiji.mistakes.data.MistakeEntity
 import com.tiji.mistakes.data.MistakeKnowledgePointCrossRef
 import com.tiji.mistakes.data.KnowledgePointEntity
-import com.tiji.mistakes.data.ReviewRecordEntity
 import com.tiji.mistakes.domain.KnowledgePointInsight
 import com.tiji.mistakes.domain.ReviewAnalyticsSummary
 
@@ -14,7 +13,6 @@ internal data class TijiNavGraphState(
     val mistakes: List<MistakeEntity>,
     val dueMistakes: List<MistakeEntity>,
     val dueCount: Int,
-    val reviewRecords: List<ReviewRecordEntity>,
     val knowledgePoints: List<KnowledgePointEntity>,
     val knowledgePointLinks: List<MistakeKnowledgePointCrossRef>,
     val reviewAnalytics: ReviewAnalyticsSummary,

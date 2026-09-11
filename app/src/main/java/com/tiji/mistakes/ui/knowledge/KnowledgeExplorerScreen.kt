@@ -54,7 +54,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.tiji.mistakes.data.KnowledgePointEntity
 import com.tiji.mistakes.data.MistakeEntity
-import com.tiji.mistakes.data.MistakeKnowledgePointCrossRef
 import com.tiji.mistakes.data.ReviewRecordEntity
 import com.tiji.mistakes.domain.KnowledgePointInsight
 import com.tiji.mistakes.ui.ConceptPageHeader
@@ -245,8 +244,7 @@ private fun KnowledgePointCard(insight: KnowledgePointInsight, onClick: () -> Un
 internal fun KnowledgeDetailScreen(
     point: KnowledgePointEntity?,
     insight: KnowledgePointInsight?,
-    mistakes: List<MistakeEntity>,
-    links: List<MistakeKnowledgePointCrossRef>,
+    relatedMistakes: List<MistakeEntity>,
     reviewRecords: List<ReviewRecordEntity>,
     onBack: () -> Unit,
     onOpenMistake: (Long) -> Unit,
@@ -271,13 +269,8 @@ internal fun KnowledgeDetailScreen(
         return
     }
 
-    val pointMistakeIds = remember(point.id, links) { links.filter { it.knowledgePointId == point.id }.map { it.mistakeId }.toSet() }
-    val relatedMistakes = remember(pointMistakeIds, mistakes) { mistakes.filter { it.id in pointMistakeIds }.sortedByDescending { it.updatedAt } }
-    val relatedRecords = remember(pointMistakeIds, reviewRecords) {
-        reviewRecords.filter { it.mistakeId in pointMistakeIds }.sortedByDescending { it.reviewedAt }
-    }
     val averageMastery = relatedMistakes.map { it.mastery.coerceIn(0, 3) }.average().takeUnless(Double::isNaN) ?: 0.0
-    val resolvedInsight = insight ?: KnowledgePointInsight(point, relatedMistakes.size, relatedRecords.size, relatedRecords.count { it.grade == "FORGOT" }, 0f, "稳定")
+    val resolvedInsight = insight ?: KnowledgePointInsight(point, relatedMistakes.size, 0, 0, 0f, "稳定")
     val reasons = buildList {
         if (averageMastery <= 1.0) add("关联错题平均掌握度偏低")
         if (resolvedInsight.recentForgotCount > 0) add("近 30 天有 ${resolvedInsight.recentForgotCount} 次“忘记”")
@@ -329,7 +322,12 @@ internal fun KnowledgeDetailScreen(
                     ConceptSectionHeader("学习概览", "只统计当前知识点关联的错题和真实复习记录")
                     Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         KnowledgeMetric("关联错题", relatedMistakes.size.toString(), Modifier.weight(1f))
-                        KnowledgeMetric("近30天复习", relatedRecords.size.toString(), Modifier.weight(1f))
+                        KnowledgeMetric(
+                            "近30天复习",
+                            resolvedInsight.recentReviewCount.toString(),
+                            Modifier.weight(1f),
+                            valueTestTag = "knowledge_recent_30_count"
+                        )
                         KnowledgeMetric("近30天忘记", resolvedInsight.recentForgotCount.toString(), Modifier.weight(1f))
                     }
                 }
@@ -365,10 +363,10 @@ internal fun KnowledgeDetailScreen(
                             TextButton(onClick = { onOpenLibrary(point.stableId) }) { Text("查看相关错题") }
                         }
                     }
-                    if (relatedRecords.isEmpty()) {
+                    if (reviewRecords.isEmpty()) {
                         Text("还没有复习记录", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     } else {
-                        relatedRecords.take(5).forEach { record ->
+                        reviewRecords.forEach { record ->
                             ReviewHistoryRow(record)
                         }
                     }
@@ -405,9 +403,14 @@ internal fun KnowledgeDetailScreen(
 }
 
 @Composable
-private fun KnowledgeMetric(label: String, value: String, modifier: Modifier) {
+private fun KnowledgeMetric(label: String, value: String, modifier: Modifier, valueTestTag: String? = null) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text(value, style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
+        Text(
+            value,
+            modifier = valueTestTag?.let { Modifier.testTag(it) } ?: Modifier,
+            style = MaterialTheme.typography.headlineSmall,
+            color = MaterialTheme.colorScheme.primary
+        )
         Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
