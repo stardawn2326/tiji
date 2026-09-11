@@ -228,6 +228,7 @@ internal fun TijiNavGraph(
                         insight = state.weaknessInsights.firstOrNull { it.point.stableId == stableId },
                         relatedMistakes = relatedMistakes,
                         reviewRecords = reviewHistory,
+                        exportOriginalImagesOnly = !state.aiExcludeSourceImageByDefault,
                         onBack = { navController.popBackStack() },
                         onOpenMistake = { id -> navController.navigate(TijiRoutes.detail(id)) },
                         onOpenLibrary = { selectedId ->
@@ -372,6 +373,7 @@ internal fun TijiNavGraph(
                 composable(TijiRoutes.CAPTURE) {
                     NewCaptureScreen(
                         viewModel = viewModel,
+                        allMistakes = state.allMistakes,
                         onBack = { navController.popBackStack() },
                         aiEndpoint = state.activeAiProfile.endpoint,
                         aiModel = state.activeAiProfile.model,

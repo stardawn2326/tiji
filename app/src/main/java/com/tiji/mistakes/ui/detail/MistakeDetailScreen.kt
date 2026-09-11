@@ -6,6 +6,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import android.content.pm.PackageManager
 import android.Manifest
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -28,6 +29,7 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.Print
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
@@ -47,6 +49,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -62,6 +66,9 @@ import com.tiji.mistakes.domain.ReviewGrade
 import com.tiji.mistakes.service.ContentBlockKind
 import com.tiji.mistakes.service.ContentBlockRole
 import com.tiji.mistakes.service.ImageStorage
+import com.tiji.mistakes.service.HtmlPdfExportService
+import com.tiji.mistakes.service.PdfExportOptions
+import com.tiji.mistakes.service.PdfTemplate
 import com.tiji.mistakes.service.QuestionContentBlockCodec
 import com.tiji.mistakes.ui.capture.PhotoRole
 import com.tiji.mistakes.ui.capture.StandaloneImageEditor
@@ -79,6 +86,11 @@ import com.tiji.mistakes.ui.editor.MistakeFields
 import com.tiji.mistakes.ui.MistakeViewModel
 import com.tiji.mistakes.ui.math.normalizeAsciiPunctuation
 import com.tiji.mistakes.ui.common.reviewGradeUiLabel
+import com.tiji.mistakes.ui.common.PdfExportOptionsDialog
+import com.tiji.mistakes.ui.common.PdfPreviewDialog
+import com.tiji.mistakes.ui.common.PdfPreviewLoadingDialog
+import com.tiji.mistakes.ui.common.discardPdfPreview
+import com.tiji.mistakes.ui.common.launchDurablePdfExport
 import com.tiji.mistakes.ui.normalizedSubject
 import com.tiji.mistakes.ui.editor.PhotoEditFields
 import com.tiji.mistakes.ui.solve.ContentBlockImages
@@ -164,6 +176,85 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
     var answerImage by remember(current.id) { mutableStateOf(current.answerImagePath) }
     var explanationImage by remember(current.id) { mutableStateOf(current.explanationImagePath) }
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var showPdfOptions by rememberSaveable { mutableStateOf(false) }
+    var previewPath by rememberSaveable { mutableStateOf("") }
+    var previewFilename by rememberSaveable { mutableStateOf("") }
+    var isPreparingPdf by remember { mutableStateOf(false) }
+    var pdfOptions by remember {
+        mutableStateOf(PdfExportOptions(includeSourceImages = true))
+    }
+    val pdfExportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
+        val preview = previewPath.takeIf(String::isNotBlank)?.let(::File)?.takeIf(File::isFile)
+        if (uri != null && preview != null) {
+            previewPath = ""
+            launchDurablePdfExport {
+                val result = HtmlPdfExportService.copyPreviewToUri(context, preview, uri)
+                if (result.isSuccess) discardPdfPreview(preview.absolutePath)
+                Toast.makeText(
+                    context,
+                    result.fold({ "此题 PDF 已导出" }, { "PDF 导出失败：${it.message ?: "未知错误"}" }),
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+    }
+    fun requestPdfPreview(options: PdfExportOptions) {
+        pdfOptions = options
+        showPdfOptions = false
+        isPreparingPdf = true
+        val filename = if (options.template == PdfTemplate.ANSWER) "题迹-此题-答案.pdf" else "题迹-此题-练习.pdf"
+        scope.launch {
+            val result = HtmlPdfExportService.createQuestionPreview(
+                context,
+                listOf(current),
+                documentTitle = if (options.template == PdfTemplate.ANSWER) "题迹 · 此题答案" else "题迹 · 此题练习",
+                options = options
+            )
+            isPreparingPdf = false
+            result.fold(
+                onSuccess = { file ->
+                    discardPdfPreview(previewPath)
+                    previewPath = file.absolutePath
+                    previewFilename = filename
+                },
+                onFailure = { error ->
+                    Toast.makeText(context, "此题 PDF 预览失败：${error.message ?: "未知错误"}", Toast.LENGTH_LONG).show()
+                }
+            )
+        }
+    }
+    if (showPdfOptions) {
+        PdfExportOptionsDialog(
+            questionCount = 1,
+            initial = pdfOptions,
+            onDismiss = { showPdfOptions = false },
+            onConfirm = ::requestPdfPreview
+        )
+    }
+    if (isPreparingPdf) PdfPreviewLoadingDialog()
+    val detailPreviewFile = previewPath.takeIf(String::isNotBlank)?.let(::File)?.takeIf(File::isFile)
+    if (detailPreviewFile != null) {
+        PdfPreviewDialog(
+            file = detailPreviewFile,
+            questionCount = 1,
+            template = pdfOptions.template,
+            onDismiss = {
+                discardPdfPreview(previewPath)
+                previewPath = ""
+                previewFilename = ""
+            },
+            onSave = { pdfExportLauncher.launch(previewFilename.ifBlank { "题迹-此题.pdf" }) },
+            onPrint = {
+                val result = HtmlPdfExportService.printPdf(context, detailPreviewFile, previewFilename)
+                Toast.makeText(
+                    context,
+                    result.fold({ "已交给系统打印" }, { "系统打印失败：${it.message ?: "未知错误"}" }),
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        )
+    }
     var originalQuestionImages by remember(current.id) {
         mutableStateOf(
             runCatching {
@@ -182,9 +273,9 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
     }
     fun persistDetailImageUpdate(updated: MistakeEntity, removedPaths: Collection<String> = emptyList()) {
         mistake = updated
-        viewModel.save(updated) {
+        viewModel.save(updated, onSaved = {
             viewModel.deleteImagesNow(removedPaths)
-        }
+        })
     }
     fun removeDetailContentBlock(block: com.tiji.mistakes.service.QuestionContentBlock) {
         val remaining = detailContentBlocks
@@ -371,6 +462,14 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                                 val enabled = !inReviewPlan
                                 viewModel.setReviewPlan(id, enabled)
                                 inReviewPlan = enabled
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("打印此题") },
+                            leadingIcon = { Icon(Icons.Outlined.Print, contentDescription = null) },
+                            onClick = {
+                                detailMenuExpanded = false
+                                showPdfOptions = true
                             }
                         )
                         DropdownMenuItem(

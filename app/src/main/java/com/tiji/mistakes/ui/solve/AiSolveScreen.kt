@@ -228,6 +228,31 @@ internal fun AiSolveScreen(
     val duplicateCandidates = remember(question, imagePaths, allMistakes) {
         AiDuplicateDetector.findCandidates(question, imagePaths, allMistakes)
     }
+    val suggestedSubjects = remember(allMistakes) {
+        allMistakes.asSequence()
+            .map { it.subject.trim() }
+            .filter(String::isNotBlank)
+            .distinct()
+            .take(8)
+            .toList()
+    }
+    val suggestedTags = remember(allMistakes) {
+        allMistakes.asSequence()
+            .flatMap { mistake -> mistake.tags.split(',', '，', ';', '；').asSequence() }
+            .map(String::trim)
+            .filter(String::isNotBlank)
+            .distinct()
+            .take(8)
+            .toList()
+    }
+    val suggestedQuestionTypes = remember(allMistakes) {
+        allMistakes.asSequence()
+            .map { it.questionType.trim() }
+            .filter(String::isNotBlank)
+            .distinct()
+            .take(8)
+            .toList()
+    }
     val solveContentBlocks = remember(aiSolveState.contentBlocks) {
         QuestionContentBlockCodec.sanitize(
             context,
@@ -590,6 +615,7 @@ internal fun AiSolveScreen(
     }
 
     fun persistSolvedMistake(metadata: MistakeSaveMetadata) {
+        if (aiMistakeSaveState.running) return
         savedMessage = ""
         subject = metadata.subject
         questionType = metadata.questionType
@@ -769,8 +795,12 @@ internal fun AiSolveScreen(
                 difficulty = difficulty,
                 inReviewPlan = saveToReviewPlan
             ),
-            onDismiss = { showSaveSheet = false },
-            onSave = ::persistSolvedMistake
+            onDismiss = { if (!aiMistakeSaveState.running) showSaveSheet = false },
+            onSave = ::persistSolvedMistake,
+            saving = aiMistakeSaveState.running,
+            suggestedSubjects = suggestedSubjects,
+            suggestedTags = suggestedTags,
+            suggestedQuestionTypes = suggestedQuestionTypes
         )
     }
 

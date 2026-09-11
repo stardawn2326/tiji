@@ -31,7 +31,7 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.CheckCircle
-import androidx.compose.material.icons.outlined.FileDownload
+import androidx.compose.material.icons.outlined.Print
 import androidx.compose.material.icons.outlined.Replay
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -69,10 +69,13 @@ import com.tiji.mistakes.domain.DailyStudyPlan
 import com.tiji.mistakes.domain.FutureReviewLoad
 import com.tiji.mistakes.domain.ReviewSessionUiState
 import com.tiji.mistakes.service.HtmlPdfExportService
+import com.tiji.mistakes.service.PdfExportOptions
+import com.tiji.mistakes.service.PdfTemplate
 import com.tiji.mistakes.ui.common.discardPdfPreview
 import com.tiji.mistakes.ui.common.launchDurablePdfExport
 import com.tiji.mistakes.ui.common.PdfPreviewDialog
 import com.tiji.mistakes.ui.common.PdfPreviewLoadingDialog
+import com.tiji.mistakes.ui.common.PdfExportOptionsDialog
 import com.tiji.mistakes.ui.common.PendingPdfExportStore
 import com.tiji.mistakes.ui.common.reviewDateKey
 import com.tiji.mistakes.ui.common.reviewStatusLabel
@@ -153,10 +156,20 @@ internal fun ReviewScreen(
     }
     var previewFilename by rememberSaveable { mutableStateOf(PendingPdfExportStore.reviewFilename) }
     var isPreparingPreview by remember { mutableStateOf(false) }
+    var showPdfOptions by rememberSaveable { mutableStateOf(false) }
+    var pdfOptions by remember(exportOriginalImagesOnly) {
+        mutableStateOf(
+            PdfExportOptions(
+                includeSourceImages = true,
+                originalImagesOnly = exportOriginalImagesOnly
+            )
+        )
+    }
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
         val requestedIds = pendingExportIds.takeIf { it.isNotEmpty() } ?: PendingPdfExportStore.reviewIds
         val idSet = requestedIds.toSet()
         val exportItems = planned.filter { it.id in idSet }
+        val exportOptions = PendingPdfExportStore.reviewOptions
         Log.d("TijiExportFlow", "review callback uri=${uri != null}, ids=${requestedIds.size}, items=${exportItems.size}")
         if (uri != null && exportItems.isNotEmpty()) {
             val sourcePreview = sequenceOf(previewPath, PendingPdfExportStore.reviewPreviewPath)
@@ -169,6 +182,7 @@ internal fun ReviewScreen(
             PendingPdfExportStore.reviewPreviewPath = ""
             PendingPdfExportStore.reviewFilename = ""
             PendingPdfExportStore.reviewIds = longArrayOf()
+            PendingPdfExportStore.reviewOptions = PdfExportOptions()
             launchDurablePdfExport {
                 val result = if (sourcePreview != null) {
                     HtmlPdfExportService.copyPreviewToUri(context, sourcePreview, uri)
@@ -176,8 +190,8 @@ internal fun ReviewScreen(
                     context,
                     uri,
                     exportItems,
-                    documentTitle = "今日复习题",
-                    exportOriginalImagesOnly = exportOriginalImagesOnly
+                    documentTitle = if (exportOptions.template == PdfTemplate.ANSWER) "题迹 · 今日复习答案" else "题迹 · 今日复习",
+                    options = exportOptions
                 )
                 if (result.isSuccess) sourcePreview?.let { discardPdfPreview(it.absolutePath) }
                 Toast.makeText(
@@ -190,17 +204,34 @@ internal fun ReviewScreen(
             Toast.makeText(context, "复习 PDF 导出失败：未能恢复今日复习题", Toast.LENGTH_LONG).show()
         }
     }
-    fun requestReviewPreview(filename: String) {
+    fun openPdfOptions() {
+        if (planned.isEmpty()) {
+            Toast.makeText(context, "今天没有可打印的复习题", Toast.LENGTH_SHORT).show()
+            return
+        }
         pendingExportIds = planned.map { it.id }.toLongArray()
         PendingPdfExportStore.reviewIds = pendingExportIds.copyOf()
+        pdfOptions = PdfExportOptions(
+            includeSourceImages = true,
+            originalImagesOnly = exportOriginalImagesOnly
+        )
+        showPdfOptions = true
+    }
+    fun requestReviewPreview(options: PdfExportOptions) {
+        val filename = if (options.template == PdfTemplate.ANSWER) "今日复习-答案.pdf" else "今日复习-练习.pdf"
+        pendingExportIds = planned.map { it.id }.toLongArray()
+        PendingPdfExportStore.reviewIds = pendingExportIds.copyOf()
+        PendingPdfExportStore.reviewOptions = options
+        PendingPdfExportStore.reviewFilename = filename
+        showPdfOptions = false
         if (planned.isEmpty()) return
         isPreparingPreview = true
         scope.launch {
             val result = HtmlPdfExportService.createQuestionPreview(
                 context,
                 planned,
-                documentTitle = "今日复习题",
-                exportOriginalImagesOnly = exportOriginalImagesOnly
+                documentTitle = if (options.template == PdfTemplate.ANSWER) "题迹 · 今日复习答案" else "题迹 · 今日复习",
+                options = options
             )
             isPreparingPreview = false
             result.fold(
@@ -217,6 +248,14 @@ internal fun ReviewScreen(
             )
         }
     }
+    if (showPdfOptions) {
+        PdfExportOptionsDialog(
+            questionCount = planned.size,
+            initial = pdfOptions,
+            onDismiss = { showPdfOptions = false },
+            onConfirm = ::requestReviewPreview
+        )
+    }
     if (isPreparingPreview) PdfPreviewLoadingDialog()
     val previewFile = previewPath.takeIf(String::isNotBlank)?.let(::File)?.takeIf(File::isFile)
     if (previewFile != null) {
@@ -225,6 +264,7 @@ internal fun ReviewScreen(
         PdfPreviewDialog(
             file = previewFile,
             questionCount = previewCount,
+            template = PendingPdfExportStore.reviewOptions.template,
             onDismiss = {
                 discardPdfPreview(previewPath)
                 previewPath = ""
@@ -233,6 +273,7 @@ internal fun ReviewScreen(
                 PendingPdfExportStore.reviewPreviewPath = ""
                 PendingPdfExportStore.reviewFilename = ""
                 PendingPdfExportStore.reviewIds = longArrayOf()
+                PendingPdfExportStore.reviewOptions = PdfExportOptions()
             },
             onSave = {
                 exportLauncher.launch(
@@ -240,6 +281,14 @@ internal fun ReviewScreen(
                         "今日复习题.pdf"
                     }
                 )
+            },
+            onPrint = {
+                val result = HtmlPdfExportService.printPdf(context, previewFile, previewFilename)
+                Toast.makeText(
+                    context,
+                    result.fold({ "已交给系统打印" }, { "系统打印失败：${it.message ?: "未知错误"}" }),
+                    Toast.LENGTH_LONG
+                ).show()
             }
         )
     }
@@ -355,6 +404,18 @@ internal fun ReviewScreen(
                 }
             }
             item {
+                OutlinedButton(
+                    onClick = ::openPdfOptions,
+                    enabled = planned.isNotEmpty(),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("review_print_today"),
+                    contentPadding = PaddingValues(horizontal = 12.dp)
+                ) {
+                    Icon(Icons.Outlined.Print, contentDescription = null)
+                    Spacer(Modifier.size(6.dp))
+                    Text("打印今日复习")
+                }
+            }
+            item {
                 TextButton(
                     onClick = { showMoreTools = !showMoreTools },
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
@@ -383,16 +444,6 @@ internal fun ReviewScreen(
                                 Text("${day.count} 道", color = MaterialTheme.colorScheme.primary)
                             }
                         }
-                    }
-                }
-                item {
-                    OutlinedButton(
-                        onClick = { requestReviewPreview("今日复习题.pdf") },
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                    ) {
-                        Icon(Icons.Outlined.FileDownload, null)
-                        Spacer(Modifier.size(6.dp))
-                        Text("导出复习 PDF")
                     }
                 }
             }

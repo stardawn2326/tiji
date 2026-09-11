@@ -27,6 +27,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AddAPhoto
+import androidx.compose.material.icons.outlined.Print
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
@@ -68,6 +69,8 @@ import com.tiji.mistakes.data.MistakeEntity
 import com.tiji.mistakes.data.MistakeKnowledgePointCrossRef
 import com.tiji.mistakes.domain.KnowledgePointInsight
 import com.tiji.mistakes.service.HtmlPdfExportService
+import com.tiji.mistakes.service.PdfExportOptions
+import com.tiji.mistakes.service.PdfTemplate
 import com.tiji.mistakes.ui.components.BatchBarAction
 import com.tiji.mistakes.ui.common.difficultyFilterLabel
 import com.tiji.mistakes.ui.common.discardPdfPreview
@@ -77,6 +80,7 @@ import com.tiji.mistakes.ui.common.MistakeOrder
 import com.tiji.mistakes.ui.common.parseTagValues
 import com.tiji.mistakes.ui.common.PdfPreviewDialog
 import com.tiji.mistakes.ui.common.PdfPreviewLoadingDialog
+import com.tiji.mistakes.ui.common.PdfExportOptionsDialog
 import com.tiji.mistakes.ui.common.PendingPdfExportStore
 import com.tiji.mistakes.ui.ConceptPageHeader
 import com.tiji.mistakes.ui.MistakeViewModel
@@ -125,6 +129,15 @@ internal fun LibraryScreen(
     }
     var previewFilename by rememberSaveable { mutableStateOf(PendingPdfExportStore.libraryFilename) }
     var isPreparingPreview by remember { mutableStateOf(false) }
+    var showPdfOptions by rememberSaveable { mutableStateOf(false) }
+    var pdfOptions by remember(exportOriginalImagesOnly) {
+        mutableStateOf(
+            PdfExportOptions(
+                includeSourceImages = true,
+                originalImagesOnly = exportOriginalImagesOnly
+            )
+        )
+    }
     val mistakeListState = rememberLazyListState()
     LaunchedEffect(resetScrollToken) {
         if (resetScrollToken > 0) mistakeListState.scrollToItem(0)
@@ -133,6 +146,7 @@ internal fun LibraryScreen(
         val requestedIds = pendingExportIds.takeIf { it.isNotEmpty() } ?: PendingPdfExportStore.libraryIds
         val idSet = requestedIds.toSet()
         val exportItems = mistakes.filter { it.id in idSet }
+        val exportOptions = PendingPdfExportStore.libraryOptions
         Log.d("TijiExportFlow", "library callback uri=${uri != null}, ids=${requestedIds.size}, items=${exportItems.size}")
         if (uri != null && exportItems.isNotEmpty()) {
             val sourcePreview = sequenceOf(previewPath, PendingPdfExportStore.libraryPreviewPath)
@@ -145,10 +159,17 @@ internal fun LibraryScreen(
             PendingPdfExportStore.libraryPreviewPath = ""
             PendingPdfExportStore.libraryFilename = ""
             PendingPdfExportStore.libraryIds = longArrayOf()
+            PendingPdfExportStore.libraryOptions = PdfExportOptions()
             launchDurablePdfExport {
                 val result = if (sourcePreview != null) {
                     HtmlPdfExportService.copyPreviewToUri(context, sourcePreview, uri)
-                } else HtmlPdfExportService.writeQuestionPdf(context, uri, exportItems, exportOriginalImagesOnly = exportOriginalImagesOnly)
+                } else HtmlPdfExportService.writeQuestionPdf(
+                    context,
+                    uri,
+                    exportItems,
+                    documentTitle = if (exportOptions.template == PdfTemplate.ANSWER) "题迹 · 参考答案" else "题迹 · 错题练习",
+                    options = exportOptions
+                )
                 if (result.isSuccess) sourcePreview?.let { discardPdfPreview(it.absolutePath) }
                 Toast.makeText(
                     context,
@@ -222,14 +243,36 @@ internal fun LibraryScreen(
             selectedIds = emptySet()
         }
     }
-    fun requestPreview(filename: String) {
-        pendingExportIds = visibleMistakes.filter { it.id in selectedIds }.map { it.id }.toLongArray()
+    fun openPdfOptions(ids: List<Long>) {
+        val validIds = ids.distinct().filter { id -> visibleMistakes.any { it.id == id } }
+        if (validIds.isEmpty()) {
+            Toast.makeText(context, "当前没有可打印的错题", Toast.LENGTH_SHORT).show()
+            return
+        }
+        pendingExportIds = validIds.toLongArray()
         PendingPdfExportStore.libraryIds = pendingExportIds.copyOf()
-        val exportItems = visibleMistakes.filter { it.id in selectedIds }
+        pdfOptions = PdfExportOptions(
+            includeSourceImages = true,
+            originalImagesOnly = exportOriginalImagesOnly
+        )
+        showPdfOptions = true
+    }
+    fun requestPreview(options: PdfExportOptions) {
+        val exportItems = visibleMistakes.filter { it.id in pendingExportIds.toSet() }
         if (exportItems.isEmpty()) return
+        pdfOptions = options
+        PendingPdfExportStore.libraryOptions = options
+        val filename = if (options.template == PdfTemplate.ANSWER) "题迹选中题目-答案.pdf" else "题迹选中题目-练习.pdf"
+        PendingPdfExportStore.libraryFilename = filename
+        showPdfOptions = false
         isPreparingPreview = true
         scope.launch {
-            val result = HtmlPdfExportService.createQuestionPreview(context, exportItems, exportOriginalImagesOnly = exportOriginalImagesOnly)
+            val result = HtmlPdfExportService.createQuestionPreview(
+                context,
+                exportItems,
+                documentTitle = if (options.template == PdfTemplate.ANSWER) "题迹 · 参考答案" else "题迹 · 错题练习",
+                options = options
+            )
             isPreparingPreview = false
             result.fold(
                 onSuccess = { file ->
@@ -245,6 +288,14 @@ internal fun LibraryScreen(
             )
         }
     }
+    if (showPdfOptions) {
+        PdfExportOptionsDialog(
+            questionCount = pendingExportIds.size,
+            initial = pdfOptions,
+            onDismiss = { showPdfOptions = false },
+            onConfirm = ::requestPreview
+        )
+    }
     if (isPreparingPreview) PdfPreviewLoadingDialog()
     val previewFile = previewPath.takeIf(String::isNotBlank)?.let(::File)?.takeIf(File::isFile)
     if (previewFile != null) {
@@ -253,6 +304,7 @@ internal fun LibraryScreen(
         PdfPreviewDialog(
             file = previewFile,
             questionCount = previewCount,
+            template = PendingPdfExportStore.libraryOptions.template,
             onDismiss = {
                 discardPdfPreview(previewPath)
                 previewPath = ""
@@ -261,6 +313,7 @@ internal fun LibraryScreen(
                 PendingPdfExportStore.libraryPreviewPath = ""
                 PendingPdfExportStore.libraryFilename = ""
                 PendingPdfExportStore.libraryIds = longArrayOf()
+                PendingPdfExportStore.libraryOptions = PdfExportOptions()
             },
             onSave = {
                 exportLauncher.launch(
@@ -268,6 +321,14 @@ internal fun LibraryScreen(
                         "题迹选中题目.pdf"
                     }
                 )
+            },
+            onPrint = {
+                val result = HtmlPdfExportService.printPdf(context, previewFile, previewFilename)
+                Toast.makeText(
+                    context,
+                    result.fold({ "已交给系统打印" }, { "系统打印失败：${it.message ?: "未知错误"}" }),
+                    Toast.LENGTH_LONG
+                ).show()
             }
         )
     }
@@ -388,10 +449,10 @@ internal fun LibraryScreen(
                             onClick = ::startSelectedReview
                         )
                         BatchBarAction(
-                            label = "导出 PDF",
+                            label = "打印 / PDF",
                             enabled = selectedIds.isNotEmpty(),
                             modifier = Modifier.weight(0.9f),
-                            onClick = { requestPreview("题迹选中题目.pdf") }
+                            onClick = { openPdfOptions(selectedIds.toList()) }
                         )
                         BatchBarAction(
                             label = "删除",
@@ -426,6 +487,18 @@ internal fun LibraryScreen(
                             contentPadding = PaddingValues(horizontal = 8.dp)
                         ) { Text("批量选择") }
                     }
+                }
+            }
+            if (!selectionMode) {
+                OutlinedButton(
+                    onClick = { openPdfOptions(visibleMistakes.map { it.id }) },
+                    enabled = visibleMistakes.isNotEmpty(),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("library_print_filtered"),
+                    contentPadding = PaddingValues(horizontal = 12.dp)
+                ) {
+                    Icon(Icons.Outlined.Print, contentDescription = null)
+                    Spacer(Modifier.size(6.dp))
+                    Text(if (visibleMistakes.isEmpty()) "暂无可打印错题" else "打印当前 ${visibleMistakes.size} 道错题")
                 }
             }
             Spacer(Modifier.height(12.dp))

@@ -942,12 +942,22 @@ class MistakeViewModel(
         }
     }
 
-    fun save(mistake: MistakeEntity, onFailure: (Throwable) -> Unit = { throw it }, onSaved: (Long) -> Unit = {}) = viewModelScope.launch {
+    fun save(
+        mistake: MistakeEntity,
+        onFailure: (Throwable) -> Unit = { throw it },
+        onSaved: (Long) -> Unit = {},
+        preserveReviewPlan: Boolean = false
+    ) = viewModelScope.launch {
         try {
             val blocks = QuestionContentBlockCodec.sanitize(
                 getApplication(), QuestionContentBlockCodec.decode(mistake.contentBlocks)
             )
-            onSaved(repository.save(mistake.copy(contentBlocks = QuestionContentBlockCodec.encode(blocks))))
+            onSaved(
+                repository.save(
+                    mistake.copy(contentBlocks = QuestionContentBlockCodec.encode(blocks)),
+                    preserveReviewPlan = preserveReviewPlan
+                )
+            )
         } catch (error: kotlinx.coroutines.CancellationException) {
             throw error
         } catch (error: Exception) {

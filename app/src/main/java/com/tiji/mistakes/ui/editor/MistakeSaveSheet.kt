@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
@@ -42,7 +43,11 @@ internal data class MistakeSaveMetadata(
 internal fun MistakeSaveSheet(
     initial: MistakeSaveMetadata,
     onDismiss: () -> Unit,
-    onSave: (MistakeSaveMetadata) -> Unit
+    onSave: (MistakeSaveMetadata) -> Unit,
+    saving: Boolean = false,
+    suggestedSubjects: List<String> = emptyList(),
+    suggestedTags: List<String> = emptyList(),
+    suggestedQuestionTypes: List<String> = emptyList()
 ) {
     var subject by remember(initial.subject) { mutableStateOf(initial.subject) }
     var questionType by remember(initial.questionType) { mutableStateOf(initial.questionType) }
@@ -77,6 +82,11 @@ internal fun MistakeSaveSheet(
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
+            SuggestionChips(
+                title = "常用科目",
+                values = suggestedSubjects,
+                onSelected = { subject = it }
+            )
             OutlinedTextField(
                 value = tags,
                 onValueChange = { tags = it },
@@ -85,12 +95,29 @@ internal fun MistakeSaveSheet(
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
+            SuggestionChips(
+                title = "本地知识点",
+                values = suggestedTags,
+                onSelected = { selected ->
+                    tags = tags.split(',', '，')
+                        .map(String::trim)
+                        .filter(String::isNotBlank)
+                        .plus(selected)
+                        .distinct()
+                        .joinToString(", ")
+                }
+            )
             OutlinedTextField(
                 value = questionType,
                 onValueChange = { questionType = it },
                 label = { Text("题型") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
+            )
+            SuggestionChips(
+                title = "常用题型",
+                values = suggestedQuestionTypes,
+                onSelected = { questionType = it }
             )
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("难度", style = MaterialTheme.typography.labelLarge)
@@ -114,10 +141,36 @@ internal fun MistakeSaveSheet(
                         )
                     )
                 },
+                enabled = !saving,
                 modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
                 contentPadding = PaddingValues(vertical = 14.dp)
             ) {
-                Text("保存到错题库")
+                Text(if (saving) "正在保存…" else "保存到错题库")
+            }
+        }
+    }
+}
+
+@Composable
+private fun SuggestionChips(
+    title: String,
+    values: List<String>,
+    onSelected: (String) -> Unit
+) {
+    if (values.isEmpty()) return
+    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        Text(title, style = MaterialTheme.typography.labelLarge)
+        androidx.compose.foundation.lazy.LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(end = 8.dp)
+        ) {
+            items(values.take(8)) { value ->
+                FilterChip(
+                    selected = false,
+                    onClick = { onSelected(value) },
+                    label = { Text(value, maxLines = 1) },
+                    modifier = Modifier.heightIn(min = 44.dp)
+                )
             }
         }
     }

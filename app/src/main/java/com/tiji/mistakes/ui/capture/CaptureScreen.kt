@@ -200,6 +200,7 @@ internal fun AiInputModeSelector(
 @Composable
 internal fun NewCaptureScreen(
     viewModel: MistakeViewModel,
+    allMistakes: List<MistakeEntity> = emptyList(),
     onBack: () -> Unit,
     aiEndpoint: String,
     aiModel: String,
@@ -245,6 +246,31 @@ internal fun NewCaptureScreen(
     var pendingRecognition by remember { mutableStateOf<AiRecognitionResult?>(null) }
     var contentBlocksJson by rememberSaveable { mutableStateOf("") }
     val aiRecognitionState by viewModel.aiRecognition.collectAsStateWithLifecycle()
+    val suggestedSubjects = remember(allMistakes) {
+        allMistakes.asSequence()
+            .map { it.subject.trim() }
+            .filter(String::isNotBlank)
+            .distinct()
+            .take(8)
+            .toList()
+    }
+    val suggestedTags = remember(allMistakes) {
+        allMistakes.asSequence()
+            .flatMap { mistake -> mistake.tags.split(',', '，', ';', '；').asSequence() }
+            .map(String::trim)
+            .filter(String::isNotBlank)
+            .distinct()
+            .take(8)
+            .toList()
+    }
+    val suggestedQuestionTypes = remember(allMistakes) {
+        allMistakes.asSequence()
+            .map { it.questionType.trim() }
+            .filter(String::isNotBlank)
+            .distinct()
+            .take(8)
+            .toList()
+    }
     val activeQuestionImage = if (mode == EntryMode.AI) aiRecognitionImages.firstOrNull() else photoQuestionImage
     val visualApiKey = visualAssistProfile?.let { profile ->
         secureStore.read(profile.id).ifBlank { profile.keyProfileId?.let(secureStore::read).orEmpty() }
@@ -345,6 +371,7 @@ internal fun NewCaptureScreen(
     }
 
     fun persistCapture(metadata: MistakeSaveMetadata) {
+        if (saving) return
         saving = true
         subject = metadata.subject
         questionType = metadata.questionType
@@ -379,7 +406,8 @@ internal fun NewCaptureScreen(
             onFailure = {
                 saving = false
                 captureMessage = "保存失败：${it.message ?: "请重试"}"
-            }
+            },
+            preserveReviewPlan = true
         )
     }
 
@@ -636,7 +664,11 @@ internal fun NewCaptureScreen(
                     difficulty = difficulty
                 ),
                 onDismiss = { if (!saving) showSaveSheet = false },
-                onSave = ::persistCapture
+                onSave = ::persistCapture,
+                saving = saving,
+                suggestedSubjects = suggestedSubjects,
+                suggestedTags = suggestedTags,
+                suggestedQuestionTypes = suggestedQuestionTypes
             )
         }
         LazyColumn(
