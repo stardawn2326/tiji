@@ -59,6 +59,7 @@ import com.tiji.mistakes.domain.ReviewGrade
 import com.tiji.mistakes.domain.ReviewScheduler
 import com.tiji.mistakes.domain.ReviewSessionAnalytics
 import com.tiji.mistakes.domain.ReviewSessionContext
+import com.tiji.mistakes.domain.ReviewSessionSource
 import com.tiji.mistakes.domain.time.LearningCalendar
 import com.tiji.mistakes.ui.ConceptPageHeader
 import com.tiji.mistakes.ui.common.formatLocalDate
@@ -101,24 +102,21 @@ internal fun ReviewQuestionScreen(
         }
     }
     val resolvedSessionKey = sessionKey ?: fallbackSessionKey
-    val isFocusedSession = sessionContext.isFocusedKnowledgePoint
+    val isUnifiedSession = sessionKey != null
     val savedReviewSession by viewModel.reviewSession.collectAsStateWithLifecycle()
     val focusedSession = savedReviewSession?.takeIf {
-        isFocusedSession && it.sessionKey == resolvedSessionKey
+        isUnifiedSession && it.sessionKey == resolvedSessionKey
     }
     val summaryState by viewModel.reviewSessionSummary.collectAsStateWithLifecycle()
-    LaunchedEffect(isFocusedSession, resolvedSessionKey, reviewIds) {
-        if (isFocusedSession) viewModel.beginReviewSession(resolvedSessionKey, reviewIds)
-    }
-    LaunchedEffect(isFocusedSession, resolvedSessionKey, focusedSession?.summaryVisible, focusedSession?.recordedReviewIds) {
-        if (isFocusedSession && focusedSession?.summaryVisible == true) {
+    LaunchedEffect(isUnifiedSession, resolvedSessionKey, focusedSession?.summaryVisible, focusedSession?.recordedReviewIds) {
+        if (isUnifiedSession && focusedSession?.summaryVisible == true) {
             viewModel.ensureReviewSessionSummaryLoaded(resolvedSessionKey)
         }
     }
     var dailyCurrentId by remember(id) { mutableLongStateOf(id) }
     val effectiveReviewIds = focusedSession?.reviewIds ?: reviewIds
     val focusedCurrentIndex = focusedSession?.currentIndex ?: effectiveReviewIds.indexOf(id).coerceAtLeast(0)
-    val currentId = if (isFocusedSession) {
+    val currentId = if (isUnifiedSession) {
         effectiveReviewIds.getOrNull(focusedCurrentIndex) ?: id
     } else {
         dailyCurrentId
@@ -128,7 +126,7 @@ internal fun ReviewQuestionScreen(
     var showAnswer by remember(currentId) { mutableStateOf(false) }
     var showExplanation by remember(currentId) { mutableStateOf(false) }
     var reviewMenuExpanded by remember(currentId) { mutableStateOf(false) }
-    val currentSavedStatus = if (isFocusedSession) null else reviewStatuses[currentId]
+    val currentSavedStatus = if (isUnifiedSession) null else reviewStatuses[currentId]
     val focusedGrade = focusedSession?.gradesByMistake?.get(currentId)?.let {
         runCatching { ReviewGrade.valueOf(it) }.getOrNull()
     }
@@ -150,7 +148,7 @@ internal fun ReviewQuestionScreen(
     }
 
     fun moveBy(delta: Int) {
-        if (isFocusedSession) {
+        if (isUnifiedSession) {
             viewModel.moveReviewSession(resolvedSessionKey, delta)
             return
         }
@@ -160,12 +158,12 @@ internal fun ReviewQuestionScreen(
     }
 
     fun completeFocusedSession() {
-        if (!isFocusedSession) return
-        viewModel.completeFocusedReviewSession(resolvedSessionKey)
+        if (!isUnifiedSession) return
+        viewModel.completeReviewSession(resolvedSessionKey)
     }
 
     val current = mistake
-    val currentIndex = if (isFocusedSession) {
+    val currentIndex = if (isUnifiedSession) {
         focusedSession?.currentIndex ?: effectiveReviewIds.indexOf(currentId)
     } else {
         effectiveReviewIds.indexOf(currentId)
@@ -175,10 +173,10 @@ internal fun ReviewQuestionScreen(
     val currentReviewHistory by reviewHistoryFlow.collectAsStateWithLifecycle(emptyList())
     val reviewReason = current?.let { reviewReasonFor(it, currentReviewHistory.firstOrNull(), sessionContext) }
     val exitSession = {
-        if (isFocusedSession) viewModel.clearReviewSession(resolvedSessionKey)
+        if (isUnifiedSession) viewModel.clearReviewSession(resolvedSessionKey)
         onBack()
     }
-    val showSummary = isFocusedSession && focusedSession?.summaryVisible == true
+    val showSummary = isUnifiedSession && focusedSession?.summaryVisible == true
     if (showSummary && summaryState.sessionKey == resolvedSessionKey && summaryState.isLoaded) {
         ReviewSessionSummaryScreen(
             context = sessionContext,
@@ -208,7 +206,7 @@ internal fun ReviewQuestionScreen(
                 },
                 navigationIcon = { IconButton(onClick = exitSession) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回复习") } },
                 actions = {
-                    if (current != null && !sessionContext.isFocusedKnowledgePoint) {
+                    if (current != null && isUnifiedSession && sessionContext.source == com.tiji.mistakes.domain.ReviewSessionSource.TODAY_PLAN) {
                         IconButton(
                             onClick = { reviewMenuExpanded = true }
                         ) {
@@ -364,7 +362,7 @@ internal fun ReviewQuestionScreen(
                                         Card(
                                             onClick = {
                                                 if (selectedGrade == null) {
-                                                    if (isFocusedSession) {
+                                                    if (isUnifiedSession) {
                                                         viewModel.review(
                                                             mistake = current,
                                                             grade = grade,
@@ -401,7 +399,7 @@ internal fun ReviewQuestionScreen(
                 }
                 item {
                     val isLastQuestion = effectiveReviewIds.isNotEmpty() && currentIndex == effectiveReviewIds.lastIndex
-                    val summaryLoading = isFocusedSession &&
+                    val summaryLoading = isUnifiedSession &&
                         summaryState.sessionKey == resolvedSessionKey && summaryState.isLoading
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                         OutlinedButton(onClick = { moveBy(-1) }, enabled = currentIndex > 0, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("上一题") }
@@ -409,18 +407,18 @@ internal fun ReviewQuestionScreen(
                         Button(
                             onClick = {
                                 if (isLastQuestion) {
-                                    if (isFocusedSession) completeFocusedSession() else exitSession()
+                                    if (isUnifiedSession) completeFocusedSession() else exitSession()
                                 } else moveBy(1)
                             },
-                            enabled = if (isLastQuestion && isFocusedSession) !summaryLoading else {
+                            enabled = if (isLastQuestion && isUnifiedSession) !summaryLoading else {
                                 isLastQuestion || currentIndex in 0 until (effectiveReviewIds.size - 1)
                             },
                             modifier = Modifier.weight(1f).heightIn(min = 48.dp)
                         ) {
                             Text(
                                 when {
-                                    isLastQuestion && isFocusedSession && summaryLoading -> "整理本次记录…"
-                                    isLastQuestion && isFocusedSession -> "查看总结"
+                                    isLastQuestion && isUnifiedSession && summaryLoading -> "整理本次记录…"
+                                    isLastQuestion && isUnifiedSession -> "查看总结"
                                     isLastQuestion -> "完成"
                                     else -> "下一题"
                                 }
@@ -438,7 +436,7 @@ private fun ReviewSessionSummaryLoadingScreen(onBack: () -> Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("本次专项复习") },
+                title = { Text("本次复习") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回复习")
@@ -491,10 +489,15 @@ private fun ReviewSessionSummaryScreen(
     stats: com.tiji.mistakes.domain.ReviewSessionStats,
     onBack: () -> Unit
 ) {
+    val returnLabel = when (context.source) {
+        ReviewSessionSource.TODAY_PLAN -> "返回复习中心"
+        ReviewSessionSource.KNOWLEDGE_POINT -> "查看知识点"
+        ReviewSessionSource.LIBRARY_SELECTION -> "返回错题库"
+    }
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("本次专项复习") },
+                title = { Text("本次复习") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回知识点")
@@ -535,10 +538,10 @@ private fun ReviewSessionSummaryScreen(
                             modifier = Modifier.size(24.dp)
                         )
                         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text("本次专项复习", style = MaterialTheme.typography.titleMedium)
+                            Text("本次复习", style = MaterialTheme.typography.titleMedium)
                             Text(
                                 buildString {
-                                    append(context.knowledgePointName?.takeIf { !it.isNullOrBlank() } ?: "知识点练习")
+                                    append(context.knowledgePointName?.takeIf { !it.isNullOrBlank() } ?: context.source.label)
                                     context.knowledgePointLabel?.takeIf { it.isNotBlank() }?.let { append(" · ").append(it) }
                                 },
                                 style = MaterialTheme.typography.bodySmall,
@@ -566,8 +569,8 @@ private fun ReviewSessionSummaryScreen(
             }
             item {
                 TijiSurfaceCard {
-                    ConceptSectionHeader("当前知识点", "可以回到这里继续巩固")
-                    ConceptTag(context.knowledgePointName?.takeIf { !it.isNullOrBlank() } ?: "专项复习")
+                    ConceptSectionHeader("下一步", "可以回到原入口继续巩固")
+                    ConceptTag(context.knowledgePointName?.takeIf { !it.isNullOrBlank() } ?: context.source.label)
                     Text(
                         "复习反馈已写入学习记录，下一次打开时会重新计算薄弱度。",
                         style = MaterialTheme.typography.bodyMedium,
@@ -580,7 +583,7 @@ private fun ReviewSessionSummaryScreen(
                         OutlinedButton(
                             onClick = onBack,
                             modifier = Modifier.weight(1f).heightIn(min = 48.dp)
-                        ) { Text("查看知识点") }
+                        ) { Text(returnLabel) }
                         Button(
                             onClick = onBack,
                             modifier = Modifier.weight(1f).heightIn(min = 48.dp)
@@ -602,5 +605,36 @@ private fun SessionMetric(label: String, value: Int, modifier: Modifier, testTag
             color = MaterialTheme.colorScheme.primary
         )
         Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+internal fun ReviewSessionUnavailableScreen(onBack: () -> Unit) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("复习会话") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回")
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        Column(
+            modifier = Modifier.padding(padding).fillMaxSize().padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text("这轮复习已不可恢复", style = MaterialTheme.typography.titleLarge)
+            Text(
+                "会话状态已经结束或不在当前任务中，请从复习中心重新开始。",
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            OutlinedButton(onClick = onBack, modifier = Modifier.heightIn(min = 48.dp)) {
+                Text("返回复习中心")
+            }
+        }
     }
 }

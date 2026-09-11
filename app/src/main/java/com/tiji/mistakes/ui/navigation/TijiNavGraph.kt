@@ -32,11 +32,12 @@ import com.tiji.mistakes.ui.knowledge.KnowledgeListScreen
 import com.tiji.mistakes.ui.MistakeViewModel
 import com.tiji.mistakes.ui.ThemeMode
 import com.tiji.mistakes.ui.ThemePalette
-import com.tiji.mistakes.domain.ReviewSessionContext
+import com.tiji.mistakes.domain.ReviewSessionPlan
 import com.tiji.mistakes.domain.ReviewSessionSource
 import com.tiji.mistakes.ui.review.ReviewCalendarScreen
 import com.tiji.mistakes.ui.review.ReviewQuestionScreen
 import com.tiji.mistakes.ui.review.ReviewScreen
+import com.tiji.mistakes.ui.review.ReviewSessionUnavailableScreen
 import com.tiji.mistakes.ui.settings.MyScreen
 import com.tiji.mistakes.ui.settings.SettingsScreen
 import com.tiji.mistakes.ui.settings.VisualAssistConfigScreen
@@ -61,7 +62,8 @@ internal fun TijiNavGraph(
     onLibrarySubject: (String?) -> Unit,
     onLibraryKnowledgePoint: (String?) -> Unit
 ) {
-            NavHost(
+    val activeReviewSession by viewModel.reviewSession.collectAsStateWithLifecycle()
+    NavHost(
                 navController,
                 startDestination = TijiRoutes.HOME,
                 modifier = modifier,
@@ -134,19 +136,33 @@ internal fun TijiNavGraph(
                         knowledgePointLinks = state.knowledgePointLinks,
                         exportOriginalImagesOnly = !state.aiExcludeSourceImageByDefault,
                         onOpen = { navController.navigate(TijiRoutes.detail(it)) },
-                        onCreate = { navController.navigate(TijiRoutes.CAPTURE) }
+                        onCreate = { navController.navigate(TijiRoutes.CAPTURE) },
+                        onStartSelectedReview = { selectedIds ->
+                            val activeIds = state.mistakes.mapTo(mutableSetOf()) { it.id }
+                            val validIds = selectedIds.filter { it in activeIds }.distinct()
+                            if (validIds.isEmpty()) {
+                                scope.launch { snackbarHostState.showSnackbar("所选错题已不可用，请重新选择") }
+                            } else {
+                                val plan = ReviewSessionPlan(
+                                    sessionKey = viewModel.newReviewSessionId(),
+                                    source = ReviewSessionSource.LIBRARY_SELECTION,
+                                    reviewIds = validIds,
+                                    returnDestination = TijiRoutes.LIBRARY
+                                )
+                                viewModel.startReviewSession(plan)
+                                navController.navigate(TijiRoutes.reviewSession(plan.sessionId))
+                            }
+                        }
                     )
                 }
                 composable(TijiRoutes.REVIEW) {
                     ReviewScreen(
-                        allMistakes = state.mistakes,
-                        dueMistakes = state.dueMistakes,
+                        allMistakes = state.allMistakes,
+                        dailyStudyPlan = state.dailyStudyPlan,
+                        activeSession = activeReviewSession,
                         viewModel = viewModel,
                         exportOriginalImagesOnly = !state.aiExcludeSourceImageByDefault,
                         reviewPlanEnabled = state.reviewPlanEnabled,
-                        dailyLimit = state.dailyReviewLimit,
-                        reviewSubjects = state.reviewSubjects,
-                        randomMode = state.randomReview,
                         reviewStatuses = state.reviewMastery[reviewDateKey()].orEmpty(),
                         savedPlanIds = state.reviewPlanSnapshots[reviewDateKey()],
                         checkedInToday = reviewDateKey() in state.reviewCheckIns,
@@ -154,7 +170,17 @@ internal fun TijiNavGraph(
                         onCheckIn = { scope.launch { preferences.setReviewCheckIn(reviewDateKey(), true) } },
                         onOpenCalendar = { navController.navigate(TijiRoutes.REVIEW_CALENDAR) },
                          onOpenSettings = { navController.navigate(TijiRoutes.settingsDetail(SettingsSection.OVERVIEW)) },
-                        onOpenDetail = { id, ids -> navController.navigate(TijiRoutes.reviewDetail(id, ids)) },
+                        onStartSession = { ids ->
+                            val plan = ReviewSessionPlan(
+                                sessionKey = viewModel.newReviewSessionId(),
+                                source = ReviewSessionSource.TODAY_PLAN,
+                                reviewIds = ids,
+                                returnDestination = TijiRoutes.REVIEW
+                            )
+                            viewModel.startReviewSession(plan)
+                            navController.navigate(TijiRoutes.reviewSession(plan.sessionId))
+                        },
+                        onResumeSession = { session -> navController.navigate(TijiRoutes.reviewSession(session.sessionId)) },
                         resetScrollToken = state.reviewVisitToken
                     )
                 }
@@ -222,14 +248,16 @@ internal fun TijiNavGraph(
                                     if (queue.isEmpty()) {
                                         snackbarHostState.showSnackbar("这个知识点暂时没有可练习的错题")
                                     } else {
-                                        navController.navigate(
-                                            TijiRoutes.focusedReviewDetail(
-                                                id = queue.first().id,
-                                                ids = queue.map { it.id },
-                                                stableId = selectedId,
-                                                name = pointName
-                                            )
+                                        val plan = ReviewSessionPlan(
+                                            sessionKey = viewModel.newReviewSessionId(),
+                                            source = ReviewSessionSource.KNOWLEDGE_POINT,
+                                            reviewIds = queue.map { it.id },
+                                            knowledgePointStableId = selectedId,
+                                            knowledgePointName = pointName,
+                                            returnDestination = TijiRoutes.knowledgeDetail(selectedId)
                                         )
+                                        viewModel.startReviewSession(plan)
+                                        navController.navigate(TijiRoutes.reviewSession(plan.sessionId))
                                     }
                                 }
                             }
@@ -389,53 +417,41 @@ internal fun TijiNavGraph(
                         navController.popBackStack()
                     }
                 }
-                composable(TijiRoutes.REVIEW_DETAIL_PATTERN) { entry ->
-                    val ids = Uri.decode(entry.arguments?.getString("ids").orEmpty())
-                        .split(',')
-                        .mapNotNull { it.toLongOrNull() }
-                    ReviewQuestionScreen(
-                        viewModel = viewModel,
-                        id = entry.arguments?.getString("id")?.toLongOrNull() ?: 0L,
-                        reviewIds = ids,
-                        reviewStatuses = state.reviewMastery[reviewDateKey()].orEmpty(),
-                        onBack = { navController.popBackStack() },
-                        onRemovedFromPlan = { questionId, onDone ->
-                            scope.launch {
-                                preferences.removeFromReviewPlanSnapshot(reviewDateKey(), questionId)
-                                viewModel.setReviewPlan(questionId, false, onUpdated = onDone)
-                            }
-                        },
-                        onReviewed = { questionId, grade ->
-                            scope.launch { preferences.recordReviewStatus(reviewDateKey(), questionId, grade.name) }
-                        }
-                    )
-                }
-                composable(TijiRoutes.FOCUSED_REVIEW_DETAIL_PATTERN) { entry ->
-                    val ids = Uri.decode(entry.arguments?.getString("ids").orEmpty())
-                        .split(',')
-                        .mapNotNull { it.toLongOrNull() }
-                    val stableId = Uri.decode(entry.arguments?.getString("stableId").orEmpty())
-                    val pointName = Uri.decode(entry.arguments?.getString("name").orEmpty())
-                    val pointLabel = state.weaknessInsights
-                        .firstOrNull { it.point.stableId == stableId }
-                        ?.label
+                composable(TijiRoutes.REVIEW_SESSION_PATTERN) { entry ->
                     val sessionId = Uri.decode(entry.arguments?.getString("sessionId").orEmpty())
-                    ReviewQuestionScreen(
-                        viewModel = viewModel,
-                        id = entry.arguments?.getString("id")?.toLongOrNull() ?: 0L,
-                        reviewIds = ids,
-                        reviewStatuses = emptyMap(),
-                        sessionKey = "focused:$sessionId",
-                        sessionContext = ReviewSessionContext(
-                            source = ReviewSessionSource.KNOWLEDGE_POINT,
-                            knowledgePointStableId = stableId,
-                            knowledgePointName = pointName,
-                            knowledgePointLabel = pointLabel
-                        ),
-                        onBack = { navController.popBackStack() },
-                        onRemovedFromPlan = { _, onDone -> onDone() },
-                        onReviewed = { _, _ -> }
-                    )
+                    val session = activeReviewSession?.takeIf { it.sessionId == sessionId }
+                    if (session == null) {
+                        ReviewSessionUnavailableScreen(onBack = { navController.popBackStack() })
+                    } else {
+                        val pointLabel = state.weaknessInsights
+                            .firstOrNull { it.point.stableId == session.plan.knowledgePointStableId }
+                            ?.label
+                        ReviewQuestionScreen(
+                            viewModel = viewModel,
+                            id = session.reviewIds.firstOrNull() ?: 0L,
+                            reviewIds = session.reviewIds,
+                            reviewStatuses = emptyMap(),
+                            sessionKey = session.sessionId,
+                            sessionContext = session.plan.context(pointLabel),
+                            onBack = {
+                                viewModel.clearReviewSession(session.sessionId)
+                                navController.popBackStack()
+                            },
+                            onRemovedFromPlan = { questionId, onDone ->
+                                if (session.plan.source == ReviewSessionSource.TODAY_PLAN) {
+                                    scope.launch {
+                                        preferences.removeFromReviewPlanSnapshot(reviewDateKey(), questionId)
+                                        viewModel.setReviewPlan(questionId, false, onUpdated = onDone)
+                                    }
+                                } else onDone()
+                            },
+                            onReviewed = { questionId, grade ->
+                                if (session.plan.source == ReviewSessionSource.TODAY_PLAN) {
+                                    scope.launch { preferences.recordReviewStatus(reviewDateKey(), questionId, grade.name) }
+                                }
+                            }
+                        )
+                    }
                 }
                 composable(TijiRoutes.REVIEW_CALENDAR) {
                     ReviewCalendarScreen(

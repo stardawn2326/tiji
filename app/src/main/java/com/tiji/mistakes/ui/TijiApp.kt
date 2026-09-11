@@ -40,6 +40,8 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import com.tiji.mistakes.data.AiProfile
 import com.tiji.mistakes.data.AppPreferences
+import com.tiji.mistakes.domain.DailyStudyPlanner
+import com.tiji.mistakes.domain.DailyStudyPlannerInput
 import com.tiji.mistakes.domain.ReviewAnalytics
 import com.tiji.mistakes.domain.WeaknessCalculator
 import com.tiji.mistakes.service.OcrModelManager
@@ -98,6 +100,36 @@ fun TijiApp() {
     val weaknessInsights = remember(allMistakes, recentReviewRecords, knowledgePoints, knowledgePointLinks) {
         WeaknessCalculator.calculate(knowledgePoints, knowledgePointLinks, allMistakes, recentReviewRecords)
     }
+    val todayWeekday = remember { ((java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_WEEK) + 5) % 7) + 1 }
+    val dailyStudyPlan = remember(
+        allMistakes,
+        dueMistakes,
+        recentReviewRecords,
+        weaknessInsights,
+        knowledgePoints,
+        knowledgePointLinks,
+        dailyReviewLimit,
+        reviewSubjects,
+        reviewPlanEnabled
+    ) {
+        if (!reviewPlanEnabled) {
+            com.tiji.mistakes.domain.DailyStudyPlan()
+        } else {
+            DailyStudyPlanner.plan(
+                DailyStudyPlannerInput(
+                    activeMistakes = allMistakes,
+                    dueMistakes = dueMistakes,
+                    recentRecords = recentReviewRecords,
+                    knowledgeInsights = weaknessInsights,
+                    knowledgePoints = knowledgePoints,
+                    knowledgePointLinks = knowledgePointLinks,
+                    dailyLimit = dailyReviewLimit,
+                    subjectPreferences = DailyStudyPlanner.parseSubjectPreferences(reviewSubjects, todayWeekday),
+                    now = System.currentTimeMillis()
+                )
+            )
+        }
+    }
     val navController = rememberNavController()
     val scope = rememberCoroutineScope()
     val ocrModelManager = remember { OcrModelManager.getInstance(context) }
@@ -136,6 +168,7 @@ fun TijiApp() {
         knowledgePointLinks = knowledgePointLinks,
         reviewAnalytics = reviewAnalytics,
         weaknessInsights = weaknessInsights,
+        dailyStudyPlan = dailyStudyPlan,
         reviewPlanSnapshots = reviewPlanSnapshots,
         reviewMastery = reviewMastery,
         reviewCheckIns = reviewCheckIns,
@@ -178,7 +211,7 @@ fun TijiApp() {
                             NavigationBarItem(
                                 selected = route == destination.route ||
                                     (destination.route == TijiRoutes.LIBRARY && route == TijiRoutes.DETAIL_PATTERN) ||
-                                    (destination.route == TijiRoutes.REVIEW && (route == TijiRoutes.REVIEW_CALENDAR || route == TijiRoutes.REVIEW_DETAIL_PATTERN)) ||
+                                    (destination.route == TijiRoutes.REVIEW && (route == TijiRoutes.REVIEW_CALENDAR || route == TijiRoutes.REVIEW_SESSION_PATTERN)) ||
                                     (destination.route == TijiRoutes.SETTINGS && (route == TijiRoutes.SETTINGS_DETAIL || route == TijiRoutes.SETTINGS_DETAIL_PATTERN)),
                                 onClick = {
                                     when (destination.route) {
