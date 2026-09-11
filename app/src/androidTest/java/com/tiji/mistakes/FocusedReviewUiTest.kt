@@ -131,6 +131,8 @@ class FocusedReviewUiTest {
             }.getOrDefault(false)
         }
         gradeCurrentQuestion()
+        composeRule.onNodeWithTag("review_question_content")
+            .performScrollToNode(hasText("查看总结"))
         composeRule.onNodeWithText("查看总结").performClick()
 
         composeRule.waitUntil(5_000) {
