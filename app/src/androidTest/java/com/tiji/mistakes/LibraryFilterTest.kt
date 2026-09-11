@@ -5,6 +5,7 @@ import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextClearance
@@ -123,6 +124,46 @@ class LibraryFilterTest {
         composeRule.onNodeWithTag("mistake_card_${fixtureIds[0]}").assertExists()
         composeRule.onNodeWithTag("mistake_card_${fixtureIds[1]}").assertDoesNotExist()
         composeRule.onNodeWithTag("mistake_card_${fixtureIds[2]}").assertDoesNotExist()
+    }
+
+    @Test
+    fun selectedMistakeStartsUnifiedReviewAndReturnsToLibrary() {
+        composeRule.onNodeWithTag("nav_library").performClick()
+        composeRule.onNodeWithText("批量选择").performClick()
+        scrollToFixture(fixtureIds.first())
+        composeRule.onNodeWithTag("mistake_card_${fixtureIds.first()}").performClick()
+        composeRule.onNodeWithTag("library_start_selected_review").performClick()
+
+        composeRule.waitUntil(5_000) {
+            runCatching {
+                composeRule.onNodeWithTag("review_question_content").assertExists()
+                true
+            }.getOrDefault(false)
+        }
+        composeRule.onNodeWithText("函数单调性").assertExists()
+        composeRule.onNodeWithTag("review_show_answer").performClick()
+        composeRule.onNodeWithTag("review_question_content")
+            .performScrollToNode(hasTestTag("review_grade_good"))
+        composeRule.onNodeWithTag("review_grade_good").performClick()
+        composeRule.onNodeWithTag("review_question_content")
+            .performScrollToNode(hasText("查看总结"))
+        composeRule.onNodeWithText("查看总结").performClick()
+
+        composeRule.waitUntil(5_000) {
+            runCatching {
+                composeRule.onNodeWithTag("review_session_summary").assertExists()
+                true
+            }.getOrDefault(false)
+        }
+        composeRule.onNodeWithText("返回错题库").performClick()
+        composeRule.waitUntil(5_000) {
+            runCatching {
+                composeRule.onNodeWithTag("library_mistakes_list").assertExists()
+                true
+            }.getOrDefault(false)
+        }
+        scrollToFixture(fixtureIds.first())
+        composeRule.onNodeWithTag("mistake_card_${fixtureIds.first()}").assertExists()
     }
 
     private fun scrollToFixture(id: Long) {

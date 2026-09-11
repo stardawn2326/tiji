@@ -12,6 +12,10 @@ import com.tiji.mistakes.data.MistakeEntity
 import com.tiji.mistakes.data.MistakeRepository
 import com.tiji.mistakes.data.ReviewRecordEntity
 import com.tiji.mistakes.domain.ReviewGrade
+import com.tiji.mistakes.domain.ReviewSessionController
+import com.tiji.mistakes.domain.ReviewSessionPlan
+import com.tiji.mistakes.domain.ReviewSessionSource
+import com.tiji.mistakes.domain.ReviewSessionStatus
 import com.tiji.mistakes.domain.ReviewSessionUiState
 import com.tiji.mistakes.domain.time.LearningCalendar
 import com.tiji.mistakes.service.AiChatMessage
@@ -317,25 +321,51 @@ class MistakeViewModel(
     suspend fun focusedReviewQueue(stableId: String): List<MistakeEntity> =
         repository.listMistakesForKnowledgePoint(stableId)
 
-    /** Starts or restores the lightweight state for one review route. */
-    fun beginReviewSession(sessionKey: String, reviewIds: List<Long>): ReviewSessionUiState {
-        val normalizedIds = reviewIds.filter { it > 0L }.distinct()
+    /** Creates the one state machine used by daily, knowledge-point and library review. */
+    fun startReviewSession(plan: ReviewSessionPlan): ReviewSessionUiState {
+        val normalizedPlan = plan.copy(reviewIds = plan.reviewIds.filter { it > 0L }.distinct())
         val current = _reviewSession.value
-        if (current?.sessionKey == sessionKey && current.reviewIds == normalizedIds) return current
-        return ReviewSessionUiState(
-            sessionKey = sessionKey,
-            startedAt = System.currentTimeMillis(),
-            reviewIds = normalizedIds
-        ).also {
-            persistReviewSession(it)
-            _reviewSessionSummary.value = ReviewSessionSummaryState()
+        if (current?.sessionKey == normalizedPlan.sessionKey &&
+            current.reviewIds == normalizedPlan.reviewIds &&
+            current.status != ReviewSessionStatus.FINISHED
+        ) {
+            val resumed = ReviewSessionController.start(current)
+            persistReviewSession(resumed)
+            return resumed
         }
+        val started = ReviewSessionController.start(
+            ReviewSessionController.create(normalizedPlan, System.currentTimeMillis())
+        )
+        persistReviewSession(started)
+        _reviewSessionSummary.value = ReviewSessionSummaryState()
+        return started
     }
+
+    fun newReviewSessionId(): String = UUID.randomUUID().toString()
+
+    /** Compatibility entry point for callers that only have a queue. */
+    fun beginReviewSession(sessionKey: String, reviewIds: List<Long>): ReviewSessionUiState =
+        beginReviewSession(sessionKey, reviewIds, com.tiji.mistakes.domain.ReviewSessionContext(
+            source = ReviewSessionSource.KNOWLEDGE_POINT
+        ))
+
+    fun beginReviewSession(
+        sessionKey: String,
+        reviewIds: List<Long>,
+        context: com.tiji.mistakes.domain.ReviewSessionContext
+    ): ReviewSessionUiState = startReviewSession(
+        ReviewSessionPlan(
+            sessionKey = sessionKey,
+            source = context.source,
+            reviewIds = reviewIds,
+            knowledgePointStableId = context.knowledgePointStableId,
+            knowledgePointName = context.knowledgePointName
+        )
+    )
 
     fun moveReviewSession(sessionKey: String, delta: Int) {
         val current = _reviewSession.value?.takeIf { it.sessionKey == sessionKey } ?: return
-        val nextIndex = (current.currentIndex + delta).takeIf { it in current.reviewIds.indices } ?: return
-        persistReviewSession(current.copy(currentIndex = nextIndex))
+        persistReviewSession(ReviewSessionController.move(current, delta))
     }
 
     fun clearReviewSession(sessionKey: String) {
@@ -364,12 +394,13 @@ class MistakeViewModel(
         }
     }
 
-    /** Completes a focused session in the ViewModel so rotation cannot cancel its write barrier. */
-    fun completeFocusedReviewSession(sessionKey: String) {
+    /** Completes any source session in the ViewModel so rotation cannot cancel its write barrier. */
+    fun completeReviewSession(sessionKey: String) {
         val current = _reviewSession.value?.takeIf { it.sessionKey == sessionKey } ?: return
         if (current.summaryVisible) return
         val existing = _reviewSessionSummary.value
         if (existing.sessionKey == sessionKey && (existing.isLoading || existing.isLoaded)) return
+        persistReviewSession(ReviewSessionController.beginCompletion(current))
         _reviewSessionSummary.value = ReviewSessionSummaryState(sessionKey = sessionKey, isLoading = true)
         viewModelScope.launch {
             awaitReviewSessionWrites(sessionKey)
@@ -380,9 +411,12 @@ class MistakeViewModel(
                 records = records,
                 isLoaded = true
             )
-            persistReviewSession(latest.copy(summaryVisible = true))
+            persistReviewSession(ReviewSessionController.showSummary(latest))
         }
     }
+
+    /** Kept for older callers while all new routes use completeReviewSession. */
+    fun completeFocusedReviewSession(sessionKey: String) = completeReviewSession(sessionKey)
 
     private suspend fun awaitReviewSessionWrites(sessionKey: String) {
         reviewSessionJobs[sessionKey]?.values?.toList()?.joinAll()
@@ -1123,25 +1157,26 @@ class MistakeViewModel(
 
     private fun reserveReviewSessionGrade(sessionKey: String, mistakeId: Long, grade: ReviewGrade): Boolean {
         val current = _reviewSession.value?.takeIf { it.sessionKey == sessionKey } ?: return false
-        if (current.summaryVisible || current.gradesByMistake.containsKey(mistakeId)) return false
         val inFlight = reviewSessionInFlightIds.getOrPut(sessionKey) { mutableSetOf() }
         if (!inFlight.add(mistakeId)) return false
-        persistReviewSession(
-            current.copy(gradesByMistake = current.gradesByMistake + (mistakeId to grade.name))
-        )
+        val reserved = ReviewSessionController.reserveGrade(current, mistakeId, grade)
+        if (reserved == null) {
+            inFlight.remove(mistakeId)
+            return false
+        }
+        persistReviewSession(reserved)
         return true
     }
 
     private fun markReviewSessionRecorded(sessionKey: String, record: ReviewRecordEntity) {
         val current = _reviewSession.value?.takeIf { it.sessionKey == sessionKey } ?: return
-        if (record.id <= 0L || record.id in current.recordedReviewIds) return
-        persistReviewSession(current.copy(recordedReviewIds = current.recordedReviewIds + record.id))
+        persistReviewSession(ReviewSessionController.record(current, record))
     }
 
     private fun releaseReviewSessionGrade(sessionKey: String, mistakeId: Long) {
         reviewSessionInFlightIds[sessionKey]?.remove(mistakeId)
         val current = _reviewSession.value?.takeIf { it.sessionKey == sessionKey } ?: return
-        persistReviewSession(current.copy(gradesByMistake = current.gradesByMistake - mistakeId))
+        persistReviewSession(ReviewSessionController.releaseGrade(current, mistakeId))
     }
 
     private fun trackReviewSessionJob(sessionKey: String, mistakeId: Long, job: Job) {
@@ -1170,14 +1205,35 @@ class MistakeViewModel(
         val recordedIds = (savedStateHandle.get<LongArray>(KEY_RECORDED_IDS) ?: LongArray(0)).toList()
         val currentIndex = (savedStateHandle.get<Int>(KEY_CURRENT_INDEX) ?: 0)
             .coerceIn(0, (reviewIds.size - 1).coerceAtLeast(0))
-        return ReviewSessionUiState(
+        val source = savedStateHandle.get<String>(KEY_SOURCE)
+            ?.let { key -> ReviewSessionSource.entries.firstOrNull { it.key == key } }
+            ?: ReviewSessionSource.KNOWLEDGE_POINT
+        val status = savedStateHandle.get<String>(KEY_STATUS)
+            ?.let { value -> runCatching { ReviewSessionStatus.valueOf(value) }.getOrNull() }
+            ?: if (savedStateHandle.get<Boolean>(KEY_SUMMARY_VISIBLE) == true) {
+                ReviewSessionStatus.SUMMARY
+            } else {
+                ReviewSessionStatus.IN_PROGRESS
+            }
+        val plan = ReviewSessionPlan(
             sessionKey = sessionKey,
-            startedAt = savedStateHandle.get<Long>(KEY_STARTED_AT) ?: System.currentTimeMillis(),
+            source = source,
             reviewIds = reviewIds,
-            currentIndex = currentIndex,
-            gradesByMistake = grades,
-            recordedReviewIds = recordedIds,
-            summaryVisible = savedStateHandle.get<Boolean>(KEY_SUMMARY_VISIBLE) ?: false
+            knowledgePointStableId = savedStateHandle.get<String>(KEY_KNOWLEDGE_POINT_STABLE_ID),
+            knowledgePointName = savedStateHandle.get<String>(KEY_KNOWLEDGE_POINT_NAME),
+            returnDestination = savedStateHandle.get<String>(KEY_RETURN_DESTINATION)
+        )
+        return ReviewSessionUiState(
+            plan = plan,
+            progress = com.tiji.mistakes.domain.ReviewSessionProgress(
+                startedAt = savedStateHandle.get<Long>(KEY_STARTED_AT) ?: System.currentTimeMillis(),
+                status = status,
+                currentIndex = currentIndex,
+                gradesByMistake = grades.mapNotNull { (id, value) ->
+                    runCatching { id to ReviewGrade.valueOf(value) }.getOrNull()
+                }.toMap(),
+                recordedReviewIds = recordedIds
+            )
         )
     }
 
@@ -1189,6 +1245,13 @@ class MistakeViewModel(
         }
         val sortedGrades = state.gradesByMistake.toSortedMap()
         savedStateHandle[KEY_SESSION_KEY] = state.sessionKey
+        savedStateHandle[KEY_SOURCE] = state.plan.source.key
+        state.plan.knowledgePointStableId?.let { savedStateHandle[KEY_KNOWLEDGE_POINT_STABLE_ID] = it }
+            ?: savedStateHandle.remove<String>(KEY_KNOWLEDGE_POINT_STABLE_ID)
+        state.plan.knowledgePointName?.let { savedStateHandle[KEY_KNOWLEDGE_POINT_NAME] = it }
+            ?: savedStateHandle.remove<String>(KEY_KNOWLEDGE_POINT_NAME)
+        state.plan.returnDestination?.let { savedStateHandle[KEY_RETURN_DESTINATION] = it }
+            ?: savedStateHandle.remove<String>(KEY_RETURN_DESTINATION)
         savedStateHandle[KEY_STARTED_AT] = state.startedAt
         savedStateHandle[KEY_REVIEW_IDS] = state.reviewIds.toLongArray()
         savedStateHandle[KEY_CURRENT_INDEX] = state.currentIndex
@@ -1196,6 +1259,7 @@ class MistakeViewModel(
         savedStateHandle[KEY_GRADE_VALUES] = ArrayList(sortedGrades.values)
         savedStateHandle[KEY_RECORDED_IDS] = state.recordedReviewIds.toLongArray()
         savedStateHandle[KEY_SUMMARY_VISIBLE] = state.summaryVisible
+        savedStateHandle[KEY_STATUS] = state.status.name
         _reviewSession.value = state
     }
 
@@ -1207,6 +1271,10 @@ class MistakeViewModel(
     private companion object {
         const val REVIEW_CLOCK_INTERVAL_MS = 30_000L
         const val KEY_SESSION_KEY = "review_session_key"
+        const val KEY_SOURCE = "review_session_source"
+        const val KEY_KNOWLEDGE_POINT_STABLE_ID = "review_session_knowledge_point_stable_id"
+        const val KEY_KNOWLEDGE_POINT_NAME = "review_session_knowledge_point_name"
+        const val KEY_RETURN_DESTINATION = "review_session_return_destination"
         const val KEY_STARTED_AT = "review_session_started_at"
         const val KEY_REVIEW_IDS = "review_session_review_ids"
         const val KEY_CURRENT_INDEX = "review_session_current_index"
@@ -1214,15 +1282,21 @@ class MistakeViewModel(
         const val KEY_GRADE_VALUES = "review_session_grade_values"
         const val KEY_RECORDED_IDS = "review_session_recorded_ids"
         const val KEY_SUMMARY_VISIBLE = "review_session_summary_visible"
+        const val KEY_STATUS = "review_session_status"
         val SESSION_KEYS = listOf(
             KEY_SESSION_KEY,
+            KEY_SOURCE,
+            KEY_KNOWLEDGE_POINT_STABLE_ID,
+            KEY_KNOWLEDGE_POINT_NAME,
+            KEY_RETURN_DESTINATION,
             KEY_STARTED_AT,
             KEY_REVIEW_IDS,
             KEY_CURRENT_INDEX,
             KEY_GRADE_IDS,
             KEY_GRADE_VALUES,
             KEY_RECORDED_IDS,
-            KEY_SUMMARY_VISIBLE
+            KEY_SUMMARY_VISIBLE,
+            KEY_STATUS
         )
     }
 }

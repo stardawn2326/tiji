@@ -58,12 +58,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.tiji.mistakes.data.MistakeEntity
+import com.tiji.mistakes.domain.DailyStudyBucket
+import com.tiji.mistakes.domain.DailyStudyPlan
+import com.tiji.mistakes.domain.FutureReviewLoad
+import com.tiji.mistakes.domain.ReviewSessionUiState
 import com.tiji.mistakes.service.HtmlPdfExportService
 import com.tiji.mistakes.ui.common.discardPdfPreview
 import com.tiji.mistakes.ui.common.launchDurablePdfExport
@@ -89,13 +94,11 @@ import kotlinx.coroutines.launch
 @Composable
 internal fun ReviewScreen(
     allMistakes: List<MistakeEntity>,
-    dueMistakes: List<MistakeEntity>,
+    dailyStudyPlan: DailyStudyPlan,
+    activeSession: ReviewSessionUiState?,
     viewModel: MistakeViewModel,
     exportOriginalImagesOnly: Boolean,
     reviewPlanEnabled: Boolean,
-    dailyLimit: Int,
-    reviewSubjects: String,
-    randomMode: Boolean,
     reviewStatuses: Map<Long, String>,
     savedPlanIds: List<Long>?,
     checkedInToday: Boolean,
@@ -103,44 +106,43 @@ internal fun ReviewScreen(
     onCheckIn: () -> Unit,
     onOpenCalendar: () -> Unit,
     onOpenSettings: () -> Unit,
-    onOpenDetail: (Long, List<Long>) -> Unit,
+    onStartSession: (List<Long>) -> Unit,
+    onResumeSession: (ReviewSessionUiState) -> Unit,
     resetScrollToken: Int
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val todayDate = remember { reviewDateKey() }
-    val today = remember { ((Calendar.getInstance().get(Calendar.DAY_OF_WEEK) + 5) % 7) + 1 }
-    val quotas = remember(reviewSubjects, today) {
-        reviewSubjects.split(';')
-            .mapNotNull { part ->
-                val rawKey = part.substringBefore('=')
-                val count = part.substringAfter('=', "").toIntOrNull()
-                if (count == null || !rawKey.startsWith("$today:")) null
-                else rawKey.removePrefix("$today:").substringBefore('|') to count
-            }
-            .groupBy({ it.first }, { it.second })
-            .mapValues { (_, counts) -> counts.sum() }
-    }
-    val generatedPlan = remember(reviewPlanEnabled, dueMistakes, dailyLimit, quotas, randomMode) {
-        if (!reviewPlanEnabled) return@remember emptyList()
-        val source = if (randomMode) dueMistakes.shuffled() else dueMistakes
-        if (quotas.isEmpty()) source.take(dailyLimit) else quotas.flatMap { (subject, count) ->
-            source.filter { mistake -> mistake.subject.trim() == subject.trim() }.take(count)
-        }.distinctBy { it.id }.take(dailyLimit)
-    }
     val allById = remember(allMistakes) { allMistakes.associateBy { it.id } }
-    val planned = remember(reviewPlanEnabled, savedPlanIds, generatedPlan, allById) {
-        if (!reviewPlanEnabled) return@remember emptyList()
-        val snapshot = savedPlanIds.orEmpty().mapNotNull(allById::get)
-        snapshot.ifEmpty { generatedPlan }
+    val activeTodaySession = activeSession?.takeIf {
+        it.plan.source == com.tiji.mistakes.domain.ReviewSessionSource.TODAY_PLAN &&
+            it.status != com.tiji.mistakes.domain.ReviewSessionStatus.FINISHED
     }
-    LaunchedEffect(reviewPlanEnabled, todayDate, savedPlanIds, generatedPlan.map { it.id }) {
-        if (reviewPlanEnabled && savedPlanIds == null && generatedPlan.isNotEmpty()) {
-            onSavePlanSnapshot(todayDate, generatedPlan.map { it.id })
+    val planned = remember(reviewPlanEnabled, dailyStudyPlan, savedPlanIds, allById, activeTodaySession) {
+        if (!reviewPlanEnabled) return@remember emptyList()
+        // A session owns its immutable queue. The Review Center itself always presents the
+        // freshly calculated deterministic plan, while the legacy snapshot remains a fallback
+        // for an already accepted empty planner state.
+        activeTodaySession?.reviewIds.orEmpty().mapNotNull(allById::get).ifEmpty {
+            dailyStudyPlan.orderedIds.mapNotNull(allById::get).ifEmpty {
+                savedPlanIds.orEmpty().mapNotNull(allById::get)
+            }
+        }
+    }
+    LaunchedEffect(reviewPlanEnabled, todayDate, savedPlanIds, dailyStudyPlan.orderedIds) {
+        if (reviewPlanEnabled && savedPlanIds == null && dailyStudyPlan.orderedIds.isNotEmpty()) {
+            onSavePlanSnapshot(todayDate, dailyStudyPlan.orderedIds)
         }
     }
     val completedToday = planned.count { it.id in reviewStatuses }
     val canCheckIn = planned.isNotEmpty() && completedToday == planned.size
+    val futureLoad = remember(allMistakes) {
+        FutureReviewLoad.calculate(allMistakes, System.currentTimeMillis(), days = 7)
+    }
+    val canStart = planned.isNotEmpty()
+    val sameTodaySession = activeTodaySession?.takeIf {
+        it.plan.reviewIds == planned.map { mistake -> mistake.id }
+    }
     val reviewListState = rememberLazyListState()
     LaunchedEffect(resetScrollToken) {
         if (resetScrollToken > 0) reviewListState.scrollToItem(0)
@@ -254,10 +256,10 @@ internal fun ReviewScreen(
             state = reviewListState,
             contentPadding = PaddingValues(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
-            modifier = Modifier.padding(padding).fillMaxSize()
+            modifier = Modifier.padding(padding).fillMaxSize().testTag("review_center")
         ) {
         item {
-            ReviewProgressCard(completed = completedToday, total = planned.size, randomMode = randomMode)
+            ReviewProgressCard(completed = completedToday, total = planned.size, randomMode = false, modifier = Modifier.testTag("review_today_plan"))
         }
         if (planned.isEmpty()) {
             item {
@@ -293,6 +295,28 @@ internal fun ReviewScreen(
             }
         } else {
             item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    ReviewBucketSummary(
+                        bucket = DailyStudyBucket.DUE,
+                        count = dailyStudyPlan.due.count { it in planned.map { mistake -> mistake.id } },
+                        modifier = Modifier.weight(1f).testTag("review_plan_due")
+                    )
+                    ReviewBucketSummary(
+                        bucket = DailyStudyBucket.WEAK_BOOST,
+                        count = dailyStudyPlan.weakBoost.count { it in planned.map { mistake -> mistake.id } },
+                        modifier = Modifier.weight(1f).testTag("review_plan_weak")
+                    )
+                    ReviewBucketSummary(
+                        bucket = DailyStudyBucket.OPTIONAL,
+                        count = dailyStudyPlan.optional.count { it in planned.map { mistake -> mistake.id } },
+                        modifier = Modifier.weight(1f).testTag("review_plan_optional")
+                    )
+                }
+            }
+            item {
                 val first = planned.first()
                 TijiSurfaceCard {
                     Row(
@@ -305,6 +329,11 @@ internal fun ReviewScreen(
                         Text("第 1 / ${planned.size} 题", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Text(first.title.ifBlank { "先独立回想，再查看答案" }, style = MaterialTheme.typography.titleLarge)
+                    Text(
+                        dailyStudyPlan.reasons[first.id] ?: "按当前学习状态安排",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                     MathText(
                         first.questionText.ifBlank { "（图片题，请打开查看题目图片）" },
                         maxLines = 5,
@@ -315,17 +344,62 @@ internal fun ReviewScreen(
                         compactVerticalSpacing = true
                     )
                     Button(
-                        onClick = { onOpenDetail(first.id, planned.map { it.id }) },
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                    ) { Text(if (first.id in reviewStatuses) "查看复习结果" else "开始复习") }
+                        onClick = {
+                            if (sameTodaySession != null) onResumeSession(sameTodaySession)
+                            else onStartSession(planned.map { it.id })
+                        },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag(
+                            if (sameTodaySession != null) "review_continue_session" else "review_start_session"
+                        )
+                    ) { Text(if (sameTodaySession != null) "继续今日复习" else "开始复习") }
                 }
             }
             if (planned.size > 1) {
                 item {
-                    ConceptSectionHeader("接下来的题目", "还有 ${planned.size - 1} 道题等待复习")
+                    ConceptSectionHeader("今日计划", "按到期、薄弱补强、可选巩固分组")
                 }
                 items(planned.drop(1), key = { it.id }) { mistake ->
-                    ConceptMistakeCard(mistake, onClick = { onOpenDetail(mistake.id, planned.map { it.id }) })
+                    TijiSurfaceCard(contentPadding = 12.dp) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                            ConceptTag(dailyStudyPlan.bucketFor(mistake.id)?.label ?: "今日计划")
+                            Spacer(Modifier.weight(1f))
+                            Text(
+                                dailyStudyPlan.reasons[mistake.id] ?: "按当前学习状态安排",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        Text(
+                            mistake.title.ifBlank { "未命名错题" },
+                            style = MaterialTheme.typography.titleMedium,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+            item {
+                TijiSurfaceCard(modifier = Modifier.testTag("review_future_load")) {
+                    ConceptSectionHeader("未来 7 天", "按设备本地日期计算，不把夏令时当成固定 24 小时")
+                    futureLoad.forEachIndexed { index, day ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(top = if (index == 0) 8.dp else 5.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                when (index) {
+                                    0 -> "今天"
+                                    1 -> "明天"
+                                    else -> "${day.date.monthValue}月${day.date.dayOfMonth}日"
+                                },
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text("${day.count} 道", color = MaterialTheme.colorScheme.primary)
+                        }
+                    }
                 }
             }
             item {
@@ -361,10 +435,15 @@ internal fun ReviewScreen(
 }
 
 @Composable
-internal fun ReviewProgressCard(completed: Int, total: Int, randomMode: Boolean) {
+internal fun ReviewProgressCard(
+    completed: Int,
+    total: Int,
+    randomMode: Boolean,
+    modifier: Modifier = Modifier
+) {
     val complete = total > 0 && completed >= total
     val progress = if (complete) 1f else (completed.toFloat() / total.coerceAtLeast(1)).coerceIn(0f, 1f)
-    TijiSurfaceCard {
+    TijiSurfaceCard(modifier = modifier) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text("今日复习", style = MaterialTheme.typography.titleLarge)
@@ -373,9 +452,9 @@ internal fun ReviewProgressCard(completed: Int, total: Int, randomMode: Boolean)
             Text("$completed/$total", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
         }
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            Text("复习节奏", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("计划排序", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.weight(1f))
-            ConceptTag(if (randomMode) "全随机" else "遗忘曲线")
+            ConceptTag(if (randomMode) "全随机" else "到期优先")
         }
         LinearProgressIndicator(
             progress = { progress },
@@ -383,6 +462,27 @@ internal fun ReviewProgressCard(completed: Int, total: Int, randomMode: Boolean)
             trackColor = MaterialTheme.colorScheme.surfaceVariant,
             modifier = Modifier.fillMaxWidth().height(8.dp)
         )
+    }
+}
+
+@Composable
+private fun ReviewBucketSummary(
+    bucket: DailyStudyBucket,
+    count: Int,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.heightIn(min = 64.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 9.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(bucket.label, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("$count 道", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+        }
     }
 }
 

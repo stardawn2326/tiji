@@ -101,7 +101,8 @@ internal fun LibraryScreen(
     knowledgePointLinks: List<MistakeKnowledgePointCrossRef> = emptyList(),
     exportOriginalImagesOnly: Boolean,
     onOpen: (Long) -> Unit,
-    onCreate: () -> Unit
+    onCreate: () -> Unit,
+    onStartSelectedReview: (List<Long>) -> Unit = {}
 ) {
     val query by viewModel.searchQuery.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -205,6 +206,22 @@ internal fun LibraryScreen(
         mistakeListState.scrollToItem(0)
     }
     val displayedMistakes = remember(visibleMistakes, visibleLimit) { visibleMistakes.take(visibleLimit) }
+    fun startSelectedReview() {
+        // Re-filter against the latest active library rows at the boundary where a session is
+        // created. A deleted/archived row must never be captured into a new session plan.
+        val activeIds = mistakes.asSequence()
+            .filter { !it.archived && it.deletedAt == null }
+            .map { it.id }
+            .toSet()
+        val validIds = selectedIds.filter { it in activeIds }
+        if (validIds.isEmpty()) {
+            Toast.makeText(context, "所选错题已不可用，请重新选择", Toast.LENGTH_SHORT).show()
+        } else {
+            onStartSelectedReview(validIds)
+            selectionMode = false
+            selectedIds = emptySet()
+        }
+    }
     fun requestPreview(filename: String) {
         pendingExportIds = visibleMistakes.filter { it.id in selectedIds }.map { it.id }.toLongArray()
         PendingPdfExportStore.libraryIds = pendingExportIds.copyOf()
@@ -363,6 +380,12 @@ internal fun LibraryScreen(
                             label = "全选",
                             modifier = Modifier.weight(0.65f),
                             onClick = { selectedIds = if (selectedIds.size == visibleMistakes.size) emptySet() else visibleMistakes.map { it.id }.toSet() }
+                        )
+                        BatchBarAction(
+                            label = "开始复习",
+                            enabled = selectedIds.isNotEmpty(),
+                            modifier = Modifier.weight(0.9f).testTag("library_start_selected_review"),
+                            onClick = ::startSelectedReview
                         )
                         BatchBarAction(
                             label = "导出 PDF",
