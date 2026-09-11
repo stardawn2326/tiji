@@ -2,7 +2,6 @@ package com.tiji.mistakes.data
 
 import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.map
 import com.tiji.mistakes.domain.ReviewScheduler
 import com.tiji.mistakes.domain.ReviewGrade
 import com.tiji.mistakes.service.QuestionContentBlockCodec
@@ -18,33 +17,12 @@ class MistakeRepository(private val database: AppDatabase) {
             .map(String::trim)
             .filter(String::isNotBlank)
         if (keywords.isEmpty()) return dao.observeActive()
-        if (keywords.size == 1) return dao.searchActive(keywords.single())
-        return dao.observeActive().map { mistakes ->
-            mistakes.filter { mistake -> keywords.all { keyword -> matchesSearchKeyword(mistake, keyword) } }
-        }
-    }
-
-    private fun matchesSearchKeyword(mistake: MistakeEntity, keyword: String): Boolean {
-        val values = listOf(
-            mistake.title,
-            mistake.questionText,
-            mistake.userAnswer,
-            mistake.answerText,
-            mistake.explanation,
-            mistake.subject,
-            mistake.questionType,
-            mistake.tags,
-            mistake.errorReason,
-            mistake.note,
-            mistake.ocrText
-        )
-        return values.any { it.contains(keyword, ignoreCase = true) }
+        return dao.searchActive(MistakeSearchQuery.build(keywords))
     }
 
     fun observeDue(now: Long): Flow<List<MistakeEntity>> = dao.observeDue(now)
     fun observeCount(): Flow<Int> = dao.observeActiveCount()
     fun observeDueCount(now: Long): Flow<Int> = dao.observeDueCount(now)
-    fun observeReviewRecords(): Flow<List<ReviewRecordEntity>> = database.reviewRecordDao().observeAll()
     fun observeReviewRecordsSince(from: Long): Flow<List<ReviewRecordEntity>> =
         database.reviewRecordDao().observeSince(from)
 
@@ -75,6 +53,13 @@ class MistakeRepository(private val database: AppDatabase) {
     suspend fun listMistakeIdsForKnowledgePoint(stableId: String): List<Long> {
         val point = database.knowledgePointDao().findByStableId(stableId) ?: return emptyList()
         return database.mistakeKnowledgePointDao().listMistakeIdsForKnowledgePoint(point.id)
+    }
+
+    suspend fun listMistakesForKnowledgePoint(stableId: String, now: Long = System.currentTimeMillis()): List<MistakeEntity> {
+        val mistakes = database.mistakeDao().listActiveForKnowledgePoint(stableId)
+        if (mistakes.isEmpty()) return emptyList()
+        val records = listReviewRecordsForMistakes(mistakes.map(MistakeEntity::id))
+        return com.tiji.mistakes.domain.FocusedReviewQueue.order(mistakes, records, now)
     }
 
     /** Detaches missing, self-referencing, or cyclic knowledge-point parents. */

@@ -293,6 +293,10 @@ class MistakeViewModel(application: Application) : AndroidViewModel(application)
     suspend fun listReviewRecordsForMistakes(mistakeIds: Collection<Long>): List<com.tiji.mistakes.data.ReviewRecordEntity> =
         repository.listReviewRecordsForMistakes(mistakeIds)
 
+    /** Builds a stable, structured-relation-only queue for Knowledge Detail. */
+    suspend fun focusedReviewQueue(stableId: String): List<MistakeEntity> =
+        repository.listMistakesForKnowledgePoint(stableId)
+
     /**
      * Runs in a foreground service, outside the Compose screen lifecycle. The persisted state
      * lets the UI recover the result after the app process is recreated.

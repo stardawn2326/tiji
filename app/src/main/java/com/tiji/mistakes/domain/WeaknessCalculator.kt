@@ -25,16 +25,12 @@ object WeaknessCalculator {
         now: Long = System.currentTimeMillis(),
         zoneId: ZoneId = ZoneId.systemDefault()
     ): List<KnowledgePointInsight> {
-        val mistakeById = mistakes.associateBy(MistakeEntity::id)
         val recentStart = LearningCalendar.startOfRecentDays(now, 30, zoneId)
-        val recordsByMistake = records
-            .filter { LearningCalendar.isWithinInclusive(it.reviewedAt, recentStart, now) }
-            .groupBy(ReviewRecordEntity::mistakeId)
-        val linksByPoint = links.groupBy(MistakeKnowledgePointCrossRef::knowledgePointId)
+        val index = KnowledgeAnalyticsIndex.build(links, mistakes, records, recentStart, now)
         return points.mapNotNull { point ->
-            val pointMistakes = linksByPoint[point.id].orEmpty().mapNotNull { mistakeById[it.mistakeId] }
+            val pointMistakes = index.mistakesForPoint(point.id)
             if (pointMistakes.isEmpty()) return@mapNotNull null
-            val pointRecords = pointMistakes.flatMap { recordsByMistake[it.id].orEmpty() }
+            val pointRecords = pointMistakes.flatMap { index.recentRecordsForMistake(it.id) }
             val averageMastery = pointMistakes.map { it.mastery.coerceIn(0, 3) }
                 .average()
                 .takeUnless(Double::isNaN)
