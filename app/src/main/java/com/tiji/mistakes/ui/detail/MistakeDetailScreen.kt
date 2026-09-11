@@ -56,6 +56,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tiji.mistakes.data.MistakeEntity
 import com.tiji.mistakes.service.ContentBlockKind
 import com.tiji.mistakes.service.ContentBlockRole
@@ -65,16 +66,18 @@ import com.tiji.mistakes.ui.capture.PhotoRole
 import com.tiji.mistakes.ui.capture.StandaloneImageEditor
 import com.tiji.mistakes.ui.common.cameraUri
 import com.tiji.mistakes.ui.common.formatUploadTime
+import com.tiji.mistakes.ui.common.formatReviewDateTime
 import com.tiji.mistakes.ui.common.isPhotoEntryImagePath
 import com.tiji.mistakes.ui.common.masteryLabel
 import com.tiji.mistakes.ui.common.parseErrorReasons
 import com.tiji.mistakes.ui.ConceptSectionHeader
 import com.tiji.mistakes.ui.ConceptTag
-import com.tiji.mistakes.ui.ImagePreview
-import com.tiji.mistakes.ui.MathText
+import com.tiji.mistakes.ui.image.ImagePreview
+import com.tiji.mistakes.ui.math.MathText
 import com.tiji.mistakes.ui.editor.MistakeFields
 import com.tiji.mistakes.ui.MistakeViewModel
 import com.tiji.mistakes.ui.math.normalizeAsciiPunctuation
+import com.tiji.mistakes.ui.common.reviewGradeUiLabel
 import com.tiji.mistakes.ui.normalizedSubject
 import com.tiji.mistakes.ui.editor.PhotoEditFields
 import com.tiji.mistakes.ui.solve.ContentBlockImages
@@ -116,6 +119,7 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
             tags = entity.tags.orEmpty()
         )
     }
+    val reviewHistory by viewModel.reviewHistory(id).collectAsStateWithLifecycle(emptyList())
     if (current == null) {
         Scaffold(topBar = { TopAppBar(title = { Text("错题详情") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, null) } }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)) }) { padding ->
             Column(Modifier.padding(padding).fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -587,9 +591,35 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                             Text(masteryLabel(current.mastery), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
                         }
                     }
+                    if (reviewHistory.isEmpty()) {
+                        Text("还没有真实复习反馈", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else {
+                        reviewHistory.take(5).forEach { record ->
+                            DetailReviewHistoryRow(record)
+                        }
+                    }
                 }
             }
             if (saveMessage.isNotBlank()) item { Text(saveMessage, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
         }
+    }
+}
+
+@Composable
+private fun DetailReviewHistoryRow(record: com.tiji.mistakes.data.ReviewRecordEntity) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(top = 9.dp).testTag("detail_review_${record.id}"),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(formatReviewDateTime(record.reviewedAt), style = MaterialTheme.typography.bodySmall)
+            Text(
+                "掌握 ${record.masteryBefore} → ${record.masteryAfter} · 间隔 ${record.intervalAfterDays} 天",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Text(reviewGradeUiLabel(record.grade), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
     }
 }

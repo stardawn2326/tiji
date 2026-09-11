@@ -22,7 +22,7 @@ class MyNavigationTest {
         composeRule.onNodeWithTag("nav_profile").performClick()
         listOf(
             "复习计划" to "settings_review",
-            "科目与知识点" to "settings_subject",
+            "科目与知识点" to "knowledge_list",
             "AI 模型" to "settings_ai",
             "数据备份与导入" to "settings_data",
             "显示模式与主题" to "settings_appearance",

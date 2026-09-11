@@ -63,7 +63,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.tiji.mistakes.data.KnowledgePointEntity
 import com.tiji.mistakes.data.MistakeEntity
+import com.tiji.mistakes.data.MistakeKnowledgePointCrossRef
 import com.tiji.mistakes.domain.KnowledgePointInsight
 import com.tiji.mistakes.service.HtmlPdfExportService
 import com.tiji.mistakes.ui.components.BatchBarAction
@@ -88,11 +90,15 @@ import kotlinx.coroutines.launch
 @Composable
 internal fun LibraryScreen(
     selectedSubject: String?,
+    selectedKnowledgePointStableId: String?,
     resetScrollToken: Int,
     onSelectSubject: (String?) -> Unit,
+    onSelectKnowledgePoint: (String?) -> Unit,
     viewModel: MistakeViewModel,
     mistakes: List<MistakeEntity>,
     knowledgePointInsights: List<KnowledgePointInsight> = emptyList(),
+    knowledgePoints: List<KnowledgePointEntity> = emptyList(),
+    knowledgePointLinks: List<MistakeKnowledgePointCrossRef> = emptyList(),
     exportOriginalImagesOnly: Boolean,
     onOpen: (Long) -> Unit,
     onCreate: () -> Unit
@@ -163,9 +169,25 @@ internal fun LibraryScreen(
     val availableTags = remember(mistakes) {
         mistakes.flatMap { parseTagValues(it.tags) }.distinct().sorted()
     }
-    val visibleMistakes = remember(mistakes, order, selectedSubject, masteryFilter, difficultyFilter, tagFilter) {
+    val availableKnowledgePoints = remember(knowledgePoints, knowledgePointLinks, selectedSubject) {
+        val linkedPointIds = knowledgePointLinks.map { it.knowledgePointId }.toSet()
+        knowledgePoints
+            .filter { it.id in linkedPointIds && (selectedSubject == null || it.subject == selectedSubject) }
+            .sortedWith(compareBy({ it.subject }, { it.normalizedName }, { it.stableId }))
+    }
+    val selectedKnowledgePoint = remember(knowledgePoints, selectedKnowledgePointStableId) {
+        knowledgePoints.firstOrNull { it.stableId == selectedKnowledgePointStableId }
+    }
+    val selectedKnowledgePointMistakeIds = remember(selectedKnowledgePointStableId, knowledgePoints, knowledgePointLinks) {
+        selectedKnowledgePointStableId?.let { stableId ->
+            val pointId = knowledgePoints.firstOrNull { it.stableId == stableId }?.id
+            pointId?.let { id -> knowledgePointLinks.filter { it.knowledgePointId == id }.map { it.mistakeId }.toSet() }
+        }
+    }
+    val visibleMistakes = remember(mistakes, order, selectedSubject, selectedKnowledgePointStableId, selectedKnowledgePointMistakeIds, masteryFilter, difficultyFilter, tagFilter) {
         val filtered = mistakes.filter {
             (selectedSubject == null || normalizedSubject(it.subject) == selectedSubject) &&
+                (selectedKnowledgePointMistakeIds == null || it.id in selectedKnowledgePointMistakeIds) &&
                 (masteryFilter == null || it.mastery == masteryFilter) &&
                 (tagFilter?.let { filter -> filter in parseTagValues(it.tags) } ?: true) &&
                 (difficultyFilter == null || when (difficultyFilter) {
@@ -176,7 +198,7 @@ internal fun LibraryScreen(
         }
         when(order) { MistakeOrder.NEWEST -> filtered.sortedByDescending { it.uploadedAt }; MistakeOrder.OLDEST -> filtered.sortedBy { it.uploadedAt }; MistakeOrder.UPDATED -> filtered.sortedByDescending { it.updatedAt } }
     }
-    LaunchedEffect(query, order, selectedSubject, masteryFilter, difficultyFilter, tagFilter) {
+    LaunchedEffect(query, order, selectedSubject, selectedKnowledgePointStableId, masteryFilter, difficultyFilter, tagFilter) {
         selectedIds = emptySet()
         selectionMode = false
         visibleLimit = 40
@@ -274,9 +296,26 @@ internal fun LibraryScreen(
                             FilterChip(selected = masteryFilter == value, onClick = { masteryFilter = value }, label = { Text(label) })
                         }
                     }
-                    Text("知识点", style = MaterialTheme.typography.titleSmall)
+                    Text("结构化知识点", style = MaterialTheme.typography.titleSmall)
+                    if (availableKnowledgePoints.isEmpty()) {
+                        Text("暂无已整理的知识点", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else {
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            item {
+                                FilterChip(selected = selectedKnowledgePointStableId == null, onClick = { onSelectKnowledgePoint(null) }, label = { Text("全部") })
+                            }
+                            items(availableKnowledgePoints, key = { it.stableId }) { point ->
+                                FilterChip(
+                                    selected = selectedKnowledgePointStableId == point.stableId,
+                                    onClick = { onSelectKnowledgePoint(point.stableId) },
+                                    label = { Text(point.name) }
+                                )
+                            }
+                        }
+                    }
+                    Text("旧标签兼容", style = MaterialTheme.typography.titleSmall)
                     if (availableTags.isEmpty()) {
-                        Text("暂无已保存的知识点标签", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("暂无旧标签", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     } else {
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             item {
@@ -300,7 +339,7 @@ internal fun LibraryScreen(
             },
             confirmButton = { TextButton(onClick = { showFilterDialog = false }) { Text("完成") } },
             dismissButton = {
-                TextButton(onClick = { masteryFilter = null; difficultyFilter = null; tagFilter = null; showFilterDialog = false }) { Text("清除筛选") }
+                TextButton(onClick = { onSelectKnowledgePoint(null); masteryFilter = null; difficultyFilter = null; tagFilter = null; showFilterDialog = false }) { Text("清除筛选") }
             }
         )
     }
@@ -400,8 +439,13 @@ internal fun LibraryScreen(
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(knowledgePointInsights.take(8), key = { it.point.stableId }) { insight ->
                         FilterChip(
-                            selected = tagFilter == insight.point.name,
-                            onClick = { tagFilter = tagFilter.takeUnless { it == insight.point.name } ?: insight.point.name },
+                            selected = selectedKnowledgePointStableId == insight.point.stableId,
+                            onClick = {
+                                onSelectKnowledgePoint(
+                                    selectedKnowledgePointStableId.takeUnless { it == insight.point.stableId }
+                                        ?: insight.point.stableId
+                                )
+                            },
                             label = { Text("${insight.point.name} · ${insight.label}") }
                         )
                     }
@@ -412,19 +456,31 @@ internal fun LibraryScreen(
                 item {
                     Box {
                         FilterChip(
-                            selected = tagFilter != null,
+                            selected = selectedKnowledgePointStableId != null || tagFilter != null,
                             onClick = { tagMenuExpanded = true },
                             modifier = Modifier.height(36.dp).testTag("library_knowledge_filter"),
-                            label = { Text(tagFilter ?: "知识点") }
+                            label = { Text(selectedKnowledgePoint?.name ?: tagFilter ?: "知识点") }
                         )
                         DropdownMenu(expanded = tagMenuExpanded, onDismissRequest = { tagMenuExpanded = false }) {
-                            DropdownMenuItem(text = { Text("全部知识点") }, onClick = { tagFilter = null; tagMenuExpanded = false })
-                            if (availableTags.isEmpty()) {
-                                DropdownMenuItem(text = { Text("暂无标签") }, enabled = false, onClick = {})
-                            } else {
-                                availableTags.forEach { tag ->
-                                    DropdownMenuItem(text = { Text(tag) }, onClick = { tagFilter = tag; tagMenuExpanded = false })
-                                }
+                            DropdownMenuItem(
+                                text = { Text("全部知识点") },
+                                onClick = { onSelectKnowledgePoint(null); tagFilter = null; tagMenuExpanded = false }
+                            )
+                            availableKnowledgePoints.forEach { point ->
+                                DropdownMenuItem(
+                                    text = { Text("${point.name} · ${point.subject}") },
+                                    onClick = { onSelectKnowledgePoint(point.stableId); tagMenuExpanded = false }
+                                )
+                            }
+                            val legacyOnlyTags = availableTags.filterNot { tag -> availableKnowledgePoints.any { it.name == tag } }
+                            legacyOnlyTags.forEach { tag ->
+                                DropdownMenuItem(
+                                    text = { Text("$tag · 旧标签") },
+                                    onClick = { tagFilter = tag; onSelectKnowledgePoint(null); tagMenuExpanded = false }
+                                )
+                            }
+                            if (availableKnowledgePoints.isEmpty() && legacyOnlyTags.isEmpty()) {
+                                DropdownMenuItem(text = { Text("暂无知识点") }, enabled = false, onClick = {})
                             }
                         }
                     }
@@ -470,7 +526,7 @@ internal fun LibraryScreen(
                 if (selectedSubject != null) Text("当前：$selectedSubject", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (visibleMistakes.isEmpty()) {
-                val hasFilter = query.isNotBlank() || selectedSubject != null || masteryFilter != null || difficultyFilter != null || tagFilter != null
+                val hasFilter = query.isNotBlank() || selectedSubject != null || selectedKnowledgePointStableId != null || masteryFilter != null || difficultyFilter != null || tagFilter != null
                 TijiSurfaceCard {
                     Column(
                         modifier = Modifier.fillMaxWidth(),
@@ -501,6 +557,7 @@ internal fun LibraryScreen(
                             OutlinedButton(onClick = {
                                 viewModel.setQuery("")
                                 onSelectSubject(null)
+                                onSelectKnowledgePoint(null)
                                 masteryFilter = null
                                 difficultyFilter = null
                                 tagFilter = null

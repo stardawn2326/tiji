@@ -14,7 +14,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.tiji.mistakes.ui.FormulaPreview
+import com.tiji.mistakes.ui.math.FormulaPreview
 
 @Composable
 internal fun CaptureFields(

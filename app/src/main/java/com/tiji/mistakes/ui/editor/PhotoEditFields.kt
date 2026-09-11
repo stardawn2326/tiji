@@ -25,7 +25,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.tiji.mistakes.service.ContentBlockRole
 import com.tiji.mistakes.service.QuestionContentBlock
-import com.tiji.mistakes.ui.ImagePreview
+import com.tiji.mistakes.ui.image.ImagePreview
 import com.tiji.mistakes.ui.capture.PhotoRole
 
 @Composable

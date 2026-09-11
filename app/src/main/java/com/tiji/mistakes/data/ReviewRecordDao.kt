@@ -14,8 +14,15 @@ interface ReviewRecordDao {
     @Query("SELECT * FROM review_records ORDER BY reviewedAt ASC, id ASC")
     fun observeAll(): Flow<List<ReviewRecordEntity>>
 
+    /** Bounded query for recent analytics instead of collecting the full history. */
+    @Query("SELECT * FROM review_records WHERE reviewedAt >= :from ORDER BY reviewedAt ASC, id ASC")
+    fun observeSince(from: Long): Flow<List<ReviewRecordEntity>>
+
     @Query("SELECT * FROM review_records WHERE mistakeId = :mistakeId ORDER BY reviewedAt DESC, id DESC")
     suspend fun listByMistakeId(mistakeId: Long): List<ReviewRecordEntity>
+
+    @Query("SELECT * FROM review_records WHERE mistakeId = :mistakeId ORDER BY reviewedAt DESC, id DESC")
+    fun observeForMistake(mistakeId: Long): Flow<List<ReviewRecordEntity>>
 
     @Query(
         """SELECT * FROM review_records

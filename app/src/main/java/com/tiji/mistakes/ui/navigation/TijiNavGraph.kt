@@ -27,6 +27,8 @@ import com.tiji.mistakes.ui.common.reviewDateKey
 import com.tiji.mistakes.ui.detail.DetailScreen
 import com.tiji.mistakes.ui.home.HomeScreen
 import com.tiji.mistakes.ui.library.LibraryScreen
+import com.tiji.mistakes.ui.knowledge.KnowledgeDetailScreen
+import com.tiji.mistakes.ui.knowledge.KnowledgeListScreen
 import com.tiji.mistakes.ui.MistakeViewModel
 import com.tiji.mistakes.ui.ThemeMode
 import com.tiji.mistakes.ui.ThemePalette
@@ -52,7 +54,8 @@ internal fun TijiNavGraph(
     snackbarHostState: SnackbarHostState,
     ocrModelManager: OcrModelManager,
     state: TijiNavGraphState,
-    onLibrarySubject: (String?) -> Unit
+    onLibrarySubject: (String?) -> Unit,
+    onLibraryKnowledgePoint: (String?) -> Unit
 ) {
             NavHost(
                 navController,
@@ -104,6 +107,11 @@ internal fun TijiNavGraph(
                             viewModel.setQuery("")
                             navController.navigate(TijiRoutes.LIBRARY)
                         },
+                        onKnowledgePoint = { stableId ->
+                            onLibraryKnowledgePoint(stableId)
+                            viewModel.setQuery("")
+                            navController.navigate(TijiRoutes.knowledgeDetail(stableId))
+                        },
                         resetScrollToken = state.homeVisitToken,
                         onNavigate = navController::navigate
                     )
@@ -111,11 +119,15 @@ internal fun TijiNavGraph(
                 composable(TijiRoutes.LIBRARY) {
                     LibraryScreen(
                         selectedSubject = state.librarySubject,
+                        selectedKnowledgePointStableId = state.libraryKnowledgePointStableId,
                         resetScrollToken = state.libraryVisitToken,
                         onSelectSubject = { subject -> onLibrarySubject(subject) },
+                        onSelectKnowledgePoint = { stableId -> onLibraryKnowledgePoint(stableId) },
                         viewModel = viewModel,
                         mistakes = state.mistakes,
                         knowledgePointInsights = state.weaknessInsights,
+                        knowledgePoints = state.knowledgePoints,
+                        knowledgePointLinks = state.knowledgePointLinks,
                         exportOriginalImagesOnly = !state.aiExcludeSourceImageByDefault,
                         onOpen = { navController.navigate(TijiRoutes.detail(it)) },
                         onCreate = { navController.navigate(TijiRoutes.CAPTURE) }
@@ -166,11 +178,36 @@ internal fun TijiNavGraph(
                     MyScreen(
                         resetScrollToken = state.settingsVisitToken,
                         onOpenReviewSettings = { navController.navigate(TijiRoutes.settingsDetail(SettingsSection.REVIEW)) },
-                        onOpenSubjectSettings = { navController.navigate(TijiRoutes.settingsDetail(SettingsSection.SUBJECT)) },
+                        onOpenKnowledge = { navController.navigate(TijiRoutes.KNOWLEDGE) },
                         onOpenAiSettings = { navController.navigate(TijiRoutes.settingsDetail(SettingsSection.AI)) },
                         onOpenDataSettings = { navController.navigate(TijiRoutes.settingsDetail(SettingsSection.DATA)) },
                         onOpenAppearanceSettings = { navController.navigate(TijiRoutes.settingsDetail(SettingsSection.APPEARANCE)) },
                         onOpenAbout = { navController.navigate(TijiRoutes.settingsDetail(SettingsSection.ABOUT)) }
+                    )
+                }
+                composable(TijiRoutes.KNOWLEDGE) {
+                    KnowledgeListScreen(
+                        points = state.knowledgePoints,
+                        insights = state.weaknessInsights,
+                        resetScrollToken = state.knowledgeVisitToken,
+                        onBack = { navController.popBackStack() },
+                        onOpenDetail = { stableId -> navController.navigate(TijiRoutes.knowledgeDetail(stableId)) }
+                    )
+                }
+                composable(TijiRoutes.KNOWLEDGE_DETAIL_PATTERN) { entry ->
+                    val stableId = Uri.decode(entry.arguments?.getString("stableId").orEmpty())
+                    KnowledgeDetailScreen(
+                        point = state.knowledgePoints.firstOrNull { it.stableId == stableId },
+                        insight = state.weaknessInsights.firstOrNull { it.point.stableId == stableId },
+                        mistakes = state.allMistakes,
+                        links = state.knowledgePointLinks,
+                        reviewRecords = state.reviewRecords,
+                        onBack = { navController.popBackStack() },
+                        onOpenMistake = { id -> navController.navigate(TijiRoutes.detail(id)) },
+                        onOpenLibrary = { selectedId ->
+                            onLibraryKnowledgePoint(selectedId)
+                            navController.navigate(TijiRoutes.LIBRARY)
+                        }
                     )
                 }
                 composable(TijiRoutes.SETTINGS_DETAIL_PATTERN) { entry ->

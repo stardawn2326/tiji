@@ -382,11 +382,14 @@ object BackupService {
                         )
                     }
                 }
+                knowledgePointDao.deleteOrphans()
             }
 
             if (payload.preview.schemaVersion < SCHEMA_VERSION && importedStableToLocalId.isNotEmpty()) {
                 MistakeRepository(database).syncKnowledgePointsForMistakes(importedStableToLocalId.values)
             }
+
+            MistakeRepository(database).sanitizeKnowledgePointParents()
 
             preferences?.importBackupJson(
                 payload.preferences,

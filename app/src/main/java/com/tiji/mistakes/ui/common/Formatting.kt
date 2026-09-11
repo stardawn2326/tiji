@@ -23,6 +23,9 @@ internal fun formatUploadTime(value: Long): String =
 internal fun formatLocalDate(value: Long = System.currentTimeMillis()): String =
     SimpleDateFormat("yyyy年M月d日", Locale.getDefault()).format(Date(value))
 
+internal fun formatReviewDateTime(value: Long): String =
+    SimpleDateFormat("MM月dd日 HH:mm", Locale.getDefault()).format(Date(value))
+
 internal fun reviewDateKey(value: Long = System.currentTimeMillis()): String =
     SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(value))
 
@@ -38,6 +41,9 @@ internal fun reviewGradeUiLabel(grade: ReviewGrade): String = when (grade) {
     ReviewGrade.GOOD -> "会了"
     else -> grade.label
 }
+
+internal fun reviewGradeUiLabel(grade: String): String =
+    runCatching { reviewGradeUiLabel(ReviewGrade.valueOf(grade)) }.getOrDefault(grade)
 
 internal fun parseTagValues(raw: String): List<String> = KnowledgePointNormalizer.parseTags(raw)
 

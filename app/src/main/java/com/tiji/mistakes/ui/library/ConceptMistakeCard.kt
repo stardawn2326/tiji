@@ -21,7 +21,7 @@ import androidx.compose.ui.unit.dp
 import com.tiji.mistakes.data.MistakeEntity
 import com.tiji.mistakes.ui.common.formatLocalDate
 import com.tiji.mistakes.ui.ConceptTag
-import com.tiji.mistakes.ui.MathText
+import com.tiji.mistakes.ui.math.MathText
 import com.tiji.mistakes.ui.normalizedSubject
 import com.tiji.mistakes.ui.TijiStatusBadge
 import com.tiji.mistakes.ui.TijiSurfaceCard

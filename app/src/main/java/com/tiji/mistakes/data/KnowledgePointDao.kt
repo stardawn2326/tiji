@@ -21,6 +21,9 @@ interface KnowledgePointDao {
     @Query("SELECT * FROM knowledge_points WHERE subject = :subject AND normalizedName = :normalizedName LIMIT 1")
     suspend fun findBySubjectAndName(subject: String, normalizedName: String): KnowledgePointEntity?
 
+    @Query("SELECT * FROM knowledge_points WHERE stableId = :stableId LIMIT 1")
+    fun observeByStableId(stableId: String): Flow<KnowledgePointEntity?>
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertIgnore(point: KnowledgePointEntity): Long
 
@@ -29,4 +32,13 @@ interface KnowledgePointDao {
 
     @Query("DELETE FROM knowledge_points")
     suspend fun deleteAll()
+
+    /** Removes points no longer referenced by any mistake relationship. */
+    @Query(
+        """DELETE FROM knowledge_points
+            WHERE id NOT IN (
+                SELECT DISTINCT knowledgePointId FROM mistake_knowledge_points
+            )"""
+    )
+    suspend fun deleteOrphans(): Int
 }

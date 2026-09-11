@@ -106,8 +106,8 @@ import com.tiji.mistakes.ui.common.visibleAiSolution
 import com.tiji.mistakes.ui.ConceptDashedDropZone
 import com.tiji.mistakes.ui.ConceptSectionHeader
 import com.tiji.mistakes.ui.ConceptTag
-import com.tiji.mistakes.ui.ImagePreview
-import com.tiji.mistakes.ui.MathText
+import com.tiji.mistakes.ui.image.ImagePreview
+import com.tiji.mistakes.ui.math.MathText
 import com.tiji.mistakes.ui.MistakeViewModel
 import com.tiji.mistakes.ui.math.stripQuestionCommentary
 import com.tiji.mistakes.ui.TijiSurfaceCard

@@ -15,12 +15,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Lightbulb
-import androidx.compose.material.icons.outlined.MenuBook
 import androidx.compose.material.icons.outlined.Style
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -39,7 +39,7 @@ import com.tiji.mistakes.ui.TijiSurfaceCard
 internal fun MyScreen(
     resetScrollToken: Int,
     onOpenReviewSettings: () -> Unit,
-    onOpenSubjectSettings: () -> Unit,
+    onOpenKnowledge: () -> Unit,
     onOpenAiSettings: () -> Unit,
     onOpenDataSettings: () -> Unit,
     onOpenAppearanceSettings: () -> Unit,
@@ -59,7 +59,7 @@ internal fun MyScreen(
         item {
             MySection("学习") {
                 MySettingRow("复习计划", "安排今天和接下来的复习节奏", Icons.Outlined.CalendarMonth, onOpenReviewSettings)
-                MySettingRow("科目与知识点", "调整分类和学习内容", Icons.Outlined.MenuBook, onOpenSubjectSettings)
+                MySettingRow("科目与知识点", "浏览知识点、薄弱度和关联错题", Icons.AutoMirrored.Outlined.MenuBook, onOpenKnowledge)
             }
         }
         item {

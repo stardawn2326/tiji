@@ -12,6 +12,8 @@ import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.tiji.mistakes.data.AppDatabase
+import com.tiji.mistakes.data.MistakeRepository
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Before
@@ -64,6 +66,7 @@ class LibraryFilterTest {
                 note = "电场公式",
                 inReviewPlan = false
             )
+            MistakeRepository(AppDatabase.get(context)).backfillLegacyTags()
         }
     }
 
@@ -101,7 +104,7 @@ class LibraryFilterTest {
         composeRule.onNodeWithTag("mistake_card_${fixtureIds[2]}").assertDoesNotExist()
 
         composeRule.onNodeWithTag("library_knowledge_filter").performClick()
-        composeRule.onNodeWithText("函数").assertExists().performClick()
+        composeRule.onNodeWithText("函数 · 数学").assertExists().performClick()
         scrollToFixture(fixtureIds[0])
         composeRule.onNodeWithTag("mistake_card_${fixtureIds[0]}").assertExists()
         composeRule.onNodeWithTag("mistake_card_${fixtureIds[1]}").assertDoesNotExist()

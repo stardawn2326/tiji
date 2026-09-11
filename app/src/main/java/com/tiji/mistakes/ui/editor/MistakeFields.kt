@@ -24,8 +24,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.tiji.mistakes.service.ContentBlockRole
 import com.tiji.mistakes.service.QuestionContentBlock
-import com.tiji.mistakes.ui.FormulaPreview
-import com.tiji.mistakes.ui.MathText
+import com.tiji.mistakes.ui.math.FormulaPreview
+import com.tiji.mistakes.ui.math.MathText
 import com.tiji.mistakes.ui.TijiSurfaceCard
 import com.tiji.mistakes.ui.solve.ContentBlockImages
 
