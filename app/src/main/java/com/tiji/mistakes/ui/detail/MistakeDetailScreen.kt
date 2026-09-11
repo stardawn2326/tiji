@@ -58,6 +58,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tiji.mistakes.data.MistakeEntity
+import com.tiji.mistakes.domain.ReviewGrade
 import com.tiji.mistakes.service.ContentBlockKind
 import com.tiji.mistakes.service.ContentBlockRole
 import com.tiji.mistakes.service.ImageStorage
@@ -320,9 +321,8 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                             OutlinedButton(
                                 onClick = {
                                     if (inReviewPlan) {
-                                        inReviewPlan = false
-                                        viewModel.save(current.copy(mastery = 3, inReviewPlan = false)) {
-                                            saveMessage = "已标记为已掌握"
+                                        viewModel.review(current, ReviewGrade.EASY) {
+                                            saveMessage = "已标记为熟练，仍保留在复习计划"
                                         }
                                     } else {
                                         inReviewPlan = true
@@ -332,7 +332,7 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                                 modifier = Modifier.weight(0.9f).heightIn(min = 52.dp).testTag("detail_mastery_action"),
                                 contentPadding = PaddingValues(horizontal = 8.dp)
                             ) {
-                                Text(if (inReviewPlan) "已掌握" else "稍后复习", maxLines = 1)
+                                Text(if (inReviewPlan) "标记熟练" else "加入复习", maxLines = 1)
                             }
                             Button(
                                 onClick = { explanationExpanded = !explanationExpanded },

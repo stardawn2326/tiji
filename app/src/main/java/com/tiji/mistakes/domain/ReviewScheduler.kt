@@ -4,7 +4,7 @@ import com.tiji.mistakes.data.MistakeEntity
 import java.util.Calendar
 import kotlin.math.roundToInt
 
-enum class ReviewGrade(val label: String) { FORGOT("忘记"), HARD("困难"), GOOD("一般"), EASY("简单") }
+enum class ReviewGrade(val label: String) { FORGOT("忘记"), HARD("困难"), GOOD("掌握"), EASY("熟练") }
 
 data class ReviewPreview(
     val grade: ReviewGrade,

@@ -8,6 +8,7 @@ enum class AiMistakeSavePhase {
     IDLE,
     SAVING,
     SAVED,
+    LOCAL_SAVED,
     CLASSIFYING,
     CLASSIFICATION_COMPLETED,
     CLASSIFICATION_FAILED,
@@ -36,12 +37,13 @@ data class AiMistakeSaveState(
             phase == AiMistakeSavePhase.CLASSIFYING
 
     val terminal: Boolean
-        get() = phase == AiMistakeSavePhase.CLASSIFICATION_COMPLETED ||
+        get() = phase == AiMistakeSavePhase.LOCAL_SAVED ||
+            phase == AiMistakeSavePhase.CLASSIFICATION_COMPLETED ||
             phase == AiMistakeSavePhase.CLASSIFICATION_FAILED ||
             phase == AiMistakeSavePhase.SAVE_FAILED
 }
 
-/** Durable state for local save and the follow-up classification request. */
+/** Durable state for local save; classification remains available for legacy retry compatibility. */
 class AiMistakeSaveStore(context: Context) {
     private val preferences = context.getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE)
 

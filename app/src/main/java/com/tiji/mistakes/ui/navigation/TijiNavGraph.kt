@@ -105,18 +105,6 @@ internal fun TijiNavGraph(
                         dueCount = state.dueCount,
                         reviewTotal = state.reviewPlanSnapshots[state.todayDate].orEmpty().size.takeIf { it > 0 } ?: state.dueCount,
                         reviewCompleted = state.reviewMastery[state.todayDate].orEmpty().keys.count { id -> id in state.reviewPlanSnapshots[state.todayDate].orEmpty() },
-                        reviewAnalytics = state.reviewAnalytics,
-                        weaknessInsights = state.weaknessInsights,
-                        onSubject = { subject ->
-                            onLibrarySubject(subject)
-                            viewModel.setQuery("")
-                            navController.navigate(TijiRoutes.LIBRARY)
-                        },
-                        onKnowledgePoint = { stableId ->
-                            onLibraryKnowledgePoint(stableId)
-                            viewModel.setQuery("")
-                            navController.navigate(TijiRoutes.knowledgeDetail(stableId))
-                        },
                         resetScrollToken = state.homeVisitToken,
                         onNavigate = navController::navigate
                     )

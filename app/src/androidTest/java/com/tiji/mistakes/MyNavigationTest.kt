@@ -19,7 +19,7 @@ class MyNavigationTest {
 
     @Test
     fun everyMyEntryOpensItsConcreteSettingsDestination() {
-        composeRule.onNodeWithTag("nav_profile").performClick()
+        composeRule.onNodeWithTag("nav_settings").performClick()
         listOf(
             "复习计划" to "settings_review",
             "科目与知识点" to "knowledge_list",
@@ -39,7 +39,7 @@ class MyNavigationTest {
                     composeRule.activity.onBackPressedDispatcher.onBackPressed()
                 }
                 composeRule.waitForIdle()
-                composeRule.onNodeWithTag("nav_profile").assertExists()
+                composeRule.onNodeWithTag("nav_settings").assertExists()
             }
     }
 }

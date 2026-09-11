@@ -556,13 +556,13 @@ private fun ReviewSessionSummaryScreen(
                         SessionMetric("完成", stats.completed, Modifier.weight(1f), "review_session_completed")
                         SessionMetric("忘记", stats.forgot, Modifier.weight(1f), "review_session_forgot")
                         SessionMetric("困难", stats.hard, Modifier.weight(1f), "review_session_hard")
-                        SessionMetric("会了", stats.good, Modifier.weight(1f), "review_session_good")
+                        SessionMetric(reviewGradeUiLabel(ReviewGrade.GOOD), stats.good, Modifier.weight(1f), "review_session_good")
                     }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        SessionMetric("简单", stats.easy, Modifier.weight(1f), "review_session_easy")
+                        SessionMetric(reviewGradeUiLabel(ReviewGrade.EASY), stats.easy, Modifier.weight(1f), "review_session_easy")
                         Spacer(Modifier.weight(3f))
                     }
                 }

@@ -99,13 +99,14 @@ import com.tiji.mistakes.service.OCR_USER_WARNING
 import com.tiji.mistakes.service.QuestionContentBlockCodec
 import com.tiji.mistakes.service.replaceImageAtSamePosition
 import com.tiji.mistakes.service.SecureKeyStore
-import com.tiji.mistakes.ui.editor.CaptureFields
 import com.tiji.mistakes.ui.common.cameraUri
 import com.tiji.mistakes.ui.common.CropDragMode
 import com.tiji.mistakes.ui.common.CropSelection
 import com.tiji.mistakes.ui.common.initialCropSelection
 import com.tiji.mistakes.ui.ConceptDashedDropZone
 import com.tiji.mistakes.ui.ConceptTag
+import com.tiji.mistakes.ui.editor.MistakeSaveMetadata
+import com.tiji.mistakes.ui.editor.MistakeSaveSheet
 import com.tiji.mistakes.ui.image.ImagePreview
 import com.tiji.mistakes.ui.math.MathText
 import com.tiji.mistakes.ui.editor.MistakeFields
@@ -145,7 +146,7 @@ internal fun EntryModeSegmented(
                     shadowElevation = if (isSelected) 1.dp else 0.dp,
                     modifier = Modifier
                         .weight(1f)
-                        .heightIn(min = 40.dp)
+                        .heightIn(min = 48.dp)
                         .clip(RoundedCornerShape(9.dp))
                         .clickable(enabled = enabled) { onSelected(mode) }
                         .semantics { contentDescription = mode.label }
@@ -216,6 +217,7 @@ internal fun NewCaptureScreen(
     val context = LocalContext.current
     val secureStore = remember { SecureKeyStore(context) }
     var saving by remember { mutableStateOf(false) }
+    var showSaveSheet by rememberSaveable { mutableStateOf(false) }
     var showSupplementImages by rememberSaveable { mutableStateOf(false) }
     var showCaptureConfiguration by rememberSaveable { mutableStateOf(false) }
     var modeName by rememberSaveable { mutableStateOf(EntryMode.PHOTO.name) }
@@ -340,6 +342,45 @@ internal fun NewCaptureScreen(
     fun requestCamera(role: PhotoRole) {
         selectedRole = role
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) openCamera(role) else permissionLauncher.launch(Manifest.permission.CAMERA)
+    }
+
+    fun persistCapture(metadata: MistakeSaveMetadata) {
+        saving = true
+        subject = metadata.subject
+        questionType = metadata.questionType
+        tags = metadata.tags
+        difficulty = metadata.difficulty
+        val sourceImages = buildList {
+            if (mode == EntryMode.AI) addAll(aiRecognitionImages) else photoQuestionImage?.let(::add)
+        }
+        val sourceImagePaths = org.json.JSONArray().apply { sourceImages.forEach(::put) }.toString()
+        viewModel.save(
+            MistakeEntity(
+                title = title.ifBlank { "未命名错题" },
+                questionText = question,
+                userAnswer = userAnswer,
+                answerText = answer,
+                explanation = explanation,
+                note = note,
+                errorReason = errorReason,
+                subject = metadata.subject,
+                questionType = metadata.questionType,
+                tags = metadata.tags,
+                difficulty = metadata.difficulty,
+                inReviewPlan = metadata.inReviewPlan,
+                includeSourceImageInPdf = mode != EntryMode.AI || !aiExcludeSourceImageByDefault,
+                imagePath = activeQuestionImage,
+                sourceImagePaths = sourceImagePaths,
+                contentBlocks = if (mode == EntryMode.AI) contentBlocksJson else "",
+                answerImagePath = answerImage,
+                explanationImagePath = explanationImage
+            ),
+            onSaved = { saving = false; showSaveSheet = false; onBack() },
+            onFailure = {
+                saving = false
+                captureMessage = "保存失败：${it.message ?: "请重试"}"
+            }
+        )
     }
 
     fun recognizeQuestionWithAi() {
@@ -571,35 +612,7 @@ internal fun NewCaptureScreen(
                         enabled = !saving && !aiRecognitionState.running && (mode == EntryMode.MANUAL && question.isNotBlank() ||
                             (mode == EntryMode.PHOTO && photoQuestionImage != null) ||
                             (mode == EntryMode.AI && aiRecognitionImages.isNotEmpty() && aiFilled)),
-                        onClick = {
-                            saving = true
-                            val sourceImages = buildList {
-                                if (mode == EntryMode.AI) addAll(aiRecognitionImages) else photoQuestionImage?.let(::add)
-                            }
-                            val sourceImagePaths = org.json.JSONArray().apply { sourceImages.forEach(::put) }.toString()
-                            viewModel.save(MistakeEntity(
-                                title = title.ifBlank { "未命名错题" },
-                                questionText = question,
-                                userAnswer = userAnswer,
-                                answerText = answer,
-                                explanation = explanation,
-                                note = note,
-                                errorReason = errorReason,
-                                subject = subject,
-                                questionType = questionType,
-                                tags = tags,
-                                difficulty = difficulty,
-                                includeSourceImageInPdf = mode != EntryMode.AI || !aiExcludeSourceImageByDefault,
-                                imagePath = activeQuestionImage,
-                                sourceImagePaths = sourceImagePaths,
-                                contentBlocks = if (mode == EntryMode.AI) contentBlocksJson else "",
-                                answerImagePath = answerImage,
-                                explanationImagePath = explanationImage
-                            ), onSaved = { saving = false; onBack() }, onFailure = {
-                                saving = false
-                                captureMessage = "保存失败：${it.message ?: "请重试"}"
-                            })
-                        },
+                        onClick = { showSaveSheet = true },
                         shape = RoundedCornerShape(14.dp),
                         modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
                     ) { Text(if (aiRecognitionState.running) "正在识别…" else if (saving) "正在保存…" else "保存错题") }
@@ -614,6 +627,18 @@ internal fun NewCaptureScreen(
             )
         }
     ) { padding ->
+        if (showSaveSheet) {
+            MistakeSaveSheet(
+                initial = MistakeSaveMetadata(
+                    subject = subject,
+                    questionType = questionType,
+                    tags = tags,
+                    difficulty = difficulty
+                ),
+                onDismiss = { if (!saving) showSaveSheet = false },
+                onSave = ::persistCapture
+            )
+        }
         LazyColumn(
             Modifier.padding(padding).fillMaxSize(),
             contentPadding = PaddingValues(
@@ -650,7 +675,7 @@ internal fun NewCaptureScreen(
                                 actions = {
                                     OutlinedButton(
                                         onClick = { selectedRole = PhotoRole.QUESTION; galleryLauncher.launch("image/*") },
-                                        modifier = Modifier.weight(1f).heightIn(min = 40.dp),
+                                        modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                                         contentPadding = PaddingValues(horizontal = 8.dp)
                                     ) {
                                         Icon(Icons.Outlined.Image, contentDescription = null)
@@ -659,7 +684,7 @@ internal fun NewCaptureScreen(
                                     }
                                     Button(
                                         onClick = { requestCamera(PhotoRole.QUESTION) },
-                                        modifier = Modifier.weight(1f).heightIn(min = 40.dp),
+                                        modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                                         contentPadding = PaddingValues(horizontal = 8.dp)
                                     ) {
                                         Icon(Icons.Outlined.CameraAlt, contentDescription = null)
@@ -683,24 +708,11 @@ internal fun NewCaptureScreen(
                 }
                 item {
                     TijiSurfaceCard {
-                        Text("记录信息", style = MaterialTheme.typography.titleMedium)
-                        CaptureFields(
-                            title = title,
-                            userAnswer = userAnswer,
-                            note = note,
-                            subject = subject,
-                            errorReason = errorReason,
-                            questionType = questionType,
-                            tags = tags,
-                            difficulty = difficulty,
-                            onTitle = { title = it },
-                            onUserAnswer = { userAnswer = it },
-                            onNote = { note = it },
-                            onSubject = { subject = it },
-                            onErrorReason = { errorReason = it },
-                            onQuestionType = { questionType = it },
-                            onTags = { tags = it },
-                            onDifficulty = { difficulty = it }
+                        Text("照片内容", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            "题目照片必填；答案和解析照片可选。保存前可在分类面板中补充信息。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
@@ -810,7 +822,7 @@ internal fun NewCaptureScreen(
                         val aiContentBlocks = remember(contentBlocksJson) { QuestionContentBlockCodec.decode(contentBlocksJson) }
                         TijiSurfaceCard {
                             Text("识别结果", style = MaterialTheme.typography.titleMedium)
-                            Text("确认内容后再点击底部保存，科目将沿用识别结果。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("确认内容后点击底部保存；分类会在保存面板中确认。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             MistakeFields(
                                 title = title,
                                 question = question,
@@ -840,7 +852,9 @@ internal fun NewCaptureScreen(
                                     viewModel.removeAiRecognitionContentBlock(block.path)
                                     viewModel.deleteImagesNow(listOf(block.path))
                                     contentBlocksJson = removeContentBlockPath(contentBlocksJson, block.path)
-                                }
+                                },
+                                showOptionalFields = false,
+                                showClassification = false
                             )
                         }
                     }
@@ -849,7 +863,7 @@ internal fun NewCaptureScreen(
                 item {
                     TijiSurfaceCard {
                         Text("题目内容", style = MaterialTheme.typography.titleMedium)
-                        Text("保存后会按识别结果自动归类，标签和难度可以继续补充。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("题目、答案和解析会在本机保存；分类可在保存面板中补充。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         MistakeFields(
                             title = title,
                             question = question,
@@ -872,7 +886,9 @@ internal fun NewCaptureScreen(
                             onTags = { tags = it },
                             onDifficulty = { difficulty = it },
                             questionType = questionType,
-                            onQuestionType = { questionType = it }
+                            onQuestionType = { questionType = it },
+                            showOptionalFields = false,
+                            showClassification = false
                         )
                     }
                 }

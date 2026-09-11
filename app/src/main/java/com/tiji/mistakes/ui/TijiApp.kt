@@ -10,8 +10,8 @@ import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Replay
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -161,7 +161,7 @@ fun TijiApp() {
             BottomDestination(TijiRoutes.LIBRARY, "错题") { Icon(Icons.AutoMirrored.Outlined.MenuBook, null) },
             BottomDestination(TijiRoutes.SOLVE, "AI解题") { Icon(Icons.Outlined.AutoAwesome, null) },
             BottomDestination(TijiRoutes.REVIEW, "复习") { Icon(Icons.Outlined.Replay, null) },
-            BottomDestination(TijiRoutes.SETTINGS, "我的") { Icon(Icons.Outlined.Person, null) }
+            BottomDestination(TijiRoutes.SETTINGS, "设置") { Icon(Icons.Outlined.Settings, null) }
         )
     }
 
@@ -241,7 +241,7 @@ fun TijiApp() {
                                 icon = destination.icon,
                                 label = { Text(destination.label) },
                                 modifier = Modifier.testTag(
-                                    "nav_${if (destination.route == TijiRoutes.SETTINGS) "profile" else destination.route}"
+                                    "nav_${if (destination.route == TijiRoutes.SETTINGS) "settings" else destination.route}"
                                 ),
                                 colors = NavigationBarItemDefaults.colors(
                                     selectedIconColor = MaterialTheme.colorScheme.primary,

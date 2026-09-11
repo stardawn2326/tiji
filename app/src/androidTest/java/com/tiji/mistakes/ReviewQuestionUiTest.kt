@@ -84,9 +84,9 @@ class ReviewQuestionUiTest {
         composeRule.onNodeWithText("参考答案").assertExists()
         composeRule.onNodeWithTag("review_question_content").performScrollToNode(hasText("解析"))
         composeRule.onNodeWithText("解析").assertExists()
-        composeRule.onNodeWithTag("review_question_content").performScrollToNode(hasText("会了"))
+        composeRule.onNodeWithTag("review_question_content").performScrollToNode(hasText("掌握"))
         composeRule.onNodeWithTag("review_grade_good").assertExists()
-        composeRule.onNodeWithText("会了").assertExists()
+        composeRule.onNodeWithText("掌握").assertExists()
         composeRule.onNodeWithText(reviewIntervalLabel(expected)).assertExists()
 
         composeRule.onNodeWithTag("review_grade_good").performClick()
@@ -114,6 +114,6 @@ class ReviewQuestionUiTest {
             AppDatabase.get(context).mistakeDao().observeDueCount(System.currentTimeMillis()).first()
         }
         check(dueCountAfter == dueCountBefore - 1)
-        composeRule.onNodeWithText("已记录：会了").assertExists()
+        composeRule.onNodeWithText("已记录：掌握").assertExists()
     }
 }

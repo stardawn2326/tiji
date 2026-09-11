@@ -979,14 +979,10 @@ class MistakeViewModel(
         }
     }
 
-    /** Saves locally, then dispatches durable background classification. */
+    /** Saves the solved draft locally. Metadata classification remains available for legacy retry compatibility. */
     fun saveAiMistake(
         draft: MistakeEntity,
-        endpoint: String,
-        model: String,
-        apiKey: String,
         requestId: Long = 0L,
-        configurationId: String = "",
         preserveReviewPlan: Boolean = false
     ) {
         if (_aiMistakeSave.value.running) return
@@ -999,9 +995,6 @@ class MistakeViewModel(
             requestId = requestId,
             phase = AiMistakeSavePhase.SAVING,
             startedAt = startedAt,
-            configurationId = configurationId,
-            endpoint = endpoint,
-            model = model,
             read = false
         )
         aiMistakeSaveStore.upsert(saving)
@@ -1016,33 +1009,16 @@ class MistakeViewModel(
                 )
                 ownedCopies = copiedPaths
                 val id = repository.save(ownedDraft, preserveReviewPlan = preserveReviewPlan)
-                val classifying = saving.copy(
+                val saved = saving.copy(
                     mistakeId = id,
-                    phase = AiMistakeSavePhase.SAVED,
-                    message = "已保存，正在补充分类",
+                    phase = AiMistakeSavePhase.LOCAL_SAVED,
+                    completedAt = System.currentTimeMillis(),
+                    message = "已保存到错题库",
                     success = true,
                     read = false
                 )
-                aiMistakeSaveStore.upsert(classifying)
-                _aiMistakeSave.value = classifying
-                runCatching {
-                    ContextCompat.startForegroundService(
-                        getApplication(),
-                        AiMistakeClassificationService.createIntent(getApplication(), taskId)
-                    )
-                }.onFailure { error ->
-                    val failed = classifying.copy(
-                        phase = AiMistakeSavePhase.CLASSIFICATION_FAILED,
-                        completedAt = System.currentTimeMillis(),
-                        success = false,
-                        message = "错题已保存，自动分类失败",
-                        diagnostic = (error.message ?: error.javaClass.simpleName).take(240),
-                        canRetry = true,
-                        read = false
-                    )
-                    aiMistakeSaveStore.upsert(failed)
-                    _aiMistakeSave.value = failed
-                }
+                aiMistakeSaveStore.upsert(saved)
+                _aiMistakeSave.value = saved
             } catch (error: Throwable) {
                 ImageStorage.deletePrivateFiles(getApplication(), ownedCopies)
                 val failed = saving.copy(

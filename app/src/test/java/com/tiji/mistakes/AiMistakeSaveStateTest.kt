@@ -23,6 +23,8 @@ class AiMistakeSaveStateTest {
     fun savingAndClassificationAreRunningButTerminalResultsAreNot() {
         assertTrue(AiMistakeSaveState("saving", 1L, phase = AiMistakeSavePhase.SAVING).running)
         assertTrue(AiMistakeSaveState("classifying", 1L, phase = AiMistakeSavePhase.CLASSIFYING).running)
+        assertFalse(AiMistakeSaveState("local", 1L, phase = AiMistakeSavePhase.LOCAL_SAVED).running)
+        assertTrue(AiMistakeSaveState("local", 1L, phase = AiMistakeSavePhase.LOCAL_SAVED).terminal)
         assertFalse(AiMistakeSaveState("completed", 1L, phase = AiMistakeSavePhase.CLASSIFICATION_COMPLETED).running)
         assertTrue(AiMistakeSaveState("completed", 1L, phase = AiMistakeSavePhase.CLASSIFICATION_COMPLETED).terminal)
         assertTrue(AiMistakeSaveState("failed", 1L, phase = AiMistakeSavePhase.CLASSIFICATION_FAILED).terminal)

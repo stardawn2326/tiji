@@ -65,7 +65,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.tiji.mistakes.data.MistakeEntity
-import com.tiji.mistakes.domain.DailyStudyBucket
 import com.tiji.mistakes.domain.DailyStudyPlan
 import com.tiji.mistakes.domain.FutureReviewLoad
 import com.tiji.mistakes.domain.ReviewSessionUiState
@@ -140,11 +139,11 @@ internal fun ReviewScreen(
     val futureLoad = remember(allMistakes, now) {
         FutureReviewLoad.calculate(allMistakes, now, days = 7)
     }
-    val canStart = planned.isNotEmpty()
     val sameTodaySession = activeTodaySession?.takeIf {
         it.plan.reviewIds == planned.map { mistake -> mistake.id }
     }
     val reviewListState = rememberLazyListState()
+    var showMoreTools by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(resetScrollToken) {
         if (resetScrollToken > 0) reviewListState.scrollToItem(0)
     }
@@ -296,26 +295,12 @@ internal fun ReviewScreen(
             }
         } else {
             item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    ReviewBucketSummary(
-                        bucket = DailyStudyBucket.DUE,
-                        count = dailyStudyPlan.due.count { it in planned.map { mistake -> mistake.id } },
-                        modifier = Modifier.weight(1f).testTag("review_plan_due")
-                    )
-                    ReviewBucketSummary(
-                        bucket = DailyStudyBucket.WEAK_BOOST,
-                        count = dailyStudyPlan.weakBoost.count { it in planned.map { mistake -> mistake.id } },
-                        modifier = Modifier.weight(1f).testTag("review_plan_weak")
-                    )
-                    ReviewBucketSummary(
-                        bucket = DailyStudyBucket.OPTIONAL,
-                        count = dailyStudyPlan.optional.count { it in planned.map { mistake -> mistake.id } },
-                        modifier = Modifier.weight(1f).testTag("review_plan_optional")
-                    )
-                }
+                Text(
+                    "系统会按到期和掌握状态安排顺序",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
             item {
                 val first = planned.first()
@@ -330,11 +315,6 @@ internal fun ReviewScreen(
                         Text("第 1 / ${planned.size} 题", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     Text(first.title.ifBlank { "先独立回想，再查看答案" }, style = MaterialTheme.typography.titleLarge)
-                    Text(
-                        dailyStudyPlan.reasons[first.id] ?: "按当前学习状态安排",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
                     MathText(
                         first.questionText.ifBlank { "（图片题，请打开查看题目图片）" },
                         maxLines = 5,
@@ -357,20 +337,13 @@ internal fun ReviewScreen(
             }
             if (planned.size > 1) {
                 item {
-                    ConceptSectionHeader("今日计划", "按到期、薄弱补强、可选巩固分组")
+                    ConceptSectionHeader("接下来", "按系统安排的顺序继续")
                 }
                 items(planned.drop(1), key = { it.id }) { mistake ->
                     TijiSurfaceCard(contentPadding = 12.dp) {
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                            ConceptTag(dailyStudyPlan.bucketFor(mistake.id)?.label ?: "今日计划")
+                            ConceptTag(normalizedSubject(mistake.subject))
                             Spacer(Modifier.weight(1f))
-                            Text(
-                                dailyStudyPlan.reasons[mistake.id] ?: "按当前学习状态安排",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
                         }
                         Text(
                             mistake.title.ifBlank { "未命名错题" },
@@ -382,35 +355,45 @@ internal fun ReviewScreen(
                 }
             }
             item {
-                TijiSurfaceCard(modifier = Modifier.testTag("review_future_load")) {
-                    ConceptSectionHeader("未来 7 天", "按设备本地日期计算，不把夏令时当成固定 24 小时")
-                    futureLoad.forEachIndexed { index, day ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(top = if (index == 0) 8.dp else 5.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                when (index) {
-                                    0 -> "今天"
-                                    1 -> "明天"
-                                    else -> "${day.date.monthValue}月${day.date.dayOfMonth}日"
-                                },
-                                style = MaterialTheme.typography.bodyMedium,
-                                modifier = Modifier.weight(1f)
-                            )
-                            Text("${day.count} 道", color = MaterialTheme.colorScheme.primary)
+                TextButton(
+                    onClick = { showMoreTools = !showMoreTools },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                ) {
+                    Text(if (showMoreTools) "收起更多复习工具" else "更多复习工具")
+                }
+            }
+            if (showMoreTools) {
+                item {
+                    TijiSurfaceCard(modifier = Modifier.testTag("review_future_load")) {
+                        ConceptSectionHeader("未来 7 天", "按设备本地日期计算")
+                        futureLoad.forEachIndexed { index, day ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(top = if (index == 0) 8.dp else 5.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    when (index) {
+                                        0 -> "今天"
+                                        1 -> "明天"
+                                        else -> "${day.date.monthValue}月${day.date.dayOfMonth}日"
+                                    },
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Text("${day.count} 道", color = MaterialTheme.colorScheme.primary)
+                            }
                         }
                     }
                 }
-            }
-            item {
-                OutlinedButton(
-                    onClick = { requestReviewPreview("今日复习题.pdf") },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(Icons.Outlined.FileDownload, null)
-                    Spacer(Modifier.size(6.dp))
-                    Text("导出复习 PDF")
+                item {
+                    OutlinedButton(
+                        onClick = { requestReviewPreview("今日复习题.pdf") },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                    ) {
+                        Icon(Icons.Outlined.FileDownload, null)
+                        Spacer(Modifier.size(6.dp))
+                        Text("导出复习 PDF")
+                    }
                 }
             }
             item {
@@ -463,27 +446,6 @@ internal fun ReviewProgressCard(
             trackColor = MaterialTheme.colorScheme.surfaceVariant,
             modifier = Modifier.fillMaxWidth().height(8.dp)
         )
-    }
-}
-
-@Composable
-private fun ReviewBucketSummary(
-    bucket: DailyStudyBucket,
-    count: Int,
-    modifier: Modifier = Modifier
-) {
-    Surface(
-        modifier = modifier.heightIn(min = 64.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
-        shape = RoundedCornerShape(12.dp)
-    ) {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 9.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp)
-        ) {
-            Text(bucket.label, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text("$count 道", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-        }
     }
 }
 

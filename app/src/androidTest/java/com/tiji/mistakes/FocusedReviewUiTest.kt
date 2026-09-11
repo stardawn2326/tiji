@@ -85,7 +85,7 @@ class FocusedReviewUiTest {
 
     @Test
     fun focusedReviewUsesStableKnowledgePointAndShowsRealSessionSummary() {
-        composeRule.onNodeWithTag("nav_profile").performClick()
+        composeRule.onNodeWithTag("nav_settings").performClick()
         composeRule.onNodeWithTag("my_settings_list")
             .performScrollToNode(hasTestTag("my_setting_科目与知识点"))
         composeRule.onNodeWithTag("my_setting_科目与知识点").performClick()

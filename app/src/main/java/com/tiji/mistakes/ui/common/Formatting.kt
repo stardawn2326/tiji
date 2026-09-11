@@ -37,10 +37,7 @@ internal fun reviewIntervalLabel(preview: ReviewPreview): String = when (preview
     else -> "${preview.intervalDays} 天后"
 }
 
-internal fun reviewGradeUiLabel(grade: ReviewGrade): String = when (grade) {
-    ReviewGrade.GOOD -> "会了"
-    else -> grade.label
-}
+internal fun reviewGradeUiLabel(grade: ReviewGrade): String = grade.label
 
 internal fun reviewGradeUiLabel(grade: String): String =
     runCatching { reviewGradeUiLabel(ReviewGrade.valueOf(grade)) }.getOrDefault(grade)

@@ -55,7 +55,7 @@ internal fun MyScreen(
         contentPadding = PaddingValues(horizontal = TijiDimens.pagePadding, vertical = 20.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
-        item { ConceptPageHeader("我的", "把复习、AI 和数据管理收拢到一个清晰入口。") }
+        item { ConceptPageHeader("设置", "管理 AI、复习、数据和外观；学习内容仍在对应一级页面完成。") }
         item {
             MySection("学习") {
                 MySettingRow("复习计划", "安排今天和接下来的复习节奏", Icons.Outlined.CalendarMonth, onOpenReviewSettings)
