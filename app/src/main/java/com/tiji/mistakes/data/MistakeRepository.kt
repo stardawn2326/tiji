@@ -74,10 +74,14 @@ class MistakeRepository(private val database: AppDatabase) {
     }
 
     suspend fun find(id: Long): MistakeEntity? = dao.findById(id)
-    suspend fun save(mistake: MistakeEntity): Long {
+    suspend fun save(mistake: MistakeEntity, preserveReviewPlan: Boolean = false): Long {
         val now = System.currentTimeMillis()
         val prepared = mistake.copy(updatedAt = now).let {
-            if (it.id == 0L) it.copy(inReviewPlan = true, nextReviewAt = ReviewScheduler.nextLocalMidnight(now)) else it
+            if (it.id == 0L && !preserveReviewPlan) {
+                it.copy(inReviewPlan = true, nextReviewAt = ReviewScheduler.nextLocalMidnight(now))
+            } else {
+                it
+            }
         }
         return database.withTransaction {
             val id = if (prepared.id > 0L) {

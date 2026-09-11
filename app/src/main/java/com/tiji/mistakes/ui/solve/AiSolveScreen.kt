@@ -77,11 +77,16 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.tiji.mistakes.data.AiProfile
 import com.tiji.mistakes.data.AiVisualProfile
 import com.tiji.mistakes.data.MistakeEntity
+import com.tiji.mistakes.domain.ai.AiDuplicateDetector
+import com.tiji.mistakes.domain.ai.AiSolvedMistakeDraftInput
+import com.tiji.mistakes.domain.ai.AiSolvedMistakeDraftMapper
 import com.tiji.mistakes.service.AiChatMessage
 import com.tiji.mistakes.service.AiProviderPreset
 import com.tiji.mistakes.service.AiRecognitionMode
 import com.tiji.mistakes.service.AiSolveHistoryRecord
 import com.tiji.mistakes.service.AiSolveStatus
+import com.tiji.mistakes.service.AiStructuredSolutionV3Codec
+import com.tiji.mistakes.service.AiVerificationStatus
 import com.tiji.mistakes.service.buildStructuredCorrectionContext
 import com.tiji.mistakes.service.ContentBlockKind
 import com.tiji.mistakes.service.ContentBlockRole
@@ -119,6 +124,7 @@ import kotlinx.coroutines.withContext
 @Composable
 internal fun AiSolveScreen(
     viewModel: MistakeViewModel,
+    allMistakes: List<MistakeEntity>,
     aiEndpoint: String,
     aiModel: String,
     aiProfiles: List<AiProfile>,
@@ -131,6 +137,7 @@ internal fun AiSolveScreen(
     onOpenSettings: () -> Unit,
     onOpenChatHistory: () -> Unit,
     onOpenSolveHistory: () -> Unit,
+    onOpenMistake: (Long) -> Unit,
     onAiUploadConsent: (Boolean) -> Unit,
     onAiInputMode: (AiInputMode) -> Unit,
     solveVisitToken: Int
@@ -163,6 +170,11 @@ internal fun AiSolveScreen(
     var savedMessage by remember { mutableStateOf("") }
     var showPrivacyDialog by remember { mutableStateOf(false) }
     var showFollowUpDialog by remember { mutableStateOf(false) }
+    var showRecognitionDetails by rememberSaveable { mutableStateOf(false) }
+    var showUserAnswerDialog by rememberSaveable { mutableStateOf(false) }
+    var showDuplicateDialog by rememberSaveable { mutableStateOf(false) }
+    var userAnswerDraft by rememberSaveable { mutableStateOf("") }
+    var saveToReviewPlan by rememberSaveable { mutableStateOf(true) }
     var aiSolutionExpanded by rememberSaveable { mutableStateOf(false) }
     var latestChatExpanded by rememberSaveable { mutableStateOf(false) }
     var keepChatCollapsedAfterRetry by rememberSaveable { mutableStateOf(false) }
@@ -191,6 +203,16 @@ internal fun AiSolveScreen(
     val isLoading = aiSolveState.running
     val completeSolution = aiSolveState.completeText.orEmpty()
     val solutionSections = remember(completeSolution) { parseAiSolutionSections(completeSolution) }
+    val structuredV3 = remember(completeSolution) { AiStructuredSolutionV3Codec.parse(completeSolution) }
+    val uncertainItems = remember(aiSolveState.uncertainItems, structuredV3) {
+        (aiSolveState.uncertainItems + structuredV3?.recognition?.uncertainItems.orEmpty())
+            .map(String::trim)
+            .filter(String::isNotBlank)
+            .distinct()
+    }
+    val duplicateCandidates = remember(question, imagePaths, allMistakes) {
+        AiDuplicateDetector.findCandidates(question, imagePaths, allMistakes)
+    }
     val solveContentBlocks = remember(aiSolveState.contentBlocks) {
         QuestionContentBlockCodec.sanitize(
             context,
@@ -279,11 +301,14 @@ internal fun AiSolveScreen(
     LaunchedEffect(aiSolveState.requestId, aiSolveState.completeText, aiSolveState.historyWriteError) {
         val complete = aiSolveState.completeText ?: return@LaunchedEffect
         val sections = parseAiSolutionSections(complete)
+        val structured = AiStructuredSolutionV3Codec.parse(complete)
         val persistedQuestion = aiSolveState.question.orEmpty()
         val recognizedQuestion = stripQuestionCommentary(
-            persistedQuestion.ifBlank { sections.recognition }
+            structured?.questionText?.takeIf(String::isNotBlank)
+                ?: persistedQuestion.ifBlank { sections.recognition }
         )
         val titleSource = streamingAiMeta(complete)?.title?.takeIf(String::isNotBlank)
+            ?: structured?.learning?.questionType?.takeIf(String::isNotBlank)
             ?: if (aiSolveState.question.isNullOrBlank()) {
                 sections.recognition.ifBlank { "AI 图片解题" }
             } else {
@@ -292,10 +317,22 @@ internal fun AiSolveScreen(
         title = titleSource.replace(Regex("\\s+"), " ").trim().take(24)
         question = recognizedQuestion
         val visibleSolution = visibleAiSolution(complete)
-        answer = sections.finalAnswer.ifBlank { visibleSolution }
-        explanation = listOf(sections.approach, sections.derivation)
-            .filter(String::isNotBlank)
+        answer = structured?.finalAnswerText?.takeIf(String::isNotBlank)
+            ?: sections.finalAnswer.ifBlank { visibleSolution }
+        explanation = listOf(
+            structured?.approachText,
+            structured?.derivationText,
+            sections.approach,
+            sections.derivation
+        )
+            .mapNotNull { it?.takeIf(String::isNotBlank) }
+            .distinct()
             .joinToString("\n\n")
+        subject = structured?.learning?.subject.orEmpty()
+        questionType = structured?.learning?.questionType.orEmpty()
+        tags = structured?.learning?.knowledgePoints.orEmpty().joinToString(", ")
+        difficulty = structured?.learning?.difficulty ?: 0
+        note = structured?.learning?.pitfalls.orEmpty().joinToString("；")
         message = aiSolveState.historyWriteError.ifBlank {
             if (aiSolveState.status == AiSolveStatus.FAILED) {
                 "AI 解题失败，已保留当前收到的部分内容，可继续追问修正。"
@@ -526,34 +563,52 @@ internal fun AiSolveScreen(
         )
     }
 
-    fun saveSolvedMistake() {
+    fun askQuickFollowUp(action: String) {
+        if (action == "检查我的答案") {
+            showUserAnswerDialog = true
+        } else {
+            followUpDraft = action
+            showFollowUpDialog = true
+        }
+    }
+
+    fun saveSolvedMistake(force: Boolean = false) {
+        if (!force && duplicateCandidates.isNotEmpty()) {
+            showDuplicateDialog = true
+            return
+        }
         // Do not show a transient "正在保存" message. The next durable state
         // shown to the user is "已保存，正在补充分类".
         savedMessage = ""
-        val draft = MistakeEntity(
-            id = 0L,
-            title = title.ifBlank { "AI 解题记录" },
-            questionText = question,
-            answerText = answer,
-            explanation = explanation,
-            // The solve result does not classify the question. Save neutral
-            // metadata first; the background classifier fills it afterwards.
-            subject = subject.ifBlank { "未分类" },
-            questionType = questionType.ifBlank { "未分类" },
-            tags = tags,
-            difficulty = difficulty,
-            imagePath = imagePath,
-            sourceImagePaths = org.json.JSONArray().apply { imagePaths.forEach(::put) }.toString(),
-            contentBlocks = aiSolveState.contentBlocks,
-            includeSourceImageInPdf = !aiExcludeSourceImageByDefault
+        val draft = AiSolvedMistakeDraftMapper.map(
+            AiSolvedMistakeDraftInput(
+                rawSolution = completeSolution,
+                title = title,
+                question = question,
+                answer = answer,
+                explanation = explanation,
+                note = note,
+                userAnswer = userAnswerDraft,
+                imagePath = imagePath,
+                sourceImagePaths = imagePaths,
+                contentBlocks = aiSolveState.contentBlocks,
+                includeSourceImageInPdf = !aiExcludeSourceImageByDefault,
+                inReviewPlan = saveToReviewPlan,
+                tags = tags,
+                subject = subject,
+                questionType = questionType,
+                difficulty = difficulty
+            )
         )
+        showDuplicateDialog = false
         viewModel.saveAiMistake(
             draft = draft,
             endpoint = aiEndpoint,
             model = aiModel,
             apiKey = secureStore.read(activeAiProfileId),
             requestId = aiSolveState.requestId,
-            configurationId = activeAiProfileId
+            configurationId = activeAiProfileId,
+            preserveReviewPlan = true
         )
     }
 
@@ -607,6 +662,69 @@ internal fun AiSolveScreen(
             text = { Text("当前题目图片或文字将发送到你配置的第三方 AI 服务。题迹不会后台上传，API Key 仅加密保存在本机。请确认内容中不含姓名、学号等敏感信息。") },
             confirmButton = { Button(onClick = { showPrivacyDialog = false; onAiUploadConsent(true); runSolve() }) { Text("同意并解题") } },
             dismissButton = { TextButton(onClick = { showPrivacyDialog = false }) { Text("取消") } }
+        )
+    }
+
+    if (showUserAnswerDialog) {
+        AlertDialog(
+            onDismissRequest = { showUserAnswerDialog = false },
+            title = { Text("检查我的答案") },
+            text = {
+                OutlinedTextField(
+                    value = userAnswerDraft,
+                    onValueChange = { userAnswerDraft = it },
+                    label = { Text("输入你的答案") },
+                    placeholder = { Text("AI 会结合当前题目和解答指出差异") },
+                    minLines = 4,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        followUpDraft = "请检查我的答案，并逐项指出与正确解法的差异：\n${userAnswerDraft.trim()}"
+                        showUserAnswerDialog = false
+                        showFollowUpDialog = true
+                    },
+                    enabled = userAnswerDraft.isNotBlank()
+                ) { Text("开始检查") }
+            },
+            dismissButton = { TextButton(onClick = { showUserAnswerDialog = false }) { Text("取消") } }
+        )
+    }
+
+    if (showDuplicateDialog) {
+        val firstDuplicate = duplicateCandidates.firstOrNull()
+        AlertDialog(
+            onDismissRequest = { showDuplicateDialog = false },
+            title = { Text("发现可能重复的错题") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("题目文字或原图与已有记录高度一致。你可以打开旧记录，也可以仍然保存一份新的记录。")
+                    duplicateCandidates.take(3).forEach { candidate ->
+                        Text(
+                            candidate.title.ifBlank { "未命名错题" },
+                            style = MaterialTheme.typography.labelLarge,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { saveSolvedMistake(force = true) }) { Text("仍然保存") }
+            },
+            dismissButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (firstDuplicate != null) {
+                        TextButton(onClick = {
+                            showDuplicateDialog = false
+                            onOpenMistake(firstDuplicate.id)
+                        }) { Text("打开已有记录") }
+                    }
+                    TextButton(onClick = { showDuplicateDialog = false }) { Text("取消") }
+                }
+            }
         )
     }
 
@@ -759,6 +877,12 @@ internal fun AiSolveScreen(
                             Text(if (followUpLoading) "停止" else "发送")
                         } }
                     )
+                    FilterChip(
+                        selected = saveToReviewPlan,
+                        onClick = { saveToReviewPlan = !saveToReviewPlan },
+                        label = { Text(if (saveToReviewPlan) "保存后加入复习计划" else "保存但暂不加入复习计划") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(onClick = { if (aiUploadConsent) runSolve() else showPrivacyDialog = true },
                             shape = RoundedCornerShape(14.dp), enabled = !followUpLoading, modifier = Modifier.weight(1f).heightIn(min = 50.dp)) { Text("重新解题") }
@@ -885,6 +1009,8 @@ internal fun AiSolveScreen(
                     .orEmpty()
                 val statusMessage = when {
                     aiSolveState.error != null -> "AI 解题失败：${aiSolveState.error?.trimEnd('。', '.')}。"
+                    aiSolveState.status == AiSolveStatus.VERIFYING -> "正在独立核对题目条件、推导和最终答案…"
+                    aiSolveState.status == AiSolveStatus.REPAIRING -> "发现明确疑点，正在进行一次受限修正并复核…"
                     isLoading -> "AI 正在后台编写解答，切换页面、回到桌面或锁屏都不会中断…"
                     aiSolveState.status == AiSolveStatus.CANCELED -> "已停止解题。"
                     aiSolveState.status == AiSolveStatus.COMPLETED && completeSolution.isNotBlank() ->
@@ -913,6 +1039,102 @@ internal fun AiSolveScreen(
                             if (failed && shouldOfferAiSettings(aiSolveState.error)) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 TextButton(onClick = onOpenSettings) { Text("打开设置") }
                             }
+                        }
+                    }
+                }
+            }
+            if (completeSolution.isNotBlank() && !isLoading &&
+                (uncertainItems.isNotEmpty() || aiSolveState.recognitionWarning.isNotBlank())
+            ) item {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("识别结果需确认", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                        Text(
+                            aiSolveState.recognitionWarning.ifBlank {
+                                "有 ${uncertainItems.size} 处内容无法完全确认，请核对原图后再保存。"
+                            },
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        if (uncertainItems.isNotEmpty()) {
+                            Text(
+                                uncertainItems.joinToString("；"),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onTertiaryContainer
+                            )
+                        }
+                        if (showRecognitionDetails) {
+                            Text("当前识别题目", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                            MathText(question, preserveReturnedLayout = true)
+                            imagePaths.take(2).forEach { path -> ImagePreview(path) }
+                            ContentBlockImages(
+                                solveContentBlocks.filter { it.role == ContentBlockRole.QUESTION },
+                                onDelete = { block -> viewModel.removeAiSolveContentBlock(block.path) }
+                            )
+                        }
+                        TextButton(onClick = { showRecognitionDetails = !showRecognitionDetails }) {
+                            Text(if (showRecognitionDetails) "收起原图与识别内容" else "查看原图与识别内容")
+                        }
+                    }
+                }
+            }
+            if (completeSolution.isNotBlank() && !isLoading) item {
+                val verification = aiSolveState.verification
+                val verificationContainer = when (verification.status) {
+                    AiVerificationStatus.PASS -> MaterialTheme.colorScheme.primaryContainer
+                    AiVerificationStatus.WARNING -> MaterialTheme.colorScheme.tertiaryContainer
+                    AiVerificationStatus.FAILED -> MaterialTheme.colorScheme.errorContainer
+                    AiVerificationStatus.UNAVAILABLE -> MaterialTheme.colorScheme.surfaceVariant
+                }
+                val verificationContent = when (verification.status) {
+                    AiVerificationStatus.PASS -> MaterialTheme.colorScheme.onPrimaryContainer
+                    AiVerificationStatus.WARNING -> MaterialTheme.colorScheme.onTertiaryContainer
+                    AiVerificationStatus.FAILED -> MaterialTheme.colorScheme.onErrorContainer
+                    AiVerificationStatus.UNAVAILABLE -> MaterialTheme.colorScheme.onSurfaceVariant
+                }
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = verificationContainer),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                        Text("解答一致性检查", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                        Text(verification.displayMessage, color = verificationContent)
+                        verification.issues.forEach { issue ->
+                            Text(
+                                "· ${issue.message}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = verificationContent
+                            )
+                        }
+                        if (verification.repairAttempted) {
+                            Text("已执行一次受限修正；请结合原题自行确认。", style = MaterialTheme.typography.bodySmall, color = verificationContent)
+                        }
+                        if (verification.status == AiVerificationStatus.FAILED) {
+                            TextButton(onClick = ::runSolve) { Text("重新解题") }
+                        }
+                    }
+                }
+            }
+            if (completeSolution.isNotBlank() && !isLoading && structuredV3 != null) item {
+                val learning = structuredV3.learning
+                val chips = buildList {
+                    learning.subject.takeIf(String::isNotBlank)?.let { add("科目：$it") }
+                    learning.questionType.takeIf(String::isNotBlank)?.let { add("题型：$it") }
+                    learning.difficulty.takeIf { it > 0 }?.let { add("难度：$it/5") }
+                    learning.knowledgePoints.forEach { add(it) }
+                }
+                if (chips.isNotEmpty() || learning.pitfalls.isNotEmpty()) {
+                    TijiSurfaceCard {
+                        Text("本题学习信息", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                        if (chips.isNotEmpty()) {
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                items(chips, key = { it }) { value -> ConceptTag(value) }
+                            }
+                        }
+                        if (learning.pitfalls.isNotEmpty()) {
+                            Text("易错提醒：${learning.pitfalls.joinToString("；")}", style = MaterialTheme.typography.bodySmall)
                         }
                     }
                 }
@@ -976,6 +1198,18 @@ internal fun AiSolveScreen(
                             }
                         }
                         Text("长按题目、答案或解析文字可选择部分复制", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            items(
+                                listOf("为什么这样做", "换一种解法", "讲简单一点", "检查我的答案"),
+                                key = { it }
+                            ) { action ->
+                                OutlinedButton(
+                                    onClick = { askQuickFollowUp(action) },
+                                    modifier = Modifier.heightIn(min = 48.dp),
+                                    contentPadding = PaddingValues(horizontal = 12.dp)
+                                ) { Text(action, maxLines = 1) }
+                            }
+                        }
                         OutlinedButton(
                             onClick = { copyAiText(visibleAiSolution(completeSolution)) },
                             modifier = Modifier.fillMaxWidth()

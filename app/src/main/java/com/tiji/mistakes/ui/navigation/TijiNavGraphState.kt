@@ -12,6 +12,8 @@ import com.tiji.mistakes.domain.ReviewAnalyticsSummary
 internal data class TijiNavGraphState(
     val allMistakes: List<MistakeEntity>,
     val mistakes: List<MistakeEntity>,
+    val reviewNow: Long,
+    val todayDate: String,
     val dueMistakes: List<MistakeEntity>,
     val dueCount: Int,
     val knowledgePoints: List<KnowledgePointEntity>,

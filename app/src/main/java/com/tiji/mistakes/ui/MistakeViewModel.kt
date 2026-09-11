@@ -35,6 +35,7 @@ import com.tiji.mistakes.service.AiSolveRuntime
 import com.tiji.mistakes.service.AiSolveService
 import com.tiji.mistakes.service.AiSolveStateStore
 import com.tiji.mistakes.service.AiSolveStatus
+import com.tiji.mistakes.service.AiVerificationResult
 import com.tiji.mistakes.service.finishAiChatWithAvailableContent
 import com.tiji.mistakes.service.ImageStorage
 import com.tiji.mistakes.service.LocalOcrService
@@ -119,13 +120,18 @@ data class AiSolveState(
     val streamedText: String = "",
     val completeText: String? = null,
     val recognitionWarning: String = "",
+    val uncertainItems: List<String> = emptyList(),
+    val verification: AiVerificationResult = AiVerificationResult(),
+    val solutionProtocolVersion: Int = 0,
     val historyRecordId: String? = null,
     val historyWriteError: String = "",
     val error: String? = null,
     val startedAt: Long = 0L,
     val updatedAt: Long = 0L
 ) {
-    val running: Boolean get() = status == AiSolveStatus.RUNNING
+    val running: Boolean get() = status == AiSolveStatus.RUNNING ||
+        status == AiSolveStatus.VERIFYING ||
+        status == AiSolveStatus.REPAIRING
 }
 
 data class AiChatState(
@@ -224,6 +230,7 @@ class MistakeViewModel(
     val allMistakes: StateFlow<List<MistakeEntity>> = repository.observe("")
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val searchQuery: StateFlow<String> = query
+    val reviewNow: StateFlow<Long> = reviewClock.asStateFlow()
     val mistakes: StateFlow<List<MistakeEntity>> = query.flatMapLatest(repository::observe)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val dueMistakes: StateFlow<List<MistakeEntity>> = reviewClock.flatMapLatest(repository::observeDue)
@@ -593,6 +600,9 @@ class MistakeViewModel(
             progress = 1f,
             completeText = record.completeText,
             recognitionWarning = record.recognitionWarning,
+            uncertainItems = record.uncertainItems,
+            verification = record.verification,
+            solutionProtocolVersion = record.solutionProtocolVersion,
             historyRecordId = record.id,
             startedAt = record.completedAt,
             updatedAt = record.completedAt
@@ -891,7 +901,8 @@ class MistakeViewModel(
         model: String,
         apiKey: String,
         requestId: Long = 0L,
-        configurationId: String = ""
+        configurationId: String = "",
+        preserveReviewPlan: Boolean = false
     ) {
         if (_aiMistakeSave.value.running) return
         // Every completed click creates a new mistake record, including when
@@ -919,7 +930,7 @@ class MistakeViewModel(
                     "mistake_${taskId.take(8)}"
                 )
                 ownedCopies = copiedPaths
-                val id = repository.save(ownedDraft)
+                val id = repository.save(ownedDraft, preserveReviewPlan = preserveReviewPlan)
                 val classifying = saving.copy(
                     mistakeId = id,
                     phase = AiMistakeSavePhase.SAVED,
@@ -1320,6 +1331,9 @@ private fun AiSolveState.toPersisted() = PersistedAiSolveState(
     streamedText = streamedText,
     completeText = completeText,
     recognitionWarning = recognitionWarning,
+    uncertainItems = uncertainItems,
+    verification = verification,
+    solutionProtocolVersion = solutionProtocolVersion,
     historyRecordId = historyRecordId,
     historyWriteError = historyWriteError,
     error = error,
@@ -1345,6 +1359,9 @@ private fun PersistedAiSolveState.toUiState() = AiSolveState(
     streamedText = streamedText,
     completeText = completeText,
     recognitionWarning = recognitionWarning,
+    uncertainItems = uncertainItems,
+    verification = verification,
+    solutionProtocolVersion = solutionProtocolVersion,
     historyRecordId = historyRecordId,
     historyWriteError = historyWriteError,
     error = error,

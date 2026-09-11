@@ -95,6 +95,8 @@ import kotlinx.coroutines.launch
 internal fun ReviewScreen(
     allMistakes: List<MistakeEntity>,
     dailyStudyPlan: DailyStudyPlan,
+    now: Long,
+    todayDate: String,
     activeSession: ReviewSessionUiState?,
     viewModel: MistakeViewModel,
     exportOriginalImagesOnly: Boolean,
@@ -112,7 +114,6 @@ internal fun ReviewScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val todayDate = remember { reviewDateKey() }
     val allById = remember(allMistakes) { allMistakes.associateBy { it.id } }
     val activeTodaySession = activeSession?.takeIf {
         it.plan.source == com.tiji.mistakes.domain.ReviewSessionSource.TODAY_PLAN &&
@@ -136,8 +137,8 @@ internal fun ReviewScreen(
     }
     val completedToday = planned.count { it.id in reviewStatuses }
     val canCheckIn = planned.isNotEmpty() && completedToday == planned.size
-    val futureLoad = remember(allMistakes) {
-        FutureReviewLoad.calculate(allMistakes, System.currentTimeMillis(), days = 7)
+    val futureLoad = remember(allMistakes, now) {
+        FutureReviewLoad.calculate(allMistakes, now, days = 7)
     }
     val canStart = planned.isNotEmpty()
     val sameTodaySession = activeTodaySession?.takeIf {
@@ -491,13 +492,13 @@ internal fun ReviewCalendarScreen(
     mistakes: List<MistakeEntity>,
     reviewRecords: Map<String, Map<Long, String>>,
     checkedInDates: Set<String>,
+    todayDate: String,
     todayQuestionIds: List<Long>,
     onCheckIn: () -> Unit,
     onBack: () -> Unit
 ) {
     var monthOffset by remember { mutableIntStateOf(0) }
-    var selectedDate by remember { mutableStateOf(reviewDateKey()) }
-    val todayDate = remember { reviewDateKey() }
+    var selectedDate by remember(todayDate) { mutableStateOf(todayDate) }
     val month = remember(monthOffset) {
         Calendar.getInstance().apply {
             add(Calendar.MONTH, monthOffset)

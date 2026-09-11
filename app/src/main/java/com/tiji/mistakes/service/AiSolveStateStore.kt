@@ -3,11 +3,14 @@ package com.tiji.mistakes.service
 import android.annotation.SuppressLint
 import android.content.Context
 import org.json.JSONArray
+import org.json.JSONObject
 import java.util.UUID
 
 enum class AiSolveStatus {
     IDLE,
     RUNNING,
+    VERIFYING,
+    REPAIRING,
     COMPLETED,
     FAILED,
     CANCELED
@@ -38,6 +41,9 @@ data class PersistedAiSolveState(
     val completeText: String? = null,
     val contentBlocks: String = "",
     val recognitionWarning: String = "",
+    val uncertainItems: List<String> = emptyList(),
+    val verification: AiVerificationResult = AiVerificationResult(),
+    val solutionProtocolVersion: Int = 0,
     /** Non-null when the visible solve was restored from an existing history snapshot. */
     val historyRecordId: String? = null,
     val historyWriteError: String = "",
@@ -45,7 +51,9 @@ data class PersistedAiSolveState(
     val startedAt: Long = 0L,
     val updatedAt: Long = 0L
 ) {
-    val running: Boolean get() = status == AiSolveStatus.RUNNING
+    val running: Boolean get() = status == AiSolveStatus.RUNNING ||
+        status == AiSolveStatus.VERIFYING ||
+        status == AiSolveStatus.REPAIRING
 }
 
 /**
@@ -54,6 +62,7 @@ data class PersistedAiSolveState(
  * also the only source used by the result card and saved mistake record.
  */
 internal fun extractRecognizedQuestionFromSolution(value: String): String {
+    AiStructuredSolutionV3Codec.parse(value)?.questionText?.takeIf(String::isNotBlank)?.let { return it }
     var text = value.trimStart()
     if (text.startsWith("[[TIJI_META:")) {
         val metadataEnd = text.indexOf("]]" )
@@ -119,6 +128,13 @@ class AiSolveStateStore(context: Context) {
             completeText = completeText,
             contentBlocks = preferences.getString(KEY_CONTENT_BLOCKS, "").orEmpty(),
             recognitionWarning = preferences.getString(KEY_RECOGNITION_WARNING, "").orEmpty(),
+            uncertainItems = decodeStringList(preferences.getString(KEY_UNCERTAIN_ITEMS, null)),
+            verification = parsePersistedVerification(
+                preferences.getString(KEY_VERIFICATION, null)?.let { raw ->
+                    runCatching { JSONObject(raw) }.getOrNull()
+                }
+            ),
+            solutionProtocolVersion = preferences.getInt(KEY_SOLUTION_PROTOCOL_VERSION, 0),
             historyRecordId = preferences.getString(KEY_HISTORY_RECORD_ID, null),
             historyWriteError = preferences.getString(KEY_HISTORY_WRITE_ERROR, "").orEmpty(),
             error = error,
@@ -148,6 +164,9 @@ class AiSolveStateStore(context: Context) {
             .putString(KEY_COMPLETE_TEXT, state.completeText?.take(MAX_TEXT_LENGTH))
             .putString(KEY_CONTENT_BLOCKS, state.contentBlocks.take(MAX_CONTENT_BLOCKS_LENGTH))
             .putString(KEY_RECOGNITION_WARNING, state.recognitionWarning.take(MAX_TEXT_LENGTH))
+            .putString(KEY_UNCERTAIN_ITEMS, JSONArray(state.uncertainItems.filter(String::isNotBlank).distinct()).toString())
+            .putString(KEY_VERIFICATION, encodeVerification(state.verification).toString())
+            .putInt(KEY_SOLUTION_PROTOCOL_VERSION, state.solutionProtocolVersion.coerceIn(0, 3))
             .putString(KEY_HISTORY_RECORD_ID, state.historyRecordId)
             .putString(KEY_HISTORY_WRITE_ERROR, state.historyWriteError)
             .putString(KEY_ERROR, state.error)
@@ -185,6 +204,13 @@ class AiSolveStateStore(context: Context) {
         }.distinct()
     }.getOrDefault(emptyList())
 
+    private fun decodeStringList(raw: String?): List<String> = runCatching {
+        val array = JSONArray(raw ?: "[]")
+        (0 until array.length()).mapNotNull { index ->
+            array.optString(index).trim().takeIf(String::isNotBlank)
+        }.distinct()
+    }.getOrDefault(emptyList())
+
     private companion object {
         const val FILE_NAME = "ai_solve_state"
         const val KEY_REQUEST_ID = "request_id"
@@ -206,6 +232,9 @@ class AiSolveStateStore(context: Context) {
         const val KEY_COMPLETE_TEXT = "complete_text"
         const val KEY_CONTENT_BLOCKS = "content_blocks"
         const val KEY_RECOGNITION_WARNING = "recognition_warning"
+        const val KEY_UNCERTAIN_ITEMS = "uncertain_items"
+        const val KEY_VERIFICATION = "verification"
+        const val KEY_SOLUTION_PROTOCOL_VERSION = "solution_protocol_version"
         const val KEY_HISTORY_RECORD_ID = "history_record_id"
         const val KEY_HISTORY_WRITE_ERROR = "history_write_error"
         const val KEY_ERROR = "error"

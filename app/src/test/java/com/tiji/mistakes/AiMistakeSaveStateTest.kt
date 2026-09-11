@@ -5,6 +5,14 @@ import com.tiji.mistakes.service.AiRecognitionResult
 import com.tiji.mistakes.service.AiMistakeSavePhase
 import com.tiji.mistakes.service.AiMistakeSaveState
 import com.tiji.mistakes.service.mergeClassificationMetadata
+import com.tiji.mistakes.domain.ai.AiSolvedMistakeDraftInput
+import com.tiji.mistakes.domain.ai.AiSolvedMistakeDraftMapper
+import com.tiji.mistakes.service.AiStructuredSolutionV3Codec
+import com.tiji.mistakes.service.AiSolutionBody
+import com.tiji.mistakes.service.AiSolutionRecognition
+import com.tiji.mistakes.service.AiSolutionStep
+import com.tiji.mistakes.service.AiStructuredSolutionV3
+import com.tiji.mistakes.service.QuestionSegment
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -69,5 +77,76 @@ class AiMistakeSaveStateTest {
         assertEquals("计算题", classified.questionType)
         assertEquals("积分, 定积分", classified.tags)
         assertEquals(3, classified.difficulty)
+    }
+
+    @Test
+    fun classificationPreservesLearnerEditedMetadataAndReviewOptOut() {
+        val original = MistakeEntity(
+            id = 10L,
+            subject = "物理",
+            questionType = "自定义题型",
+            tags = "手算",
+            difficulty = 5,
+            inReviewPlan = false
+        )
+        val classified = mergeClassificationMetadata(
+            original,
+            AiRecognitionResult(
+                title = "模型标题",
+                question = "模型题目",
+                answer = "模型答案",
+                explanation = "模型解析",
+                subject = "数学",
+                questionType = "选择题",
+                tags = listOf("积分"),
+                knowledgePoints = listOf("定积分"),
+                difficulty = 2
+            )
+        )
+
+        assertEquals("物理", classified.subject)
+        assertEquals("自定义题型", classified.questionType)
+        assertEquals("手算, 积分, 定积分", classified.tags)
+        assertEquals(5, classified.difficulty)
+        assertFalse(classified.inReviewPlan)
+    }
+
+    @Test
+    fun v3MetadataIsMappedBeforeBackgroundClassification() {
+        val solution = AiStructuredSolutionV3(
+            recognition = AiSolutionRecognition(listOf(QuestionSegment("text", "求极限"))),
+            solution = AiSolutionBody(
+                approach = listOf(QuestionSegment("text", "先化简")),
+                steps = listOf(AiSolutionStep(listOf(QuestionSegment("text", "得到 1")), "使用极限性质", listOf("极限"))),
+                finalAnswer = listOf(QuestionSegment("text", "1"))
+            ),
+            learning = com.tiji.mistakes.service.AiLearningMetadata(
+                subject = "数学",
+                questionType = "计算题",
+                knowledgePoints = listOf("极限"),
+                difficulty = 3,
+                pitfalls = listOf("先约分")
+            )
+        )
+        val draft = AiSolvedMistakeDraftMapper.map(
+            AiSolvedMistakeDraftInput(
+                rawSolution = AiStructuredSolutionV3Codec.encode(solution),
+                title = "极限题",
+                question = "旧题目",
+                answer = "旧答案",
+                explanation = "旧解析",
+                inReviewPlan = false
+            )
+        )
+
+        assertEquals("求极限", draft.questionText)
+        assertEquals("1", draft.answerText)
+        assertTrue(draft.explanation.contains("先化简"))
+        assertEquals("数学", draft.subject)
+        assertEquals("计算题", draft.questionType)
+        assertEquals("极限", draft.tags)
+        assertEquals(3, draft.difficulty)
+        assertFalse(draft.inReviewPlan)
+        assertTrue(draft.note.contains("先约分"))
     }
 }

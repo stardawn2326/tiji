@@ -68,6 +68,15 @@ class LearningCalendarTest {
         assertEquals(java.time.LocalDate.of(2026, 5, 1), LearningCalendar.localDate(now, berlin))
     }
 
+    @Test
+    fun localDateRollsOverAtMidnightForObservableReviewClock() {
+        val fridayLate = at("2026-09-11T23:59:59", tokyo)
+        val saturdayEarly = at("2026-09-12T00:01:00", tokyo)
+
+        assertEquals(java.time.LocalDate.of(2026, 9, 11), LearningCalendar.localDate(fridayLate, tokyo))
+        assertEquals(java.time.LocalDate.of(2026, 9, 12), LearningCalendar.localDate(saturdayEarly, tokyo))
+    }
+
     private fun at(value: String, zoneId: ZoneId): Long =
         LocalDateTime.parse(value).atZone(zoneId).toInstant().toEpochMilli()
 

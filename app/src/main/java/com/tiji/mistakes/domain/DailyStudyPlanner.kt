@@ -55,6 +55,7 @@ object DailyStudyPlanner {
         val active = input.activeMistakes
             .asSequence()
             .filter { !it.archived && it.deletedAt == null && it.id > 0L }
+            .filter { it.inReviewPlan }
             .distinctBy { it.id }
             .toList()
         if (active.isEmpty()) return DailyStudyPlan()

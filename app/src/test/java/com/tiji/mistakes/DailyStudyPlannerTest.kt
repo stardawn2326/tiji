@@ -93,6 +93,17 @@ class DailyStudyPlannerTest {
         assertEquals(mapOf("数学" to 3, "英语" to 3), result)
     }
 
+    @Test
+    fun excludesMistakesOptedOutOfReviewPlanFromEveryBucket() {
+        val due = mistake(9L, mastery = 0, nextReviewAt = now - 1L, inReviewPlan = false)
+        val weak = mistake(10L, mastery = 0, inReviewPlan = false)
+        val optional = mistake(11L, mastery = 3, inReviewPlan = false)
+
+        val plan = DailyStudyPlanner.plan(input(listOf(due, weak, optional), listOf(due), limit = 10))
+
+        assertTrue(plan.orderedIds.isEmpty())
+    }
+
     private fun input(
         active: List<MistakeEntity>,
         due: List<MistakeEntity>,
@@ -114,6 +125,7 @@ class DailyStudyPlannerTest {
         nextReviewAt: Long = now + 100_000L,
         createdAt: Long = 1L,
         lastReviewedAt: Long? = null,
+        inReviewPlan: Boolean = true,
         archived: Boolean = false,
         deletedAt: Long? = null
     ) = MistakeEntity(
@@ -125,6 +137,7 @@ class DailyStudyPlannerTest {
         uploadedAt = createdAt,
         updatedAt = createdAt,
         lastReviewedAt = lastReviewedAt,
+        inReviewPlan = inReviewPlan,
         archived = archived,
         deletedAt = deletedAt
     )

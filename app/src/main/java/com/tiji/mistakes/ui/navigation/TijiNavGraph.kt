@@ -23,7 +23,6 @@ import com.tiji.mistakes.data.AppPreferences
 import com.tiji.mistakes.data.MistakeEntity
 import com.tiji.mistakes.service.OcrModelManager
 import com.tiji.mistakes.ui.capture.NewCaptureScreen
-import com.tiji.mistakes.ui.common.reviewDateKey
 import com.tiji.mistakes.ui.detail.DetailScreen
 import com.tiji.mistakes.ui.home.HomeScreen
 import com.tiji.mistakes.ui.library.LibraryScreen
@@ -104,8 +103,8 @@ internal fun TijiNavGraph(
                     HomeScreen(
                         mistakes = state.allMistakes,
                         dueCount = state.dueCount,
-                        reviewTotal = state.reviewPlanSnapshots[reviewDateKey()].orEmpty().size.takeIf { it > 0 } ?: state.dueCount,
-                        reviewCompleted = state.reviewMastery[reviewDateKey()].orEmpty().keys.count { id -> id in state.reviewPlanSnapshots[reviewDateKey()].orEmpty() },
+                        reviewTotal = state.reviewPlanSnapshots[state.todayDate].orEmpty().size.takeIf { it > 0 } ?: state.dueCount,
+                        reviewCompleted = state.reviewMastery[state.todayDate].orEmpty().keys.count { id -> id in state.reviewPlanSnapshots[state.todayDate].orEmpty() },
                         reviewAnalytics = state.reviewAnalytics,
                         weaknessInsights = state.weaknessInsights,
                         onSubject = { subject ->
@@ -159,15 +158,17 @@ internal fun TijiNavGraph(
                     ReviewScreen(
                         allMistakes = state.allMistakes,
                         dailyStudyPlan = state.dailyStudyPlan,
+                        now = state.reviewNow,
+                        todayDate = state.todayDate,
                         activeSession = activeReviewSession,
                         viewModel = viewModel,
                         exportOriginalImagesOnly = !state.aiExcludeSourceImageByDefault,
                         reviewPlanEnabled = state.reviewPlanEnabled,
-                        reviewStatuses = state.reviewMastery[reviewDateKey()].orEmpty(),
-                        savedPlanIds = state.reviewPlanSnapshots[reviewDateKey()],
-                        checkedInToday = reviewDateKey() in state.reviewCheckIns,
+                        reviewStatuses = state.reviewMastery[state.todayDate].orEmpty(),
+                        savedPlanIds = state.reviewPlanSnapshots[state.todayDate],
+                        checkedInToday = state.todayDate in state.reviewCheckIns,
                         onSavePlanSnapshot = { date, ids -> scope.launch { preferences.ensureReviewPlanSnapshot(date, ids) } },
-                        onCheckIn = { scope.launch { preferences.setReviewCheckIn(reviewDateKey(), true) } },
+                        onCheckIn = { scope.launch { preferences.setReviewCheckIn(state.todayDate, true) } },
                         onOpenCalendar = { navController.navigate(TijiRoutes.REVIEW_CALENDAR) },
                          onOpenSettings = { navController.navigate(TijiRoutes.settingsDetail(SettingsSection.OVERVIEW)) },
                         onStartSession = { ids ->
@@ -187,6 +188,7 @@ internal fun TijiNavGraph(
                 composable(TijiRoutes.SOLVE) {
                     AiSolveScreen(
                         viewModel = viewModel,
+                        allMistakes = state.allMistakes,
                         aiEndpoint = state.activeAiProfile.endpoint,
                         aiModel = state.activeAiProfile.model,
                         aiProfiles = state.aiProfiles,
@@ -199,6 +201,7 @@ internal fun TijiNavGraph(
                         onOpenSettings = { navController.navigate(TijiRoutes.settingsDetail(SettingsSection.OVERVIEW)) },
                         onOpenChatHistory = { navController.navigate(TijiRoutes.AI_CHAT_HISTORY) },
                         onOpenSolveHistory = { navController.navigate(TijiRoutes.AI_SOLVE_HISTORY) },
+                        onOpenMistake = { id -> navController.navigate(TijiRoutes.detail(id)) },
                         onAiUploadConsent = { value -> scope.launch { preferences.setAiUploadConsent(value) } },
                         onAiInputMode = { value -> scope.launch { preferences.setAiSolveInputMode(value.name) } },
                         solveVisitToken = state.solveVisitToken
@@ -440,14 +443,14 @@ internal fun TijiNavGraph(
                             onRemovedFromPlan = { questionId, onDone ->
                                 if (session.plan.source == ReviewSessionSource.TODAY_PLAN) {
                                     scope.launch {
-                                        preferences.removeFromReviewPlanSnapshot(reviewDateKey(), questionId)
+                                        preferences.removeFromReviewPlanSnapshot(state.todayDate, questionId)
                                         viewModel.setReviewPlan(questionId, false, onUpdated = onDone)
                                     }
                                 } else onDone()
                             },
                             onReviewed = { questionId, grade ->
                                 if (session.plan.source == ReviewSessionSource.TODAY_PLAN) {
-                                    scope.launch { preferences.recordReviewStatus(reviewDateKey(), questionId, grade.name) }
+                                    scope.launch { preferences.recordReviewStatus(state.todayDate, questionId, grade.name) }
                                 }
                             }
                         )
@@ -458,8 +461,9 @@ internal fun TijiNavGraph(
                         mistakes = state.mistakes,
                         reviewRecords = state.reviewMastery,
                         checkedInDates = state.reviewCheckIns,
-                        todayQuestionIds = state.reviewPlanSnapshots[reviewDateKey()].orEmpty(),
-                        onCheckIn = { scope.launch { preferences.setReviewCheckIn(reviewDateKey(), true) } },
+                        todayDate = state.todayDate,
+                        todayQuestionIds = state.reviewPlanSnapshots[state.todayDate].orEmpty(),
+                        onCheckIn = { scope.launch { preferences.setReviewCheckIn(state.todayDate, true) } },
                         onBack = { navController.popBackStack() }
                     )
                 }

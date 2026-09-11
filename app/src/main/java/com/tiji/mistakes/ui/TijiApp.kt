@@ -44,6 +44,7 @@ import com.tiji.mistakes.domain.DailyStudyPlanner
 import com.tiji.mistakes.domain.DailyStudyPlannerInput
 import com.tiji.mistakes.domain.ReviewAnalytics
 import com.tiji.mistakes.domain.WeaknessCalculator
+import com.tiji.mistakes.domain.time.LearningCalendar
 import com.tiji.mistakes.service.OcrModelManager
 import com.tiji.mistakes.ui.navigation.BottomDestination
 import com.tiji.mistakes.ui.navigation.TijiNavGraph
@@ -89,6 +90,9 @@ fun TijiApp() {
     val reviewPlanSnapshots by preferences.reviewPlanSnapshots.collectAsStateWithLifecycle(emptyMap())
     val mistakes by viewModel.mistakes.collectAsStateWithLifecycle()
     val allMistakes by viewModel.allMistakes.collectAsStateWithLifecycle()
+    val reviewNow by viewModel.reviewNow.collectAsStateWithLifecycle(System.currentTimeMillis())
+    val todayDate = remember(reviewNow) { LearningCalendar.localDate(reviewNow).toString() }
+    val todayWeekday = remember(reviewNow) { LearningCalendar.localDate(reviewNow).dayOfWeek.value }
     var librarySubject by rememberSaveable { mutableStateOf<String?>(null) }
     var libraryKnowledgePointStableId by rememberSaveable { mutableStateOf<String?>(null) }
     val dueMistakes by viewModel.dueMistakes.collectAsStateWithLifecycle()
@@ -100,7 +104,6 @@ fun TijiApp() {
     val weaknessInsights = remember(allMistakes, recentReviewRecords, knowledgePoints, knowledgePointLinks) {
         WeaknessCalculator.calculate(knowledgePoints, knowledgePointLinks, allMistakes, recentReviewRecords)
     }
-    val todayWeekday = remember { ((java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_WEEK) + 5) % 7) + 1 }
     val dailyStudyPlan = remember(
         allMistakes,
         dueMistakes,
@@ -110,7 +113,9 @@ fun TijiApp() {
         knowledgePointLinks,
         dailyReviewLimit,
         reviewSubjects,
-        reviewPlanEnabled
+        reviewPlanEnabled,
+        reviewNow,
+        todayWeekday
     ) {
         if (!reviewPlanEnabled) {
             com.tiji.mistakes.domain.DailyStudyPlan()
@@ -125,7 +130,7 @@ fun TijiApp() {
                     knowledgePointLinks = knowledgePointLinks,
                     dailyLimit = dailyReviewLimit,
                     subjectPreferences = DailyStudyPlanner.parseSubjectPreferences(reviewSubjects, todayWeekday),
-                    now = System.currentTimeMillis()
+                    now = reviewNow
                 )
             )
         }
@@ -162,6 +167,8 @@ fun TijiApp() {
     val navState = TijiNavGraphState(
         allMistakes = allMistakes,
         mistakes = mistakes,
+        reviewNow = reviewNow,
+        todayDate = todayDate,
         dueMistakes = dueMistakes,
         dueCount = dueCount,
         knowledgePoints = knowledgePoints,

@@ -89,6 +89,9 @@ data class AiSolveHistoryRecord(
     val graphicImagePath: String? = null,
     val contentBlocks: String = "",
     val recognitionWarning: String = "",
+    val uncertainItems: List<String> = emptyList(),
+    val verification: AiVerificationResult = AiVerificationResult(),
+    val solutionProtocolVersion: Int = 0,
     val chatMessages: List<AiChatMessage> = emptyList()
 ) {
     fun referencedImagePaths(): List<String> = buildList {
@@ -212,6 +215,9 @@ class AiSolveHistoryStore(context: Context) {
                 graphicImagePath = state.graphicImagePath,
                 contentBlocks = state.contentBlocks,
                 recognitionWarning = state.recognitionWarning,
+                uncertainItems = state.uncertainItems,
+                verification = state.verification,
+                solutionProtocolVersion = state.solutionProtocolVersion,
                 chatMessages = chatMessages.takeLast(MAX_CHAT_MESSAGES)
             )
         val (ownedRecord, created) = withOwnedImages(rawRecord)
@@ -279,6 +285,9 @@ class AiSolveHistoryStore(context: Context) {
         .put("graphicImagePath", record.graphicImagePath ?: JSONObject.NULL)
         .put("contentBlocks", record.contentBlocks)
         .put("recognitionWarning", record.recognitionWarning)
+        .put("uncertainItems", JSONArray(record.uncertainItems.filter(String::isNotBlank).distinct()))
+        .put("verification", encodeVerification(record.verification))
+        .put("solutionProtocolVersion", record.solutionProtocolVersion.coerceIn(0, 3))
         .put("chatMessages", JSONArray(record.chatMessages.map { message ->
             JSONObject()
                 .put("prompt", message.prompt.take(MAX_CHAT_PROMPT_LENGTH))
@@ -320,6 +329,9 @@ class AiSolveHistoryStore(context: Context) {
                         graphicImagePath = item.optString("graphicImagePath").takeIf { it.isNotBlank() && it != "null" },
                         contentBlocks = item.optString("contentBlocks"),
                         recognitionWarning = item.optString("recognitionWarning"),
+                        uncertainItems = readStringList(item.optJSONArray("uncertainItems")),
+                        verification = parsePersistedVerification(item.optJSONObject("verification")),
+                        solutionProtocolVersion = item.optInt("solutionProtocolVersion", 0).coerceIn(0, 3),
                         chatMessages = readChatMessages(item.optJSONArray("chatMessages"))
                     )
                 )
@@ -345,6 +357,14 @@ class AiSolveHistoryStore(context: Context) {
             )
         }
     }.takeLast(MAX_CHAT_MESSAGES)
+
+    private fun readStringList(array: JSONArray?): List<String> = if (array == null) {
+        emptyList()
+    } else {
+        (0 until array.length()).mapNotNull { index ->
+            array.optString(index).trim().takeIf(String::isNotBlank)
+        }.distinct()
+    }
 
     private companion object {
         const val FILE_NAME = "ai_solve_history"

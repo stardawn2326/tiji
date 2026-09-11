@@ -12,8 +12,8 @@ import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.tiji.mistakes.data.AppDatabase
+import com.tiji.mistakes.data.KnowledgePointNormalizer
 import com.tiji.mistakes.data.MistakeRepository
-import com.tiji.mistakes.domain.ReviewScheduler
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -27,14 +27,29 @@ import kotlinx.coroutines.withTimeout
 internal fun mergeClassificationMetadata(
     mistake: com.tiji.mistakes.data.MistakeEntity,
     classification: AiRecognitionResult
-): com.tiji.mistakes.data.MistakeEntity = mistake.copy(
-    subject = classification.subject.ifBlank { "未分类" },
-    questionType = classification.questionType.ifBlank { "未分类" },
-    tags = (classification.tags + classification.knowledgePoints)
-        .distinct()
-        .joinToString(", "),
-    difficulty = classification.difficulty
-)
+): com.tiji.mistakes.data.MistakeEntity {
+    val subject = mistake.subject
+        .takeUnless { it.isBlank() || it == "未分类" }
+        ?: classification.subject.ifBlank { "未分类" }
+    val questionType = mistake.questionType
+        .takeUnless { it.isBlank() || it == "未分类" }
+        ?: classification.questionType.ifBlank { "未分类" }
+    val tags = (
+        KnowledgePointNormalizer.parseTags(mistake.tags) +
+            classification.tags +
+            classification.knowledgePoints
+        )
+        .map(KnowledgePointNormalizer::cleanName)
+        .filter(String::isNotBlank)
+        .distinctBy(KnowledgePointNormalizer::normalizeName)
+        .joinToString(", ")
+    return mistake.copy(
+        subject = subject,
+        questionType = questionType,
+        tags = tags,
+        difficulty = mistake.difficulty.takeIf { it > 0 } ?: classification.difficulty
+    )
+}
 
 /** Runs classification independently from the AI solve screen lifecycle. */
 class AiMistakeClassificationService : Service() {
@@ -106,12 +121,7 @@ class AiMistakeClassificationService : Service() {
                     solvedContent = source
                 )
             }.getOrThrow()
-            repository.save(
-                mergeClassificationMetadata(mistake, classification).copy(
-                    inReviewPlan = true,
-                    nextReviewAt = ReviewScheduler.nextLocalMidnight()
-                )
-            )
+            repository.save(mergeClassificationMetadata(mistake, classification))
             taskStore.upsert(
                 running.copy(
                     phase = AiMistakeSavePhase.CLASSIFICATION_COMPLETED,
