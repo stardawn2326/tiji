@@ -14,6 +14,12 @@ interface MistakeKnowledgePointDao {
     @Query("SELECT * FROM mistake_knowledge_points ORDER BY mistakeId ASC, knowledgePointId ASC")
     fun observeAll(): Flow<List<MistakeKnowledgePointCrossRef>>
 
+    @Query("SELECT mistakeId FROM mistake_knowledge_points WHERE knowledgePointId = :knowledgePointId ORDER BY mistakeId ASC")
+    suspend fun listMistakeIdsForKnowledgePoint(knowledgePointId: Long): List<Long>
+
+    @Query("SELECT knowledgePointId FROM mistake_knowledge_points WHERE mistakeId = :mistakeId ORDER BY knowledgePointId ASC")
+    suspend fun listKnowledgePointIdsForMistake(mistakeId: Long): List<Long>
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insert(ref: MistakeKnowledgePointCrossRef)
 

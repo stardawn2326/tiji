@@ -22,12 +22,17 @@ internal object TijiRoutes {
     const val REVIEW_DETAIL = "review-detail"
     const val REVIEW_DETAIL_PATTERN = "$REVIEW_DETAIL/{id}/{ids}"
     const val REVIEW_CALENDAR = "review-calendar"
+    const val KNOWLEDGE = "knowledge"
+    const val KNOWLEDGE_DETAIL = "knowledge-detail"
+    const val KNOWLEDGE_DETAIL_PATTERN = "$KNOWLEDGE_DETAIL/{stableId}"
 
     fun settingsDetail(section: SettingsSection): String = "$SETTINGS_DETAIL/${section.key}"
     fun visualConfig(textProfileId: String): String = "$VISUAL_CONFIG/$textProfileId"
     fun detail(id: Long): String = "$DETAIL/$id"
     fun reviewDetail(id: Long, ids: List<Long>): String =
         "$REVIEW_DETAIL/$id/${Uri.encode(ids.joinToString(","))}"
+
+    fun knowledgeDetail(stableId: String): String = "$KNOWLEDGE_DETAIL/${Uri.encode(stableId)}"
 }
 
 internal enum class SettingsSection(

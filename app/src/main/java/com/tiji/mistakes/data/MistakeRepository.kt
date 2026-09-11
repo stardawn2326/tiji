@@ -45,8 +45,43 @@ class MistakeRepository(private val database: AppDatabase) {
     fun observeCount(): Flow<Int> = dao.observeActiveCount()
     fun observeDueCount(now: Long): Flow<Int> = dao.observeDueCount(now)
     fun observeReviewRecords(): Flow<List<ReviewRecordEntity>> = database.reviewRecordDao().observeAll()
+    fun observeReviewRecordsSince(from: Long): Flow<List<ReviewRecordEntity>> =
+        database.reviewRecordDao().observeSince(from)
+
+    fun observeReviewRecordsForMistake(mistakeId: Long, limit: Int = 5): Flow<List<ReviewRecordEntity>> =
+        database.reviewRecordDao().observeLatestForMistake(mistakeId, limit.coerceAtLeast(1))
+
+    fun observeMistakesForKnowledgePoint(stableId: String): Flow<List<MistakeEntity>> =
+        database.mistakeDao().observeActiveForKnowledgePoint(stableId)
+
+    fun observeReviewRecordsForKnowledgePoint(
+        stableId: String,
+        limit: Int = 5
+    ): Flow<List<ReviewRecordEntity>> = database.reviewRecordDao()
+        .observeLatestForKnowledgePoint(stableId, limit.coerceAtLeast(1))
+
+    suspend fun listReviewRecordsForMistakes(mistakeIds: Collection<Long>): List<ReviewRecordEntity> {
+        val ids = mistakeIds.filter { it > 0L }.distinct()
+        if (ids.isEmpty()) return emptyList()
+        return database.reviewRecordDao().listByMistakeIds(ids)
+    }
+
     fun observeKnowledgePoints(): Flow<List<KnowledgePointEntity>> = database.knowledgePointDao().observeAll()
+    fun observeKnowledgePoint(stableId: String): Flow<KnowledgePointEntity?> =
+        database.knowledgePointDao().observeByStableId(stableId)
+
     fun observeKnowledgePointLinks(): Flow<List<MistakeKnowledgePointCrossRef>> = database.mistakeKnowledgePointDao().observeAll()
+
+    suspend fun listMistakeIdsForKnowledgePoint(stableId: String): List<Long> {
+        val point = database.knowledgePointDao().findByStableId(stableId) ?: return emptyList()
+        return database.mistakeKnowledgePointDao().listMistakeIdsForKnowledgePoint(point.id)
+    }
+
+    /** Detaches missing, self-referencing, or cyclic knowledge-point parents. */
+    suspend fun sanitizeKnowledgePointParents(): Int = database.withTransaction {
+        sanitizeKnowledgePointParentsInTransaction()
+    }
+
     suspend fun find(id: Long): MistakeEntity? = dao.findById(id)
     suspend fun save(mistake: MistakeEntity): Long {
         val now = System.currentTimeMillis()
@@ -61,10 +96,19 @@ class MistakeRepository(private val database: AppDatabase) {
                 dao.upsert(prepared)
             }
             syncKnowledgePointsForMistake(prepared.copy(id = id))
+            database.knowledgePointDao().deleteOrphans()
+            sanitizeKnowledgePointParentsInTransaction()
             id
         }
     }
-    suspend fun saveAll(mistakes: List<MistakeEntity>) = dao.upsertAll(mistakes)
+    suspend fun saveAll(mistakes: List<MistakeEntity>) = database.withTransaction {
+        dao.upsertAll(mistakes)
+        mistakes.forEach { mistake ->
+            if (mistake.id > 0L) syncKnowledgePointsForMistake(mistake)
+        }
+        database.knowledgePointDao().deleteOrphans()
+        sanitizeKnowledgePointParentsInTransaction()
+    }
     suspend fun softDelete(id: Long) = dao.softDelete(id, System.currentTimeMillis(), System.currentTimeMillis())
     suspend fun softDelete(ids: List<Long>) {
         if (ids.isEmpty()) return
@@ -88,11 +132,12 @@ class MistakeRepository(private val database: AppDatabase) {
             .filterNot { it.id in rowIds }
             .flatMap(::referencedImagePaths)
             .toSet()
-        dao.deleteMany(rowIds.toList())
-        return rows
-            .flatMap(::referencedImagePaths)
-            .distinct()
-            .filterNot { it in referencedElsewhere }
+        database.withTransaction {
+            dao.deleteMany(rowIds.toList())
+            database.knowledgePointDao().deleteOrphans()
+            sanitizeKnowledgePointParentsInTransaction()
+        }
+        return rows.flatMap(::referencedImagePaths).distinct().filterNot { it in referencedElsewhere }
     }
 
     suspend fun setReviewPlan(id: Long, enabled: Boolean) {
@@ -139,6 +184,8 @@ class MistakeRepository(private val database: AppDatabase) {
     suspend fun backfillLegacyTags(): Int = database.withTransaction {
         var linked = 0
         dao.listAll().forEach { mistake -> linked += syncKnowledgePointsForMistake(mistake) }
+        database.knowledgePointDao().deleteOrphans()
+        sanitizeKnowledgePointParentsInTransaction()
         linked
     }
 
@@ -151,8 +198,24 @@ class MistakeRepository(private val database: AppDatabase) {
             dao.findByIds(distinctIds).forEach { mistake ->
                 linked += syncKnowledgePointsForMistake(mistake)
             }
+            database.knowledgePointDao().deleteOrphans()
+            sanitizeKnowledgePointParentsInTransaction()
             linked
         }
+    }
+
+    private suspend fun sanitizeKnowledgePointParentsInTransaction(): Int {
+        val pointDao = database.knowledgePointDao()
+        val points = pointDao.listAll()
+        val sanitized = KnowledgePointIntegrity.sanitize(points)
+        var changed = 0
+        points.zip(sanitized).forEach { (before, after) ->
+            if (before.parentId != after.parentId) {
+                pointDao.update(after)
+                changed += 1
+            }
+        }
+        return changed
     }
 
     private suspend fun syncKnowledgePointsForMistake(mistake: MistakeEntity): Int {

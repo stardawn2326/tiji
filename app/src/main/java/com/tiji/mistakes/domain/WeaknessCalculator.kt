@@ -4,6 +4,8 @@ import com.tiji.mistakes.data.KnowledgePointEntity
 import com.tiji.mistakes.data.MistakeEntity
 import com.tiji.mistakes.data.MistakeKnowledgePointCrossRef
 import com.tiji.mistakes.data.ReviewRecordEntity
+import com.tiji.mistakes.domain.time.LearningCalendar
+import java.time.ZoneId
 
 data class KnowledgePointInsight(
     val point: KnowledgePointEntity,
@@ -20,11 +22,13 @@ object WeaknessCalculator {
         links: List<MistakeKnowledgePointCrossRef>,
         mistakes: List<MistakeEntity>,
         records: List<ReviewRecordEntity>,
-        now: Long = System.currentTimeMillis()
+        now: Long = System.currentTimeMillis(),
+        zoneId: ZoneId = ZoneId.systemDefault()
     ): List<KnowledgePointInsight> {
         val mistakeById = mistakes.associateBy(MistakeEntity::id)
+        val recentStart = LearningCalendar.startOfRecentDays(now, 30, zoneId)
         val recordsByMistake = records
-            .filter { it.reviewedAt in (now - 30L * DAY_MS)..now }
+            .filter { LearningCalendar.isWithinInclusive(it.reviewedAt, recentStart, now) }
             .groupBy(ReviewRecordEntity::mistakeId)
         val linksByPoint = links.groupBy(MistakeKnowledgePointCrossRef::knowledgePointId)
         return points.mapNotNull { point ->
@@ -62,5 +66,4 @@ object WeaknessCalculator {
         else -> "稳定"
     }
 
-    private const val DAY_MS = 24L * 60L * 60L * 1000L
 }

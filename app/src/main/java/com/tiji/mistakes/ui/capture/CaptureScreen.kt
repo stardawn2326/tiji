@@ -106,8 +106,8 @@ import com.tiji.mistakes.ui.common.CropSelection
 import com.tiji.mistakes.ui.common.initialCropSelection
 import com.tiji.mistakes.ui.ConceptDashedDropZone
 import com.tiji.mistakes.ui.ConceptTag
-import com.tiji.mistakes.ui.ImagePreview
-import com.tiji.mistakes.ui.MathText
+import com.tiji.mistakes.ui.image.ImagePreview
+import com.tiji.mistakes.ui.math.MathText
 import com.tiji.mistakes.ui.editor.MistakeFields
 import com.tiji.mistakes.ui.MistakeViewModel
 import com.tiji.mistakes.ui.math.normalizeQuestionSource

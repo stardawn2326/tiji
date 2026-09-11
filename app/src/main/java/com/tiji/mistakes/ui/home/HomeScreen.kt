@@ -4,6 +4,7 @@ package com.tiji.mistakes.ui.home
 
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -65,6 +66,7 @@ internal fun HomeScreen(
     reviewAnalytics: ReviewAnalyticsSummary,
     weaknessInsights: List<KnowledgePointInsight>,
     onSubject: (String?) -> Unit,
+    onKnowledgePoint: (String) -> Unit,
     resetScrollToken: Int,
     onNavigate: (String) -> Unit
 ) {
@@ -249,7 +251,10 @@ internal fun HomeScreen(
                     Text("整理错题并完成复习后，这里会显示需要巩固的知识点。", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } else {
                     weakPoints.forEach { point ->
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().clickable { onKnowledgePoint(point.point.stableId) },
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically,

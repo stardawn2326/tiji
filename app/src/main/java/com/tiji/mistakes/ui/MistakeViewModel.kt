@@ -10,6 +10,7 @@ import com.tiji.mistakes.data.AppPreferences
 import com.tiji.mistakes.data.MistakeEntity
 import com.tiji.mistakes.data.MistakeRepository
 import com.tiji.mistakes.domain.ReviewGrade
+import com.tiji.mistakes.domain.time.LearningCalendar
 import com.tiji.mistakes.service.AiChatMessage
 import com.tiji.mistakes.service.AiChatStateStore
 import com.tiji.mistakes.service.AiFollowUpService
@@ -43,6 +44,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -208,8 +210,11 @@ class MistakeViewModel(application: Application) : AndroidViewModel(application)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
     val dueCount: StateFlow<Int> = reviewClock.flatMapLatest(repository::observeDueCount)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
-    val reviewRecords = repository.observeReviewRecords()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val recentReviewRecords = reviewClock.flatMapLatest { now ->
+        repository.observeReviewRecordsSince(
+            LearningCalendar.startOfRecentDays(now, 30).toEpochMilli()
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val knowledgePoints = repository.observeKnowledgePoints()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val knowledgePointLinks = repository.observeKnowledgePointLinks()
@@ -272,6 +277,21 @@ class MistakeViewModel(application: Application) : AndroidViewModel(application)
     fun refreshReviewClock() {
         reviewClock.value = System.currentTimeMillis()
     }
+
+    /** Bounded history stream for the detail page; it never loads unrelated mistakes. */
+    fun reviewHistory(mistakeId: Long): Flow<List<com.tiji.mistakes.data.ReviewRecordEntity>> =
+        repository.observeReviewRecordsForMistake(mistakeId)
+
+    /** Route-local mistake stream for Knowledge Detail. */
+    fun knowledgePointMistakes(stableId: String): Flow<List<MistakeEntity>> =
+        repository.observeMistakesForKnowledgePoint(stableId)
+
+    /** Route-local latest history stream for Knowledge Detail. */
+    fun knowledgePointReviewHistory(stableId: String, limit: Int = 5): Flow<List<com.tiji.mistakes.data.ReviewRecordEntity>> =
+        repository.observeReviewRecordsForKnowledgePoint(stableId, limit)
+
+    suspend fun listReviewRecordsForMistakes(mistakeIds: Collection<Long>): List<com.tiji.mistakes.data.ReviewRecordEntity> =
+        repository.listReviewRecordsForMistakes(mistakeIds)
 
     /**
      * Runs in a foreground service, outside the Compose screen lifecycle. The persisted state

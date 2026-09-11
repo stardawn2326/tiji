@@ -57,9 +57,9 @@ import com.tiji.mistakes.ui.common.reviewGradeUiLabel
 import com.tiji.mistakes.ui.common.reviewIntervalLabel
 import com.tiji.mistakes.ui.ConceptSectionHeader
 import com.tiji.mistakes.ui.ConceptTag
-import com.tiji.mistakes.ui.ImagePreview
+import com.tiji.mistakes.ui.image.ImagePreview
 import com.tiji.mistakes.ui.LocalTijiSemanticColors
-import com.tiji.mistakes.ui.MathText
+import com.tiji.mistakes.ui.math.MathText
 import com.tiji.mistakes.ui.MistakeViewModel
 import com.tiji.mistakes.ui.normalizedSubject
 import com.tiji.mistakes.ui.TijiDimens
