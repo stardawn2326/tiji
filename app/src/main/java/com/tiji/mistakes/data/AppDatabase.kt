@@ -7,9 +7,21 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-@Database(entities = [MistakeEntity::class], version = 9, exportSchema = true)
+@Database(
+    entities = [
+        MistakeEntity::class,
+        ReviewRecordEntity::class,
+        KnowledgePointEntity::class,
+        MistakeKnowledgePointCrossRef::class
+    ],
+    version = 10,
+    exportSchema = true
+)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun mistakeDao(): MistakeDao
+    abstract fun reviewRecordDao(): ReviewRecordDao
+    abstract fun knowledgePointDao(): KnowledgePointDao
+    abstract fun mistakeKnowledgePointDao(): MistakeKnowledgePointDao
 
     companion object {
         @Volatile private var instance: AppDatabase? = null
@@ -28,6 +40,15 @@ abstract class AppDatabase : RoomDatabase() {
         internal val MIGRATIONS_8_9: Array<Migration>
             get() = arrayOf(MIGRATION_8_9)
 
+        internal val MIGRATIONS_9_10: Array<Migration>
+            get() = arrayOf(MIGRATION_9_10)
+
+        internal val MIGRATIONS_7_10: Array<Migration>
+            get() = arrayOf(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
+
+        internal val MIGRATIONS_8_10: Array<Migration>
+            get() = arrayOf(MIGRATION_8_9, MIGRATION_9_10)
+
         private val ALL_MIGRATIONS: Array<Migration>
             get() = arrayOf(
                 MIGRATION_1_2,
@@ -37,7 +58,8 @@ abstract class AppDatabase : RoomDatabase() {
                 MIGRATION_5_6,
                 MIGRATION_6_7,
                 MIGRATION_7_8,
-                MIGRATION_8_9
+                MIGRATION_8_9,
+                MIGRATION_9_10
             )
 
         private val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -98,6 +120,54 @@ abstract class AppDatabase : RoomDatabase() {
                 // v8 already contained the two columns. v9 only corrects the
                 // Room schema metadata after their explicit default values were
                 // annotated, so the existing rows and physical table stay intact.
+            }
+        }
+
+        private val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """CREATE TABLE IF NOT EXISTS review_records (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        mistakeId INTEGER NOT NULL,
+                        reviewedAt INTEGER NOT NULL,
+                        grade TEXT NOT NULL,
+                        masteryBefore INTEGER NOT NULL,
+                        masteryAfter INTEGER NOT NULL,
+                        intervalBeforeDays INTEGER NOT NULL,
+                        intervalAfterDays INTEGER NOT NULL,
+                        previousNextReviewAt INTEGER NOT NULL,
+                        nextReviewAt INTEGER NOT NULL,
+                        FOREIGN KEY(mistakeId) REFERENCES mistakes(id) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )"""
+                )
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_review_records_mistakeId ON review_records(mistakeId)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_review_records_reviewedAt ON review_records(reviewedAt)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_review_records_mistakeId_reviewedAt ON review_records(mistakeId, reviewedAt)")
+                database.execSQL(
+                    """CREATE TABLE IF NOT EXISTS knowledge_points (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        stableId TEXT NOT NULL,
+                        subject TEXT NOT NULL,
+                        name TEXT NOT NULL,
+                        normalizedName TEXT NOT NULL,
+                        parentId INTEGER,
+                        createdAt INTEGER NOT NULL,
+                        updatedAt INTEGER NOT NULL
+                    )"""
+                )
+                database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_knowledge_points_stableId ON knowledge_points(stableId)")
+                database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_knowledge_points_subject_normalizedName ON knowledge_points(subject, normalizedName)")
+                database.execSQL(
+                    """CREATE TABLE IF NOT EXISTS mistake_knowledge_points (
+                        mistakeId INTEGER NOT NULL,
+                        knowledgePointId INTEGER NOT NULL,
+                        PRIMARY KEY(mistakeId, knowledgePointId),
+                        FOREIGN KEY(mistakeId) REFERENCES mistakes(id) ON UPDATE NO ACTION ON DELETE CASCADE,
+                        FOREIGN KEY(knowledgePointId) REFERENCES knowledge_points(id) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )"""
+                )
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_mistake_knowledge_points_mistakeId ON mistake_knowledge_points(mistakeId)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_mistake_knowledge_points_knowledgePointId ON mistake_knowledge_points(knowledgePointId)")
             }
         }
     }

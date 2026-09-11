@@ -64,8 +64,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.tiji.mistakes.data.MistakeEntity
+import com.tiji.mistakes.domain.KnowledgePointInsight
 import com.tiji.mistakes.service.HtmlPdfExportService
-import com.tiji.mistakes.ui.BatchBarAction
+import com.tiji.mistakes.ui.components.BatchBarAction
 import com.tiji.mistakes.ui.common.difficultyFilterLabel
 import com.tiji.mistakes.ui.common.discardPdfPreview
 import com.tiji.mistakes.ui.common.launchDurablePdfExport
@@ -91,6 +92,7 @@ internal fun LibraryScreen(
     onSelectSubject: (String?) -> Unit,
     viewModel: MistakeViewModel,
     mistakes: List<MistakeEntity>,
+    knowledgePointInsights: List<KnowledgePointInsight> = emptyList(),
     exportOriginalImagesOnly: Boolean,
     onOpen: (Long) -> Unit,
     onCreate: () -> Unit
@@ -389,6 +391,20 @@ internal fun LibraryScreen(
                         ),
                         label = { Text(value) }
                     )
+                }
+            }
+            if (knowledgePointInsights.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Text("重点知识点", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(4.dp))
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(knowledgePointInsights.take(8), key = { it.point.stableId }) { insight ->
+                        FilterChip(
+                            selected = tagFilter == insight.point.name,
+                            onClick = { tagFilter = tagFilter.takeUnless { it == insight.point.name } ?: insight.point.name },
+                            label = { Text("${insight.point.name} · ${insight.label}") }
+                        )
+                    }
                 }
             }
             Spacer(Modifier.height(8.dp))

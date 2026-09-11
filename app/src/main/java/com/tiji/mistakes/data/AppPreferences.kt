@@ -59,6 +59,7 @@ class AppPreferences(private val context: Context) {
     private val reviewProgressKey = stringPreferencesKey("review_progress")
     private val reviewMasteryKey = stringPreferencesKey("review_mastery")
     private val reviewPlanSnapshotsKey = stringPreferencesKey("review_plan_snapshots")
+    private val legacyTagBackfillVersionKey = intPreferencesKey("legacy_tag_backfill_version")
 
     val themeMode: Flow<String> = context.tijiDataStore.data.map { preferences ->
         preferences[themeModeKey] ?: if (preferences[darkKey] == true) "dark" else "system"
@@ -94,6 +95,14 @@ class AppPreferences(private val context: Context) {
     }
     val reviewPlanSnapshots: Flow<Map<String, List<Long>>> = context.tijiDataStore.data.map {
         decodeReviewPlanSnapshots(it[reviewPlanSnapshotsKey])
+    }
+
+    suspend fun isLegacyTagBackfillComplete(): Boolean = context.tijiDataStore.data
+        .map { (it[legacyTagBackfillVersionKey] ?: 0) >= LEGACY_TAG_BACKFILL_VERSION }
+        .first()
+
+    suspend fun markLegacyTagBackfillComplete() {
+        context.tijiDataStore.edit { it[legacyTagBackfillVersionKey] = LEGACY_TAG_BACKFILL_VERSION }
     }
 
     suspend fun setDarkTheme(enabled: Boolean) {
@@ -405,6 +414,7 @@ class AppPreferences(private val context: Context) {
     }
 
     companion object {
+        private const val LEGACY_TAG_BACKFILL_VERSION = 1
         const val DEFAULT_PROFILE_ID = "default"
         const val DEFAULT_INPUT_MODE = "VISION"
         const val DEFAULT_ENDPOINT = "https://api.openai.com/v1"

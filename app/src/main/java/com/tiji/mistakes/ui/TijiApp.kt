@@ -5,10 +5,7 @@ package com.tiji.mistakes.ui
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import android.annotation.SuppressLint
-import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
-import android.Manifest
-import android.os.Build
 import android.os.SystemClock
 import android.util.Log
 import android.webkit.RenderProcessGoneDetail
@@ -16,11 +13,8 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -83,7 +77,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
@@ -100,8 +93,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -114,16 +105,13 @@ import coil.request.CachePolicy
 import coil.request.ImageRequest
 import com.tiji.mistakes.data.AiProfile
 import com.tiji.mistakes.data.AppPreferences
-import com.tiji.mistakes.service.ImageProcessor
-import com.tiji.mistakes.service.ImageStorage
+import com.tiji.mistakes.domain.ReviewAnalytics
+import com.tiji.mistakes.domain.WeaknessCalculator
 import com.tiji.mistakes.service.OcrModelManager
-import com.tiji.mistakes.service.OcrModelStatus
-import com.tiji.mistakes.ui.capture.StandaloneImageEditor
 import com.tiji.mistakes.ui.common.imageReloadVersions
 import com.tiji.mistakes.ui.common.imageRequestRevision
 import com.tiji.mistakes.ui.common.notifyImageReplaced
 import com.tiji.mistakes.ui.math.containsMathSyntax
-import com.tiji.mistakes.ui.math.normalizeAsciiPunctuation
 import com.tiji.mistakes.ui.math.normalizeMathSource
 import com.tiji.mistakes.ui.math.normalizeQuestionForNaturalWrap
 import com.tiji.mistakes.ui.navigation.BottomDestination
@@ -179,6 +167,13 @@ fun TijiApp() {
     var librarySubject by rememberSaveable { mutableStateOf<String?>(null) }
     val dueMistakes by viewModel.dueMistakes.collectAsStateWithLifecycle()
     val dueCount by viewModel.dueCount.collectAsStateWithLifecycle()
+    val reviewRecords by viewModel.reviewRecords.collectAsStateWithLifecycle()
+    val knowledgePoints by viewModel.knowledgePoints.collectAsStateWithLifecycle()
+    val knowledgePointLinks by viewModel.knowledgePointLinks.collectAsStateWithLifecycle()
+    val reviewAnalytics = remember(reviewRecords) { ReviewAnalytics.summarize(reviewRecords) }
+    val weaknessInsights = remember(allMistakes, reviewRecords, knowledgePoints, knowledgePointLinks) {
+        WeaknessCalculator.calculate(knowledgePoints, knowledgePointLinks, allMistakes, reviewRecords)
+    }
     val navController = rememberNavController()
     val scope = rememberCoroutineScope()
     val ocrModelManager = remember { OcrModelManager.getInstance(context) }
@@ -211,6 +206,11 @@ fun TijiApp() {
         mistakes = mistakes,
         dueMistakes = dueMistakes,
         dueCount = dueCount,
+        reviewRecords = reviewRecords,
+        knowledgePoints = knowledgePoints,
+        knowledgePointLinks = knowledgePointLinks,
+        reviewAnalytics = reviewAnalytics,
+        weaknessInsights = weaknessInsights,
         reviewPlanSnapshots = reviewPlanSnapshots,
         reviewMastery = reviewMastery,
         reviewCheckIns = reviewCheckIns,
@@ -306,367 +306,6 @@ fun TijiApp() {
 
 
 @Composable
-internal fun ReviewAllocationRow(label: String, count: Int, maxCount: Int, onCountChange: (Int) -> Unit) {
-    var showCountEditor by remember(label) { mutableStateOf(false) }
-    var countDraft by remember(label, count) { mutableStateOf(count.toString()) }
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(Modifier.padding(horizontal = 10.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                Text(label.ifBlank { "未分类" }, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold)
-                OutlinedButton(
-                    onClick = { onCountChange(count - 1) },
-                    enabled = count > 0,
-                    contentPadding = PaddingValues(horizontal = 7.dp, vertical = 0.dp),
-                    modifier = Modifier.height(32.dp)
-                ) { Icon(Icons.Outlined.Remove, contentDescription = "减少") }
-                Text(
-                    count.toString(),
-                    modifier = Modifier
-                        .clickable {
-                            countDraft = count.toString()
-                            showCountEditor = true
-                        }
-                        .padding(horizontal = 8.dp),
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                OutlinedButton(
-                    onClick = { onCountChange(count + 1) },
-                    enabled = count < maxCount,
-                    contentPadding = PaddingValues(horizontal = 7.dp, vertical = 0.dp),
-                    modifier = Modifier.height(32.dp)
-                ) { Icon(Icons.Outlined.Add, contentDescription = "增加") }
-            }
-        }
-    }
-    if (showCountEditor) {
-        AlertDialog(
-            onDismissRequest = { showCountEditor = false },
-            title = { Text("修改分配数量") },
-            text = {
-                OutlinedTextField(
-                    value = countDraft,
-                    onValueChange = { value -> countDraft = value.filter { it.isDigit() }.take(3) },
-                    label = { Text(label.ifBlank { "科目" }) },
-                    singleLine = true
-                )
-            },
-            confirmButton = {
-                Button(onClick = {
-                    onCountChange(countDraft.toIntOrNull()?.coerceIn(0, maxCount) ?: count)
-                    showCountEditor = false
-                }) { Text("确定") }
-            },
-            dismissButton = { TextButton(onClick = { showCountEditor = false }) { Text("取消") } }
-        )
-    }
-}
-
-@Composable
-internal fun BatchBarAction(
-    label: String,
-    modifier: Modifier = Modifier,
-    enabled: Boolean = true,
-    onClick: () -> Unit
-) {
-    Box(
-        modifier = modifier
-            .height(48.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .clickable(enabled = enabled, onClick = onClick),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            label,
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-    }
-}
-
-@Composable
-internal fun QuickButton(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, modifier: Modifier, onClick: () -> Unit) {
-    Card(onClick = onClick, modifier = modifier, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) { Column(Modifier.padding(9.dp), horizontalAlignment = Alignment.CenterHorizontally) { Icon(icon, null); Text(label, style = MaterialTheme.typography.labelMedium) } }
-}
-
-@Composable
-internal fun CombinedOcrSettingsCard(
-    status: OcrModelStatus,
-    packageSizeLabel: String,
-    onEnable: () -> Unit,
-    onStop: () -> Unit,
-    onUpdate: () -> Unit,
-    onClear: () -> Unit
-) {
-    SettingCard(
-        title = "OCR",
-        icon = Icons.Outlined.Image,
-        headerIcon = { OcrFrameBadgeIcon() },
-        content = {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.weight(1f)) {
-                Text("本地OCR包", style = MaterialTheme.typography.bodyLarge)
-                Text("使用 PaddleOCR 识别中文、英文、数字和题目排版，并配合公式模型识别分式、根号和上下标。OCR 模型与运行库${packageSizeLabel}，下载后可完全离线使用。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
-        when {
-            status.downloading -> {
-                LinearProgressIndicator(progress = { status.progress.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
-                Text("正在下载 ${status.downloadedBytes / 1_000_000} / ${(status.totalBytes + 500_000) / 1_000_000} MB", style = MaterialTheme.typography.bodySmall)
-            }
-            status.resumable -> {
-                LinearProgressIndicator(progress = { status.progress.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
-                Text(
-                    if (status.downloadedBytes > 0L) {
-                        "已保留 ${status.downloadedBytes / 1_000_000} / ${(status.totalBytes + 500_000) / 1_000_000} MB，可继续下载"
-                    } else {
-                        "下载已暂停，可继续下载"
-                    },
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-            status.installed -> Text("已检测到本地OCR", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-            else -> Text("未检测到本地OCR", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        status.error?.takeIf(String::isNotBlank)?.let { error ->
-            Text(error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            OutlinedButton(
-                enabled = !status.downloading,
-                onClick = if (status.installed) onUpdate else onEnable,
-                modifier = Modifier.weight(1f)
-            ) {
-                Icon(Icons.Outlined.FileDownload, contentDescription = null)
-                Spacer(Modifier.size(6.dp))
-                Text(if (status.resumable) "继续" else "下载")
-            }
-            OutlinedButton(
-                enabled = status.downloading || status.installed || status.resumable,
-                onClick = if (status.downloading) onStop else onClear,
-                modifier = Modifier.weight(1f)
-            ) {
-                Icon(if (status.downloading) Icons.Outlined.StopCircle else Icons.Outlined.Delete, contentDescription = null)
-                Spacer(Modifier.size(6.dp))
-                Text(if (status.downloading) "停止" else "清除")
-            }
-        }
-    })
-}
-
-@Composable
-internal fun SettingCard(
-    title: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    headerIcon: (@Composable () -> Unit)? = null,
-    content: @Composable () -> Unit
-) {
-    TijiSurfaceCard {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                headerIcon?.invoke() ?: Icon(icon, null, tint = MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.size(8.dp))
-                Text(normalizeAsciiPunctuation(title), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            }
-            content()
-    }
-}
-
-@Composable
-internal fun OcrFrameBadgeIcon() {
-    Box(Modifier.size(28.dp), contentAlignment = Alignment.Center) {
-        Icon(
-            Icons.Outlined.Image,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(26.dp)
-        )
-        Surface(
-            color = MaterialTheme.colorScheme.primaryContainer,
-            shape = RoundedCornerShape(2.dp),
-            modifier = Modifier.align(Alignment.BottomEnd)
-        ) {
-            Text(
-                "OCR",
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(horizontal = 1.dp)
-            )
-        }
-    }
-}
-
-@Composable
-internal fun ClickableImageThumbnail(path: String, onDelete: () -> Unit) {
-    var expanded by remember(path) { mutableStateOf(false) }
-    val reloadVersion = imageReloadVersions[path] ?: 0
-    val context = LocalContext.current
-    val imageModel = remember(path, reloadVersion) {
-        val revision = imageRequestRevision(path, reloadVersion)
-        ImageRequest.Builder(context)
-            .data(if (path.startsWith("content://")) path else File(path))
-            .memoryCacheKey(revision)
-            .diskCacheKey(revision)
-            .memoryCachePolicy(CachePolicy.DISABLED)
-            .diskCachePolicy(CachePolicy.DISABLED)
-            .build()
-    }
-    AsyncImage(
-        model = imageModel,
-        contentDescription = "已添加的识别图片，点击放大",
-        modifier = Modifier.size(84.dp).clip(RoundedCornerShape(10.dp)).clickable { expanded = true },
-        contentScale = ContentScale.Crop
-    )
-    if (expanded) {
-        ExpandedImageDialog(
-            path = path,
-            imageModel = imageModel,
-            isGraphicCrop = false,
-            onDismiss = { expanded = false },
-            onDelete = { expanded = false; onDelete() },
-            onReplaced = { notifyImageReplaced(path) }
-        )
-    }
-}
-
-@Composable
-internal fun ExpandedImageDialog(
-    path: String,
-    imageModel: Any,
-    isGraphicCrop: Boolean,
-    onDismiss: () -> Unit,
-    onDelete: (() -> Unit)?,
-    onReplaced: () -> Unit
-) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var replacementEditingPath by remember(path) { mutableStateOf<String?>(null) }
-    var saving by remember(path) { mutableStateOf(false) }
-    val replacementLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri != null) {
-            replacementEditingPath = ImageStorage.copyToPrivate(context, uri, "replacement_source")
-            if (replacementEditingPath == null) Toast.makeText(context, "图片读取失败，请重新选择", Toast.LENGTH_SHORT).show()
-        }
-    }
-    fun saveCurrentImage() {
-        if (saving) return
-        scope.launch {
-            saving = true
-            val result = withContext(Dispatchers.IO) { ImageStorage.saveToGallery(context, path) }
-            Toast.makeText(
-                context,
-                if (result.isSuccess) "已保存到系统相册“题迹”" else "保存失败：${result.exceptionOrNull()?.message ?: "未知错误"}",
-                Toast.LENGTH_SHORT
-            ).show()
-            saving = false
-        }
-    }
-    val storagePermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) saveCurrentImage() else Toast.makeText(context, "未授予存储权限，无法保存图片", Toast.LENGTH_SHORT).show()
-    }
-    fun requestSave() {
-        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P &&
-            ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED
-        ) {
-            storagePermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-        } else {
-            saveCurrentImage()
-        }
-    }
-
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        var scale by remember(path) { mutableFloatStateOf(1f) }
-        var offsetX by remember(path) { mutableFloatStateOf(0f) }
-        var offsetY by remember(path) { mutableFloatStateOf(0f) }
-        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.88f)).padding(12.dp)) {
-            AsyncImage(
-                model = imageModel,
-                contentDescription = "放大的题目图片",
-                contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(20.dp))
-                    .graphicsLayer(scaleX = scale, scaleY = scale, translationX = offsetX, translationY = offsetY)
-                    .pointerInput(path) {
-                        detectTransformGestures { _, pan, zoom, _ ->
-                            scale = (scale * zoom).coerceIn(1f, 5f)
-                            offsetX += pan.x
-                            offsetY += pan.y
-                        }
-                    }
-            )
-            TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.TopEnd).padding(12.dp)) {
-                Text("关闭", color = Color.White)
-            }
-            if (onDelete != null) {
-                TextButton(onClick = onDelete, modifier = Modifier.align(Alignment.TopStart).padding(12.dp)) {
-                    Text("删除图片", color = MaterialTheme.colorScheme.error)
-                }
-            }
-            TextButton(
-                onClick = { replacementLauncher.launch("image/*") },
-                modifier = Modifier.align(Alignment.BottomStart).navigationBarsPadding().padding(12.dp)
-            ) { Text("替换图片", color = Color.White) }
-            TextButton(
-                enabled = !saving,
-                onClick = ::requestSave,
-                modifier = Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(12.dp)
-            ) { Text(if (saving) "正在保存…" else "保存到本地", color = Color.White) }
-        }
-    }
-
-    replacementEditingPath?.let { importedPath ->
-        Dialog(onDismissRequest = {}, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-            StandaloneImageEditor(
-                initialPath = importedPath,
-                title = "替换图片",
-                onCancel = {
-                    ImageStorage.deletePrivateFiles(context, listOf(importedPath))
-                    replacementEditingPath = null
-                },
-                onDiscard = { paths -> ImageStorage.deletePrivateFiles(context, paths) },
-                onConfirm = { processedPath ->
-                    scope.launch {
-                        val finalPath = if (isGraphicCrop) {
-                            val cleaned = withContext(Dispatchers.IO) {
-                                ImageProcessor.cleanGraphicCrop(context, processedPath)
-                            }
-                            if (cleaned.isFailure) {
-                                Toast.makeText(
-                                    context,
-                                    "黑白处理失败：${cleaned.exceptionOrNull()?.message ?: "未知错误"}",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                                return@launch
-                            }
-                            cleaned.getOrThrow()
-                        } else {
-                            processedPath
-                        }
-                        val result = withContext(Dispatchers.IO) {
-                            ImageStorage.replacePrivateImage(context, path, finalPath)
-                        }
-                        if (result.isSuccess) {
-                            ImageStorage.deletePrivateFiles(context, listOf(importedPath, processedPath, finalPath).filterNot { it == path })
-                            replacementEditingPath = null
-                            onReplaced()
-                            Toast.makeText(context, "图片已替换", Toast.LENGTH_SHORT).show()
-                        } else {
-                            Toast.makeText(context, "替换失败：${result.exceptionOrNull()?.message ?: "未知错误"}", Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                }
-            )
-        }
-    }
-}
-
-@Composable
 internal fun ImagePreview(
     path: String,
     onDelete: (() -> Unit)? = null,
@@ -740,7 +379,7 @@ internal fun ImagePreview(
         }
     }
     if (expanded) {
-        ExpandedImageDialog(
+        com.tiji.mistakes.ui.image.ExpandedImageDialog(
             path = path,
             imageModel = imageModel,
             isGraphicCrop = isGraphicCrop,

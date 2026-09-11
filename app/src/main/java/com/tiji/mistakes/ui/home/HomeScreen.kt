@@ -44,8 +44,9 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.tiji.mistakes.data.MistakeEntity
+import com.tiji.mistakes.domain.KnowledgePointInsight
+import com.tiji.mistakes.domain.ReviewAnalyticsSummary
 import com.tiji.mistakes.ui.common.formatLocalDate
-import com.tiji.mistakes.ui.common.parseTagValues
 import com.tiji.mistakes.ui.ConceptPageHeader
 import com.tiji.mistakes.ui.ConceptSectionHeader
 import com.tiji.mistakes.ui.ConceptTag
@@ -55,42 +56,21 @@ import com.tiji.mistakes.ui.TijiDimens
 import com.tiji.mistakes.ui.TijiStatusBadge
 import com.tiji.mistakes.ui.TijiSurfaceCard
 
-internal data class WeakPointStat(
-    val label: String,
-    val count: Int,
-    val weakness: Float
-)
-
 @Composable
 internal fun HomeScreen(
     mistakes: List<MistakeEntity>,
     dueCount: Int,
     reviewTotal: Int,
     reviewCompleted: Int,
+    reviewAnalytics: ReviewAnalyticsSummary,
+    weaknessInsights: List<KnowledgePointInsight>,
     onSubject: (String?) -> Unit,
     resetScrollToken: Int,
     onNavigate: (String) -> Unit
 ) {
     val subjects = remember(mistakes) { subjectCounts(mistakes) }
-    val weakPoints = remember(mistakes) {
-        mistakes.asSequence()
-            .flatMap { mistake ->
-                parseTagValues(mistake.tags).map { it to mistake.mastery }
-            }
-            .filter { (_, mastery) -> mastery < 2 }
-            .groupBy { it.first }
-            .entries
-            .sortedWith(compareByDescending<Map.Entry<String, List<Pair<String, Int>>>> { it.value.size }.thenBy { it.key })
-            .take(3)
-            .map { (label, rows) ->
-                val averageMastery = rows.map { it.second.coerceIn(0, 3) }.average().toFloat()
-                WeakPointStat(
-                    label = label,
-                    count = rows.size,
-                    weakness = (1f - averageMastery / 3f).coerceIn(0.12f, 1f)
-                )
-            }
-    }
+    val weakPoints = remember(weaknessInsights) { weaknessInsights.take(3) }
+    val stablePointCount = remember(weaknessInsights) { weaknessInsights.count { it.label == "稳定" } }
     val recentMistakes = remember(mistakes) { mistakes.sortedByDescending { it.updatedAt }.take(2) }
     val listState = rememberLazyListState()
     LaunchedEffect(resetScrollToken) {
@@ -162,6 +142,31 @@ internal fun HomeScreen(
                             reviewTotal > 0 || dueCount > 0 -> "开始今日复习"
                             else -> "查看复习计划"
                         }
+                    )
+                }
+            }
+        }
+        item {
+            TijiSurfaceCard(contentPadding = 12.dp) {
+                Text("本周学习", style = MaterialTheme.typography.titleMedium)
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    HomeMetric(
+                        value = reviewAnalytics.weekCompletedCount.toString(),
+                        label = "本周复习",
+                        modifier = Modifier.weight(1f)
+                    )
+                    HomeMetric(
+                        value = reviewAnalytics.forgotten30DayCount.toString(),
+                        label = "近30天忘记",
+                        modifier = Modifier.weight(1f)
+                    )
+                    HomeMetric(
+                        value = stablePointCount.toString(),
+                        label = "稳定知识点",
+                        modifier = Modifier.weight(1f)
                     )
                 }
             }
@@ -241,7 +246,7 @@ internal fun HomeScreen(
         item {
             TijiSurfaceCard(contentPadding = 12.dp) {
                 if (weakPoints.isEmpty()) {
-                    Text("保存带有标签的错题后，这里会显示需要巩固的知识点。", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("整理错题并完成复习后，这里会显示需要巩固的知识点。", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } else {
                     weakPoints.forEach { point ->
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -257,9 +262,9 @@ internal fun HomeScreen(
                                 ) {
                                     Icon(Icons.Outlined.Lightbulb, contentDescription = null, modifier = Modifier.padding(6.dp).size(18.dp))
                                 }
-                                Text(point.label, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                                Text("${point.count} 道", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text("${(point.weakness * 100).toInt()}%", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                Text(point.point.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                                Text(point.label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                Text("${point.mistakeCount} 道", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             LinearProgressIndicator(
                                 progress = { point.weakness },
@@ -298,5 +303,13 @@ internal fun HomeScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun HomeMetric(value: String, label: String, modifier: Modifier = Modifier) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Text(value, style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

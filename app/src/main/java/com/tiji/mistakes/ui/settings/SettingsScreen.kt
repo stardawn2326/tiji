@@ -79,12 +79,12 @@ import com.tiji.mistakes.service.BackupService
 import com.tiji.mistakes.service.OcrModelDownloadService
 import com.tiji.mistakes.service.OcrModelManager
 import com.tiji.mistakes.service.SecureKeyStore
-import com.tiji.mistakes.ui.CombinedOcrSettingsCard
+import com.tiji.mistakes.ui.settings.components.CombinedOcrSettingsCard
 import com.tiji.mistakes.ui.common.reviewDateKey
 import com.tiji.mistakes.ui.common.weekLabels
 import com.tiji.mistakes.ui.ConceptPageHeader
-import com.tiji.mistakes.ui.ReviewAllocationRow
-import com.tiji.mistakes.ui.SettingCard
+import com.tiji.mistakes.ui.review.components.ReviewAllocationRow
+import com.tiji.mistakes.ui.settings.components.SettingCard
 import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -428,7 +428,7 @@ internal fun SettingsScreen(
             title = { Text(if (preview.legacy) "导入旧版题迹备份" else "导入题迹数据") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("错题 ${preview.mistakeCount} 道 · 图片 ${preview.imageCount} 张 · 复习记录 ${preview.reviewRecordCount} 条")
+                    Text("错题 ${preview.mistakeCount} 道 · 图片 ${preview.imageCount} 张 · 复习记录 ${preview.reviewRecordCount} 条 · 知识点 ${preview.knowledgePointCount} 个")
                     Text(
                         if (preview.legacy) "检测到旧版 ZIP，将自动迁移为当前数据结构。"
                         else "数据版本 ${preview.schemaVersion} · 来源应用 ${preview.appVersion}",

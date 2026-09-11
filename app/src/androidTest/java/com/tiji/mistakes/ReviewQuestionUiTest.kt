@@ -101,6 +101,13 @@ class ReviewQuestionUiTest {
         val after = runBlocking {
             AppDatabase.get(context).mistakeDao().findById(fixtureId)!!
         }
+        val reviewRecords = runBlocking {
+            AppDatabase.get(context).reviewRecordDao().listByMistakeId(fixtureId)
+        }
+        check(reviewRecords.size == 1)
+        check(reviewRecords.single().grade == ReviewGrade.GOOD.name)
+        check(reviewRecords.single().masteryBefore == before.mastery)
+        check(reviewRecords.single().masteryAfter == expected.masteryAfter)
         check(after.nextReviewAt > System.currentTimeMillis())
         val dueCountAfter = runBlocking {
             AppDatabase.get(context).mistakeDao().observeDueCount(System.currentTimeMillis()).first()

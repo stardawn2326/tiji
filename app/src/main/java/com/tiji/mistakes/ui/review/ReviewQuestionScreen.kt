@@ -247,9 +247,10 @@ internal fun ReviewQuestionScreen(
                                     Card(
                                         onClick = {
                                             if (selectedGrade == null) {
-                                                viewModel.review(current, grade)
+                                                viewModel.review(current, grade) {
+                                                    onReviewed(current.id, grade)
+                                                }
                                                 selectedGrade = grade
-                                                onReviewed(current.id, grade)
                                             }
                                         },
                                         enabled = selectedGrade == null || selected,
