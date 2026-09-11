@@ -142,6 +142,19 @@ class MistakeRepository(private val database: AppDatabase) {
         linked
     }
 
+    /** Rebuilds structured knowledge links only for the imported mistake IDs. */
+    suspend fun syncKnowledgePointsForMistakes(mistakeIds: Collection<Long>): Int {
+        val distinctIds = mistakeIds.filter { it > 0L }.distinct()
+        if (distinctIds.isEmpty()) return 0
+        return database.withTransaction {
+            var linked = 0
+            dao.findByIds(distinctIds).forEach { mistake ->
+                linked += syncKnowledgePointsForMistake(mistake)
+            }
+            linked
+        }
+    }
+
     private suspend fun syncKnowledgePointsForMistake(mistake: MistakeEntity): Int {
         if (mistake.id <= 0L) return 0
         val pointDao = database.knowledgePointDao()

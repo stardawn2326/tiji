@@ -10,6 +10,7 @@ import com.tiji.mistakes.data.KnowledgePointEntity
 import com.tiji.mistakes.data.KnowledgePointNormalizer
 import com.tiji.mistakes.data.MistakeEntity
 import com.tiji.mistakes.data.MistakeKnowledgePointCrossRef
+import com.tiji.mistakes.data.MistakeRepository
 import com.tiji.mistakes.data.ReviewRecordEntity
 import com.tiji.mistakes.domain.ReviewGrade
 import kotlinx.coroutines.Dispatchers
@@ -49,7 +50,7 @@ data class BackupImportResult(
 object BackupService {
     private const val FORMAT = "tiji-backup"
     private const val SCHEMA_VERSION = 3
-    private const val MIN_READER_SCHEMA_VERSION = 2
+    private const val MIN_READER_SCHEMA_VERSION = 3
     private const val MAX_ENTRY_BYTES = 40L * 1024L * 1024L
     private const val MAX_ARCHIVE_BYTES = 160L * 1024L * 1024L
     private const val MAX_ENTRIES = 20_000
@@ -184,10 +185,24 @@ object BackupService {
         context: Context,
         uri: Uri,
         mode: BackupImportMode
+    ): Result<BackupImportResult> = importBackup(
+        context = context,
+        uri = uri,
+        mode = mode,
+        database = AppDatabase.get(context),
+        preferences = AppPreferences(context)
+    )
+
+    /** Internal database seam used by compatibility tests without mutating device data. */
+    internal suspend fun importBackup(
+        context: Context,
+        uri: Uri,
+        mode: BackupImportMode,
+        database: AppDatabase,
+        preferences: AppPreferences? = null
     ): Result<BackupImportResult> = withContext(Dispatchers.IO) {
         runCatching {
             val payload = parsePayload(readArchive(context, uri))
-            val database = AppDatabase.get(context)
             val dao = database.mistakeDao()
             val reviewDao = database.reviewRecordDao()
             val knowledgePointDao = database.knowledgePointDao()
@@ -369,7 +384,11 @@ object BackupService {
                 }
             }
 
-            AppPreferences(context).importBackupJson(
+            if (payload.preview.schemaVersion < SCHEMA_VERSION && importedStableToLocalId.isNotEmpty()) {
+                MistakeRepository(database).syncKnowledgePointsForMistakes(importedStableToLocalId.values)
+            }
+
+            preferences?.importBackupJson(
                 payload.preferences,
                 importedStableToLocalId,
                 replace = mode == BackupImportMode.REPLACE
@@ -386,7 +405,7 @@ object BackupService {
     private fun parseVersioned(entries: Map<String, ByteArray>, manifest: JSONObject): BackupPayload {
         val schema = manifest.optInt("schemaVersion", 0)
         val minReaderSchema = manifest.optInt("minReaderSchemaVersion", schema)
-        require(schema in 1..SCHEMA_VERSION && minReaderSchema <= SCHEMA_VERSION) {
+        require(schema in 1..SCHEMA_VERSION && minReaderSchema in 1..schema) {
             "备份格式版本 $schema 暂不支持，请升级题迹后再导入"
         }
         val array = entries["data/mistakes.json"]?.decodeUtf8()?.let(::JSONArray)

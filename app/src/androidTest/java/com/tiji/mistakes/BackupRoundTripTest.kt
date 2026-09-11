@@ -8,8 +8,11 @@ import com.tiji.mistakes.data.MistakeRepository
 import com.tiji.mistakes.domain.ReviewGrade
 import com.tiji.mistakes.service.BackupImportMode
 import com.tiji.mistakes.service.BackupService
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.util.zip.ZipInputStream
 import kotlinx.coroutines.runBlocking
+import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -71,6 +74,9 @@ class BackupRoundTripTest {
         assertEquals(3, preview.schemaVersion)
         assertTrue(preview.reviewRecordCount >= beforeReviews.size)
         assertTrue(preview.knowledgePointCount >= beforePoints.size)
+        val manifest = readManifest(archive)
+        assertEquals(3, manifest.optInt("schemaVersion"))
+        assertEquals(3, manifest.optInt("minReaderSchemaVersion"))
 
         database.mistakeDao().deleteMany(listOf(beforeMistake.id))
         assertTrue(database.mistakeDao().findByStableId(fixtureStableId) == null)
@@ -94,4 +100,13 @@ class BackupRoundTripTest {
         assertEquals(beforePoints.map { it.stableId }, restoredPoints.map { it.stableId })
         assertEquals(1, restoredLinks.size)
     }
+
+    private fun readManifest(file: File): JSONObject =
+        ZipInputStream(file.inputStream().buffered()).use { zip ->
+            check(generateSequence { zip.nextEntry }.firstOrNull { it.name == "manifest.json" } != null)
+            JSONObject(ByteArrayOutputStream().use { output ->
+                zip.copyTo(output)
+                output.toByteArray().toString(Charsets.UTF_8)
+            })
+        }
 }

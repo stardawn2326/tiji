@@ -1,6 +1,7 @@
 package com.tiji.mistakes
 
 import com.tiji.mistakes.service.BackupService
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -28,10 +29,10 @@ class BackupServiceTest {
     }
 
     @Test
-    fun acceptsAdditiveFutureVersionWithCompatibleReader() {
+    fun acceptsSchemaTwoBackupWithCompatibleReader() {
         val entries = mapOf(
             "manifest.json" to bytes(
-                """{"format":"tiji-backup","schemaVersion":2,"minReaderSchemaVersion":1,"appVersion":"1.2.0","exportedAt":123}"""
+                """{"format":"tiji-backup","schemaVersion":2,"minReaderSchemaVersion":2,"appVersion":"1.2.0","exportedAt":123}"""
             ),
             "data/mistakes.json" to bytes(
                 """[{"stableId":"stable-1","title":"future"}]"""
@@ -49,7 +50,7 @@ class BackupServiceTest {
     fun inspectsSchemaThreeStructuredLearningData() {
         val entries = mapOf(
             "manifest.json" to bytes(
-                """{"format":"tiji-backup","schemaVersion":3,"minReaderSchemaVersion":2,"appVersion":"1.4.1","exportedAt":123,"reviewRecordCount":1,"knowledgePointCount":1}"""
+                """{"format":"tiji-backup","schemaVersion":3,"minReaderSchemaVersion":3,"appVersion":"1.4.1","exportedAt":123,"reviewRecordCount":1,"knowledgePointCount":1}"""
             ),
             "data/mistakes.json" to bytes(
                 """[{"stableId":"mistake-1","title":"函数题"}]"""
@@ -71,6 +72,16 @@ class BackupServiceTest {
         assertEquals(3, preview.schemaVersion)
         assertEquals(1, preview.reviewRecordCount)
         assertEquals(1, preview.knowledgePointCount)
+    }
+
+    @Test
+    fun legacySchemaTwoReaderRejectsSchemaThreeWriterContract() {
+        val writerManifest = JSONObject()
+            .put("format", "tiji-backup")
+            .put("schemaVersion", 3)
+            .put("minReaderSchemaVersion", 3)
+
+        assertTrue(!legacySchemaTwoReaderAccepts(writerManifest))
     }
 
     @Test
@@ -118,4 +129,10 @@ class BackupServiceTest {
     }
 
     private fun bytes(value: String) = value.toByteArray(Charsets.UTF_8)
+
+    private fun legacySchemaTwoReaderAccepts(manifest: JSONObject): Boolean {
+        val schema = manifest.optInt("schemaVersion", 0)
+        val minReaderSchema = manifest.optInt("minReaderSchemaVersion", schema)
+        return schema >= 1 && minReaderSchema <= 2
+    }
 }
