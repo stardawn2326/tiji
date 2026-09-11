@@ -58,6 +58,9 @@ object AiSolvedMistakeDraftMapper {
         } else {
             input.now
         }
+        val resolvedDifficulty = learning?.difficulty
+            ?.takeIf { it in 1..5 }
+            ?: input.difficulty
         return MistakeEntity(
             id = 0L,
             title = input.title.ifBlank { "AI 解题记录" },
@@ -70,7 +73,7 @@ object AiSolvedMistakeDraftMapper {
             subject = subject,
             questionType = questionType,
             tags = tags,
-            difficulty = (learning?.difficulty ?: input.difficulty).coerceIn(0, 5),
+            difficulty = resolvedDifficulty.coerceIn(0, 5),
             includeSourceImageInPdf = input.includeSourceImageInPdf,
             imagePath = input.imagePath,
             sourceImagePaths = JSONArray(input.sourceImagePaths.filter(String::isNotBlank).distinct()).toString(),

@@ -4,7 +4,9 @@ import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
 import com.tiji.mistakes.domain.ReviewScheduler
 import com.tiji.mistakes.domain.ReviewGrade
+import com.tiji.mistakes.service.AiRecognitionResult
 import com.tiji.mistakes.service.QuestionContentBlockCodec
+import com.tiji.mistakes.service.mergeClassificationMetadata
 import org.json.JSONArray
 
 class MistakeRepository(private val database: AppDatabase) {
@@ -95,6 +97,30 @@ class MistakeRepository(private val database: AppDatabase) {
             sanitizeKnowledgePointParentsInTransaction()
             id
         }
+    }
+
+    /**
+     * Applies asynchronous AI metadata to the row that exists at commit time.
+     *
+     * The classifier may have spent up to two minutes preparing its response.
+     * Its request snapshot is therefore never a safe write-back base: a learner
+     * can edit the mistake while the request is in flight. Re-read and merge
+     * inside this transaction so content, learner metadata, and review choices
+     * are preserved while only classifier-owned fields are added.
+     */
+    suspend fun applyAiClassification(
+        mistakeId: Long,
+        classification: AiRecognitionResult
+    ): MistakeEntity = database.withTransaction {
+        val latest = requireNotNull(dao.findById(mistakeId)) { "已保存的错题不存在：$mistakeId" }
+        val merged = mergeClassificationMetadata(latest, classification).copy(
+            updatedAt = System.currentTimeMillis()
+        )
+        dao.update(merged)
+        syncKnowledgePointsForMistake(merged)
+        database.knowledgePointDao().deleteOrphans()
+        sanitizeKnowledgePointParentsInTransaction()
+        merged
     }
     suspend fun saveAll(mistakes: List<MistakeEntity>) = database.withTransaction {
         dao.upsertAll(mistakes)

@@ -20,6 +20,9 @@ import com.tiji.mistakes.domain.ReviewSessionUiState
 import com.tiji.mistakes.domain.time.LearningCalendar
 import com.tiji.mistakes.service.AiChatMessage
 import com.tiji.mistakes.service.AiChatStateStore
+import com.tiji.mistakes.service.AiAnswerDiagnosisService
+import com.tiji.mistakes.service.AiAnswerDiagnosisState
+import com.tiji.mistakes.service.AiAnswerDiagnosisStatus
 import com.tiji.mistakes.service.AiFollowUpService
 import com.tiji.mistakes.service.AiMistakeClassificationService
 import com.tiji.mistakes.service.AiMistakeSavePhase
@@ -32,7 +35,9 @@ import com.tiji.mistakes.service.AiRecognitionStateStore
 import com.tiji.mistakes.service.AiSolveHistoryRecord
 import com.tiji.mistakes.service.AiSolveHistoryStore
 import com.tiji.mistakes.service.AiSolveRuntime
+import com.tiji.mistakes.service.AiSolveReliabilityMode
 import com.tiji.mistakes.service.AiSolveService
+import com.tiji.mistakes.service.AiSolveDiagnostics
 import com.tiji.mistakes.service.AiSolveStateStore
 import com.tiji.mistakes.service.AiSolveStatus
 import com.tiji.mistakes.service.AiVerificationResult
@@ -49,6 +54,8 @@ import com.tiji.mistakes.service.unreferencedImagePaths
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flatMapLatest
@@ -61,6 +68,8 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import org.json.JSONArray
 
 internal fun copyMistakeWithOwnedImages(context: Context, draft: MistakeEntity, prefix: String): Pair<MistakeEntity, List<String>> {
@@ -107,6 +116,7 @@ data class AiSolveState(
     val solveRunId: String = "",
     val status: AiSolveStatus = AiSolveStatus.IDLE,
     val mode: AiRecognitionMode = AiRecognitionMode.VISION,
+    val reliabilityMode: AiSolveReliabilityMode = AiSolveReliabilityMode.RELIABLE,
     val configurationId: String = "",
     val visualConfigurationId: String = "",
     val modelName: String = "",
@@ -123,6 +133,7 @@ data class AiSolveState(
     val uncertainItems: List<String> = emptyList(),
     val verification: AiVerificationResult = AiVerificationResult(),
     val solutionProtocolVersion: Int = 0,
+    val diagnostics: AiSolveDiagnostics = AiSolveDiagnostics(),
     val historyRecordId: String? = null,
     val historyWriteError: String = "",
     val error: String? = null,
@@ -225,6 +236,9 @@ class MistakeViewModel(
             ?: AiMistakeSaveState(taskId = "", requestId = 0L, phase = AiMistakeSavePhase.IDLE)
     )
     private var aiMistakeSaveObserverJob: Job? = null
+    private val _aiAnswerDiagnosis = MutableStateFlow(AiAnswerDiagnosisState())
+    private var aiAnswerDiagnosisJob: Job? = null
+    private var aiAnswerDiagnosisRequestId = 0L
 
     // Home counts must never depend on the library's active search query.
     val allMistakes: StateFlow<List<MistakeEntity>> = repository.observe("")
@@ -253,6 +267,7 @@ class MistakeViewModel(
     val aiChat: StateFlow<AiChatState> = _aiChat.asStateFlow()
     val aiRecognition: StateFlow<AiRecognitionState> = _aiRecognition.asStateFlow()
     val aiMistakeSave: StateFlow<AiMistakeSaveState> = _aiMistakeSave.asStateFlow()
+    val aiAnswerDiagnosis: StateFlow<AiAnswerDiagnosisState> = _aiAnswerDiagnosis.asStateFlow()
     val reviewSession: StateFlow<ReviewSessionUiState?> = _reviewSession.asStateFlow()
     val reviewSessionSummary: StateFlow<ReviewSessionSummaryState> = _reviewSessionSummary.asStateFlow()
 
@@ -449,9 +464,12 @@ class MistakeViewModel(
         visualEndpoint: String? = null,
         visualModel: String? = null,
         visualApiKey: String? = null,
-        visualConfigurationId: String? = null
+        visualConfigurationId: String? = null,
+        recognitionCorrection: String? = null,
+        reliabilityMode: AiSolveReliabilityMode = AiSolveReliabilityMode.RELIABLE
     ) {
         if (_aiSolve.value.running) return
+        clearAiAnswerDiagnosis()
         activeAiSolveHistoryId = null
         val requestId = ++aiSolveRequestId
         val solveRunId = UUID.randomUUID().toString()
@@ -461,6 +479,7 @@ class MistakeViewModel(
             solveRunId = solveRunId,
             status = AiSolveStatus.RUNNING,
             mode = mode,
+            reliabilityMode = reliabilityMode,
             configurationId = configurationId,
             visualConfigurationId = visualConfigurationId.orEmpty(),
             modelName = model,
@@ -492,8 +511,10 @@ class MistakeViewModel(
                     supplementalText = supplementalText,
                     graphicImagePath = graphicImagePath,
                     mode = mode,
+                    reliabilityMode = reliabilityMode,
                     correctionContext = correctionContext,
                     correctionImagePaths = correctionImagePaths,
+                    recognitionCorrection = recognitionCorrection,
                     visualEndpoint = visualEndpoint,
                     visualModel = visualModel,
                     visualApiKey = visualApiKey,
@@ -509,6 +530,68 @@ class MistakeViewModel(
             aiSolveStore.write(failed.toPersisted())
             _aiSolve.value = failed
         }
+    }
+
+    /** Runs a structured learner-answer check without mutating the mistake yet. */
+    fun startAiAnswerDiagnosis(
+        endpoint: String,
+        model: String,
+        apiKey: String,
+        question: String,
+        candidateSolution: String,
+        userAnswer: String
+    ) {
+        if (_aiAnswerDiagnosis.value.running || userAnswer.isBlank()) return
+        aiAnswerDiagnosisJob?.cancel()
+        val requestId = ++aiAnswerDiagnosisRequestId
+        val startedAt = System.currentTimeMillis()
+        val initial = AiAnswerDiagnosisState(
+            requestId = requestId,
+            status = AiAnswerDiagnosisStatus.RUNNING,
+            answer = userAnswer,
+            startedAt = startedAt,
+            updatedAt = startedAt
+        )
+        _aiAnswerDiagnosis.value = initial
+        aiAnswerDiagnosisJob = viewModelScope.launch {
+            try {
+                val diagnosis = withContext(Dispatchers.IO) {
+                    withTimeout(120_000L) {
+                        AiAnswerDiagnosisService().diagnose(
+                            endpoint = endpoint,
+                            model = model,
+                            apiKey = apiKey,
+                            question = question,
+                            candidateSolution = candidateSolution,
+                            userAnswer = userAnswer
+                        ).getOrThrow()
+                    }
+                }
+                if (_aiAnswerDiagnosis.value.requestId == requestId) {
+                    _aiAnswerDiagnosis.value = initial.copy(
+                        status = AiAnswerDiagnosisStatus.COMPLETED,
+                        result = diagnosis,
+                        updatedAt = System.currentTimeMillis()
+                    )
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                if (_aiAnswerDiagnosis.value.requestId == requestId) {
+                    _aiAnswerDiagnosis.value = initial.copy(
+                        status = AiAnswerDiagnosisStatus.FAILED,
+                        error = error.message ?: error.javaClass.simpleName,
+                        updatedAt = System.currentTimeMillis()
+                    )
+                }
+            }
+        }
+    }
+
+    fun clearAiAnswerDiagnosis() {
+        aiAnswerDiagnosisJob?.cancel()
+        aiAnswerDiagnosisJob = null
+        _aiAnswerDiagnosis.value = AiAnswerDiagnosisState()
     }
 
     fun stopAiSolve() {
@@ -588,6 +671,7 @@ class MistakeViewModel(
             solveRunId = record.solveRunId.ifBlank { "history-${record.id}" },
             status = AiSolveStatus.COMPLETED,
             mode = record.mode,
+            reliabilityMode = record.reliabilityMode,
             configurationId = record.configurationId,
             visualConfigurationId = record.visualConfigurationId,
             modelName = record.modelName,
@@ -603,6 +687,7 @@ class MistakeViewModel(
             uncertainItems = record.uncertainItems,
             verification = record.verification,
             solutionProtocolVersion = record.solutionProtocolVersion,
+            diagnostics = record.diagnostics,
             historyRecordId = record.id,
             startedAt = record.completedAt,
             updatedAt = record.completedAt
@@ -1318,6 +1403,7 @@ private fun AiSolveState.toPersisted() = PersistedAiSolveState(
     status = status,
     sessionId = AiSolveRuntime.sessionId,
     mode = mode,
+    reliabilityMode = reliabilityMode,
     configurationId = configurationId,
     visualConfigurationId = visualConfigurationId,
     modelName = modelName,
@@ -1334,6 +1420,7 @@ private fun AiSolveState.toPersisted() = PersistedAiSolveState(
     uncertainItems = uncertainItems,
     verification = verification,
     solutionProtocolVersion = solutionProtocolVersion,
+    diagnostics = diagnostics,
     historyRecordId = historyRecordId,
     historyWriteError = historyWriteError,
     error = error,
@@ -1346,6 +1433,7 @@ private fun PersistedAiSolveState.toUiState() = AiSolveState(
     solveRunId = solveRunId,
     status = status,
     mode = mode,
+    reliabilityMode = reliabilityMode,
     configurationId = configurationId,
     visualConfigurationId = visualConfigurationId,
     modelName = modelName,
@@ -1362,6 +1450,7 @@ private fun PersistedAiSolveState.toUiState() = AiSolveState(
     uncertainItems = uncertainItems,
     verification = verification,
     solutionProtocolVersion = solutionProtocolVersion,
+    diagnostics = diagnostics,
     historyRecordId = historyRecordId,
     historyWriteError = historyWriteError,
     error = error,

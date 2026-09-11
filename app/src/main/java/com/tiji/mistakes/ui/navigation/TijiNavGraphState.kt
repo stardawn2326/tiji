@@ -36,6 +36,7 @@ internal data class TijiNavGraphState(
     val aiVisualProfiles: List<AiVisualProfile>,
     val aiVisualBindings: Map<String, String>,
     val aiSolveInputMode: String,
+    val aiSolveReliabilityMode: String,
     val aiCaptureInputMode: String,
     val aiUploadConsent: Boolean,
     val aiExcludeSourceImageByDefault: Boolean,

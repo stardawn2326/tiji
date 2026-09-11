@@ -16,6 +16,7 @@ import com.tiji.mistakes.service.extractRecognizedQuestionFromSolution
 import com.tiji.mistakes.service.mathSegmentFormatIssues
 import com.tiji.mistakes.service.validateOcrRecognition
 import com.tiji.mistakes.service.buildSupplementalTextInstruction
+import com.tiji.mistakes.service.buildRecognitionCorrectionInstruction
 import com.tiji.mistakes.service.structuredSolveOutputInstruction
 import com.tiji.mistakes.service.VisualEvidence
 import com.tiji.mistakes.service.combineVisualEvidence
@@ -62,6 +63,16 @@ class AiVisionServiceTest {
         assertTrue(instruction.contains("不是原题来源"))
         assertTrue(instruction.contains("不得写入内部题目标记、题目 segments 或 recognition"))
         assertEquals("", buildSupplementalTextInstruction("   "))
+    }
+
+    @Test
+    fun recognitionCorrectionIsExplicitAndDoesNotBecomeProtocolText() {
+        val instruction = buildRecognitionCorrectionInstruction("把 x=1 修正为 x=-1")
+
+        assertTrue(instruction.contains("<recognition_correction>"))
+        assertTrue(instruction.contains("x=-1"))
+        assertTrue(instruction.contains("只作为题目文字的修正依据"))
+        assertEquals("", buildRecognitionCorrectionInstruction("  "))
     }
 
     @Test

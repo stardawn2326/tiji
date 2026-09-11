@@ -80,12 +80,14 @@ class AiSolveService : Service() {
         val primaryImagePath = imagePaths.firstOrNull()
         val graphicImagePath = command.getStringExtra(EXTRA_GRAPHIC_IMAGE_PATH)
         val correctionContext = command.getStringExtra(EXTRA_CORRECTION_CONTEXT)
+        val recognitionCorrection = command.getStringExtra(EXTRA_RECOGNITION_CORRECTION)
         val correctionImagePaths = command.getStringArrayListExtra(EXTRA_CORRECTION_IMAGE_PATHS).orEmpty()
         val sourceQuestion = question.takeIf { imagePaths.isEmpty() }
         val mode = command.getStringExtra(EXTRA_MODE)
             ?.let { raw -> runCatching { AiRecognitionMode.valueOf(raw) }.getOrNull() }
             ?: AiRecognitionMode.VISION
-        Log.i(TAG, "solve_start request=$requestId run=${solveRunId.take(36)} mode=$mode model=${model.take(80)} images=${imagePaths.size}")
+        val reliabilityMode = AiSolveReliabilityMode.parse(command.getStringExtra(EXTRA_RELIABILITY_MODE))
+        Log.i(TAG, "solve_start request=$requestId run=${solveRunId.take(36)} mode=$mode reliability=$reliabilityMode model=${model.take(80)} images=${imagePaths.size}")
         solveJob = serviceScope.launch {
             val pipelineStartedAt = SystemClock.elapsedRealtime()
             val now = System.currentTimeMillis()
@@ -95,6 +97,7 @@ class AiSolveService : Service() {
                 status = AiSolveStatus.RUNNING,
                 sessionId = AiSolveRuntime.sessionId,
                 mode = mode,
+                reliabilityMode = reliabilityMode,
                 configurationId = configurationId,
                 visualConfigurationId = visualConfigurationId,
                 modelName = model,
@@ -112,6 +115,27 @@ class AiSolveService : Service() {
             var streamedChars = 0
             var responseProgress = 0.30f
             var lastProgressPersistAt = 0L
+            var requestCount = 0
+            var solveDurationMs = 0L
+            var verifyDurationMs = 0L
+            var repairDurationMs = 0L
+            fun diagnosticsSnapshot(candidate: String? = null): AiSolveDiagnostics {
+                val visibleCandidate = candidate?.takeIf(String::isNotBlank)
+                    ?: streamedAnswer.takeIf(String::isNotBlank)
+                    ?: stateStore.read().streamedText.takeIf(String::isNotBlank)
+                    ?: runningState.completeText.orEmpty()
+                val protocolVersion = detectSolutionProtocolVersion(visibleCandidate)
+                return AiSolveDiagnostics(
+                    solveDurationMs = solveDurationMs.takeIf { it > 0L }
+                        ?: (SystemClock.elapsedRealtime() - pipelineStartedAt).coerceAtLeast(0L),
+                    verifyDurationMs = verifyDurationMs,
+                    repairDurationMs = repairDurationMs,
+                    requestCount = requestCount,
+                    v3Success = protocolVersion == 3,
+                    v2Fallback = protocolVersion == 2,
+                    legacyFallback = protocolVersion < 2
+                )
+            }
             try {
                 // Keep the complete local OCR document when available.  The
                 // text-only call used to discard its diagram blocks, which
@@ -165,6 +189,7 @@ class AiSolveService : Service() {
                 } else {
                     MAX_SOLVE_DURATION_MS
                 }
+                requestCount += 1
                 var complete = withTimeout(solveTimeout) {
                     suspend fun onDelta(delta: String) {
                         streamedChars += delta.length
@@ -195,6 +220,7 @@ class AiSolveService : Service() {
                             imagePaths = imagePaths,
                             supplementalText = supplementalText,
                             correctionContext = correctionContext,
+                            recognitionCorrection = recognitionCorrection,
                             supplementalImagePaths = correctionImagePaths,
                             onDelta = ::onDelta
                         ).getOrThrow().also { visualEvidence = it.evidence }.solution
@@ -210,17 +236,23 @@ class AiSolveService : Service() {
                             diagramEvidence = localOcrDiagramEvidence.takeIf { mode == AiRecognitionMode.LOCAL_OCR },
                             supplementalText = supplementalText,
                             correctionContext = correctionContext,
+                            recognitionCorrection = recognitionCorrection,
                             supplementalImagePaths = correctionImagePaths.takeIf { mode == AiRecognitionMode.VISION }.orEmpty(),
                             onDelta = ::onDelta
                         ).getOrThrow()
                     }
                 }
+                solveDurationMs = SystemClock.elapsedRealtime() - pipelineStartedAt
                 // From this point onward, parsing/cropping failures must not
                 // hide a response the provider already returned.
                 streamedAnswer = complete
                 Log.i(TAG, "solve_response_complete request=$requestId elapsedMs=${SystemClock.elapsedRealtime() - pipelineStartedAt} chars=${complete.length}")
 
-                var verification = AiVerificationResult.unavailable()
+                var verification = if (reliabilityMode == AiSolveReliabilityMode.FAST) {
+                    AiVerificationResult.unavailable("快速模式未执行独立一致性检查")
+                } else {
+                    AiVerificationResult.unavailable()
+                }
                 if (complete.isNotBlank()) {
                     val verificationQuestion = listOf(
                         textQuestion,
@@ -230,75 +262,86 @@ class AiSolveService : Service() {
                         visualEvidence?.toRecognizedQuestion()?.question
                     ).firstOrNull { it?.isNotBlank() == true }.orEmpty()
                         .ifBlank { "（题目文本未单独抽取，请结合候选解答中的题目识别部分核对）" }
-                    runningState = runningState.copy(
-                        status = AiSolveStatus.VERIFYING,
-                        progress = 0.96f,
-                        streamedText = "",
-                        completeText = complete,
-                        updatedAt = System.currentTimeMillis()
-                    )
-                    writeIfRunning(requestId, runningState)
-
-                    suspend fun <T> boundedCheck(block: suspend () -> T): Result<T> = try {
-                        Result.success(withTimeout(VERIFIER_TIMEOUT_MS) { block() })
-                    } catch (error: CancellationException) {
-                        if (error is TimeoutCancellationException) Result.failure(error) else throw error
-                    } catch (error: Throwable) {
-                        Result.failure(error)
-                    }
-
-                    val firstVerification = boundedCheck {
-                        solutionVerifier.verify(
-                            endpoint = endpoint,
-                            model = model,
-                            apiKey = apiKey,
-                            question = verificationQuestion,
-                            candidateSolution = complete
-                        ).getOrThrow()
-                    }
-                    verification = firstVerification.getOrElse { error ->
-                        AiVerificationResult.unavailable(
-                            "本次未完成一致性检查：${error.message ?: "校验服务不可用"}"
-                        )
-                    }
-                    if (verification.status == AiVerificationStatus.FAILED) {
+                    if (reliabilityMode == AiSolveReliabilityMode.RELIABLE) {
                         runningState = runningState.copy(
-                            status = AiSolveStatus.REPAIRING,
-                            progress = 0.975f,
+                            status = AiSolveStatus.VERIFYING,
+                            progress = 0.96f,
+                            streamedText = "",
+                            completeText = complete,
                             updatedAt = System.currentTimeMillis()
                         )
                         writeIfRunning(requestId, runningState)
-                        val repaired = boundedCheck {
-                            solutionRepairer.repair(
+
+                        suspend fun <T> boundedCheck(block: suspend () -> T): Result<T> = try {
+                            Result.success(withTimeout(VERIFIER_TIMEOUT_MS) { block() })
+                        } catch (error: CancellationException) {
+                            if (error is TimeoutCancellationException) Result.failure(error) else throw error
+                        } catch (error: Throwable) {
+                            Result.failure(error)
+                        }
+
+                        val verifyStartedAt = SystemClock.elapsedRealtime()
+                        requestCount += 1
+                        val firstVerification = boundedCheck {
+                            solutionVerifier.verify(
                                 endpoint = endpoint,
                                 model = model,
                                 apiKey = apiKey,
                                 question = verificationQuestion,
-                                candidateSolution = complete,
-                                issues = verification.issues
+                                candidateSolution = complete
                             ).getOrThrow()
-                        }.getOrNull()?.trim().orEmpty()
-                        if (isUsableAiSolution(repaired)) {
-                            complete = repaired
-                            streamedAnswer = complete
-                            val repairedVerification = boundedCheck {
-                                solutionVerifier.verify(
+                        }
+                        verification = firstVerification.getOrElse { error ->
+                            AiVerificationResult.unavailable(
+                                "本次未完成一致性检查：${error.message ?: "校验服务不可用"}"
+                            )
+                        }
+                        verifyDurationMs = SystemClock.elapsedRealtime() - verifyStartedAt
+                        if (verification.status == AiVerificationStatus.FAILED) {
+                            runningState = runningState.copy(
+                                status = AiSolveStatus.REPAIRING,
+                                progress = 0.975f,
+                                updatedAt = System.currentTimeMillis()
+                            )
+                            writeIfRunning(requestId, runningState)
+                            val repairStartedAt = SystemClock.elapsedRealtime()
+                            requestCount += 1
+                            val repaired = boundedCheck {
+                                solutionRepairer.repair(
                                     endpoint = endpoint,
                                     model = model,
                                     apiKey = apiKey,
                                     question = verificationQuestion,
-                                    candidateSolution = complete
+                                    candidateSolution = complete,
+                                    issues = verification.issues
                                 ).getOrThrow()
+                            }.getOrNull()?.trim().orEmpty()
+                            repairDurationMs = SystemClock.elapsedRealtime() - repairStartedAt
+                            if (isUsableAiSolution(repaired)) {
+                                complete = repaired
+                                streamedAnswer = complete
+                                requestCount += 1
+                                val reverifyStartedAt = SystemClock.elapsedRealtime()
+                                val repairedVerification = boundedCheck {
+                                    solutionVerifier.verify(
+                                        endpoint = endpoint,
+                                        model = model,
+                                        apiKey = apiKey,
+                                        question = verificationQuestion,
+                                        candidateSolution = complete
+                                    ).getOrThrow()
+                                }
+                                verifyDurationMs += SystemClock.elapsedRealtime() - reverifyStartedAt
+                                verification = repairedVerification.getOrElse { error ->
+                                    AiVerificationResult.unavailable(
+                                        "修正解答已保留，但本次未完成复核：${error.message ?: "校验服务不可用"}"
+                                    )
+                                }.copy(repairAttempted = true)
+                            } else {
+                                // Keep the original answer visible when a repair is
+                                // empty, malformed, or unavailable.
+                                verification = verification.copy(repairAttempted = true)
                             }
-                            verification = repairedVerification.getOrElse { error ->
-                                AiVerificationResult.unavailable(
-                                    "修正解答已保留，但本次未完成复核：${error.message ?: "校验服务不可用"}"
-                                )
-                            }.copy(repairAttempted = true)
-                        } else {
-                            // Keep the original answer visible when a repair is
-                            // empty, malformed, or unavailable.
-                            verification = verification.copy(repairAttempted = true)
                         }
                     }
                 }
@@ -431,6 +474,8 @@ class AiSolveService : Service() {
                 } else {
                     complete
                 }
+                val solutionProtocolVersion = detectSolutionProtocolVersion(complete)
+                val diagnostics = diagnosticsSnapshot(complete)
                 runningState = runningState.copy(
                     question = finalQuestion,
                     graphicImagePath = displayQuestionBlocks.firstOrNull()?.path,
@@ -438,7 +483,8 @@ class AiSolveService : Service() {
                     recognitionWarning = recognitionWarning,
                     uncertainItems = uncertainItems,
                     verification = verification,
-                    solutionProtocolVersion = detectSolutionProtocolVersion(complete)
+                    solutionProtocolVersion = solutionProtocolVersion,
+                    diagnostics = diagnostics
                 )
                 if (complete.isBlank()) {
                     error("AI 未返回可展示的解题结果")
@@ -478,6 +524,7 @@ class AiSolveService : Service() {
                         progress = current.progress,
                         streamedText = "",
                         completeText = partial.takeIf(String::isNotBlank),
+                        diagnostics = diagnosticsSnapshot(partial),
                         error = if (mode == AiRecognitionMode.LOCAL_OCR) {
                             "OCR+文本模型解题超时：模型响应时间过长，请检查网络或稍后重试"
                         } else if (mode == AiRecognitionMode.VISUAL_ASSISTED) {
@@ -503,6 +550,7 @@ class AiSolveService : Service() {
                         progress = current.progress,
                         streamedText = "",
                         completeText = partial.takeIf(String::isNotBlank),
+                        diagnostics = diagnosticsSnapshot(partial),
                         error = error.message ?: error.javaClass.simpleName,
                         updatedAt = System.currentTimeMillis()
                     )
@@ -624,14 +672,17 @@ class AiSolveService : Service() {
         const val EXTRA_IMAGE_PATHS = "image_paths"
         const val EXTRA_GRAPHIC_IMAGE_PATH = "graphic_image_path"
         const val EXTRA_MODE = "mode"
+        const val EXTRA_RELIABILITY_MODE = "reliability_mode"
         const val EXTRA_CORRECTION_CONTEXT = "correction_context"
         const val EXTRA_CORRECTION_IMAGE_PATHS = "correction_image_paths"
+        const val EXTRA_RECOGNITION_CORRECTION = "recognition_correction"
         private const val MAX_SOLVE_DURATION_MS = 300_000L
         private const val MAX_LOCAL_OCR_SOLVE_DURATION_MS = 360_000L
         private const val VERIFIER_TIMEOUT_MS = 120_000L
         private const val RESPONSE_ESTIMATE_CHARS = 4_000
         private const val MAX_STREAMED_TEXT_LENGTH = 24_000
         private const val MAX_CORRECTION_CONTEXT_LENGTH = 24_000
+        private const val MAX_RECOGNITION_CORRECTION_LENGTH = 12_000
         private const val MAX_SUPPLEMENTAL_TEXT_LENGTH = 12_000
         private const val STREAM_PROGRESS_PERSIST_INTERVAL_MS = 250L
 
@@ -649,8 +700,10 @@ class AiSolveService : Service() {
             supplementalText: String? = null,
             graphicImagePath: String? = null,
             mode: AiRecognitionMode = AiRecognitionMode.VISION,
+            reliabilityMode: AiSolveReliabilityMode = AiSolveReliabilityMode.RELIABLE,
             correctionContext: String? = null,
             correctionImagePaths: List<String> = emptyList(),
+            recognitionCorrection: String? = null,
             visualEndpoint: String? = null,
             visualModel: String? = null,
             visualApiKey: String? = null,
@@ -675,8 +728,12 @@ class AiSolveService : Service() {
             putStringArrayListExtra(EXTRA_IMAGE_PATHS, ArrayList(imagePaths.filter(String::isNotBlank).distinct()))
             putExtra(EXTRA_GRAPHIC_IMAGE_PATH, graphicImagePath)
             putExtra(EXTRA_MODE, mode.name)
+            putExtra(EXTRA_RELIABILITY_MODE, reliabilityMode.name)
             correctionContext?.takeIf { it.isNotBlank() }?.let {
                 putExtra(EXTRA_CORRECTION_CONTEXT, it.take(MAX_CORRECTION_CONTEXT_LENGTH))
+            }
+            recognitionCorrection?.trim()?.takeIf { it.isNotBlank() }?.let {
+                putExtra(EXTRA_RECOGNITION_CORRECTION, it.take(MAX_RECOGNITION_CORRECTION_LENGTH))
             }
             putStringArrayListExtra(
                 EXTRA_CORRECTION_IMAGE_PATHS,

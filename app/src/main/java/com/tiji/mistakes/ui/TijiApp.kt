@@ -74,6 +74,7 @@ fun TijiApp() {
     val aiVisualProfiles by preferences.aiVisualProfiles.collectAsStateWithLifecycle(emptyList())
     val aiVisualBindings by preferences.aiVisualBindings.collectAsStateWithLifecycle(emptyMap())
     val aiSolveInputMode by preferences.aiSolveInputMode.collectAsStateWithLifecycle(AppPreferences.DEFAULT_INPUT_MODE)
+    val aiSolveReliabilityMode by preferences.aiSolveReliabilityMode.collectAsStateWithLifecycle("RELIABLE")
     val aiCaptureInputMode by preferences.aiCaptureInputMode.collectAsStateWithLifecycle(AppPreferences.DEFAULT_INPUT_MODE)
     val activeAiProfile = remember(aiProfiles, activeAiProfileId) {
         aiProfiles.firstOrNull { it.id == activeAiProfileId } ?: aiProfiles.firstOrNull()
@@ -191,6 +192,7 @@ fun TijiApp() {
         aiVisualProfiles = aiVisualProfiles,
         aiVisualBindings = aiVisualBindings,
         aiSolveInputMode = aiSolveInputMode,
+        aiSolveReliabilityMode = aiSolveReliabilityMode,
         aiCaptureInputMode = aiCaptureInputMode,
         aiUploadConsent = aiUploadConsent,
         aiExcludeSourceImageByDefault = aiExcludeSourceImageByDefault,

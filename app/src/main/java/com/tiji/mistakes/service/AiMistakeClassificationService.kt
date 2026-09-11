@@ -121,7 +121,10 @@ class AiMistakeClassificationService : Service() {
                     solvedContent = source
                 )
             }.getOrThrow()
-            repository.save(mergeClassificationMetadata(mistake, classification))
+            // The pre-request snapshot is used only to build the prompt. The
+            // repository re-reads the latest row before merging so a learner
+            // edit made while the classifier was waiting cannot be overwritten.
+            repository.applyAiClassification(mistakeId, classification)
             taskStore.upsert(
                 running.copy(
                     phase = AiMistakeSavePhase.CLASSIFICATION_COMPLETED,

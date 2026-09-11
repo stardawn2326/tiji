@@ -149,4 +149,28 @@ class AiMistakeSaveStateTest {
         assertFalse(draft.inReviewPlan)
         assertTrue(draft.note.contains("先约分"))
     }
+
+    @Test
+    fun unknownV3DifficultyFallsBackToLearnerInput() {
+        val solution = AiStructuredSolutionV3(
+            recognition = AiSolutionRecognition(listOf(QuestionSegment("text", "求极限"))),
+            solution = AiSolutionBody(
+                finalAnswer = listOf(QuestionSegment("text", "1"))
+            ),
+            learning = com.tiji.mistakes.service.AiLearningMetadata(difficulty = 0)
+        )
+
+        val draft = AiSolvedMistakeDraftMapper.map(
+            AiSolvedMistakeDraftInput(
+                rawSolution = AiStructuredSolutionV3Codec.encode(solution),
+                title = "极限题",
+                question = "求极限",
+                answer = "1",
+                explanation = "",
+                difficulty = 4
+            )
+        )
+
+        assertEquals(4, draft.difficulty)
+    }
 }

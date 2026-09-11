@@ -195,6 +195,7 @@ internal fun TijiNavGraph(
                         activeAiProfileId = state.activeAiProfileId,
                         visualAssistProfile = state.aiVisualProfiles.firstOrNull { it.id == state.aiVisualBindings[state.activeAiProfileId] },
                         initialAiInputMode = state.aiSolveInputMode,
+                        initialReliabilityMode = state.aiSolveReliabilityMode,
                         aiUploadConsent = state.aiUploadConsent,
                         aiExcludeSourceImageByDefault = state.aiExcludeSourceImageByDefault,
                         onActiveAiProfile = { id -> scope.launch { preferences.setActiveAiProfile(id, state.aiProfiles) } },
@@ -204,6 +205,7 @@ internal fun TijiNavGraph(
                         onOpenMistake = { id -> navController.navigate(TijiRoutes.detail(id)) },
                         onAiUploadConsent = { value -> scope.launch { preferences.setAiUploadConsent(value) } },
                         onAiInputMode = { value -> scope.launch { preferences.setAiSolveInputMode(value.name) } },
+                        onReliabilityMode = { value -> scope.launch { preferences.setAiSolveReliabilityMode(value.name) } },
                         solveVisitToken = state.solveVisitToken
                     )
                 }
