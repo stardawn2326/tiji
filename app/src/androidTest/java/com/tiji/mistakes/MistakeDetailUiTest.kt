@@ -1,7 +1,9 @@
 package com.tiji.mistakes
 
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -53,6 +55,8 @@ class MistakeDetailUiTest {
             detailContent.performScrollToNode(hasText(label))
             composeRule.onNodeWithText(label).assertExists()
         }
+        detailContent.performScrollToNode(hasTestTag("detail_review_card"))
+        composeRule.onNodeWithTag("detail_review_card").assertExists()
         composeRule.onNodeWithText("复习打卡").assertExists()
         composeRule.onNodeWithTag("detail_mastery_action").assertExists()
 
@@ -80,8 +84,49 @@ class MistakeDetailUiTest {
 
         composeRule.onNodeWithTag("mistake_card_$fixtureId").performClick()
         composeRule.waitUntil(5_000) {
-            composeRule.onAllNodesWithTag("detail_mastery_action").fetchSemanticsNodes().isNotEmpty()
+            composeRule.onAllNodesWithTag("detail_content").fetchSemanticsNodes().isNotEmpty()
         }
+        composeRule.onNodeWithTag("detail_content").performScrollToNode(hasTestTag("detail_review_card"))
         composeRule.onNodeWithText("复习打卡").assertExists()
+    }
+
+    @Test
+    fun detailHasSingleExplanationEntryAndKeepsViewEditActionsSeparate() {
+        composeRule.onNodeWithTag("nav_library").performClick()
+        composeRule.waitUntil(5_000) {
+            composeRule.onAllNodesWithTag("mistake_card_$fixtureId").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("mistake_card_$fixtureId").performClick()
+        val detailContent = composeRule.onNodeWithTag("detail_content")
+
+        detailContent.performScrollToNode(hasTestTag("detail_explanation_toggle"))
+        composeRule.onAllNodesWithTag("detail_explanation_toggle").fetchSemanticsNodes().also {
+            check(it.size == 1) { "解析展开入口应只有一个，实际为 ${it.size} 个" }
+        }
+        composeRule.onNodeWithTag("detail_explanation_toggle")
+            .assertTextEquals("查看")
+            .performClick()
+        composeRule.onNodeWithTag("detail_explanation_toggle").assertTextEquals("收起")
+        composeRule.onNodeWithTag("detail_explanation_toggle").performClick()
+        composeRule.onNodeWithTag("detail_explanation_toggle").assertTextEquals("查看")
+        composeRule.onNodeWithText("查看完整解析").assertDoesNotExist()
+        composeRule.onNodeWithText("收起完整解析").assertDoesNotExist()
+        composeRule.onNodeWithTag("detail_edit_save_bar").assertDoesNotExist()
+
+        detailContent.performScrollToNode(hasTestTag("detail_review_card"))
+        composeRule.onNodeWithTag("detail_mastery_action").performClick()
+        composeRule.onNodeWithText("这次怎么样？").assertExists()
+        ReviewGrade.values().forEach { grade ->
+            composeRule.onNodeWithTag("detail_grade_${grade.name.lowercase()}").assertExists()
+        }
+        composeRule.onNodeWithText("取消").performClick()
+
+        composeRule.onNodeWithTag("detail_more").performClick()
+        listOf("编辑错题", "移出复习", "打印此题", "删除错题").forEach { label ->
+            composeRule.onNodeWithText(label).assertExists()
+        }
+        composeRule.onNodeWithText("编辑错题").performClick()
+        composeRule.onNodeWithTag("detail_edit_save_bar").assertExists()
+        composeRule.onNodeWithText("保存修改").assertExists()
     }
 }
