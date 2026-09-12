@@ -144,13 +144,11 @@ internal fun TijiNavGraph(
                         onSelectKnowledgePoint = { stableId -> onLibraryKnowledgePoint(stableId) },
                         viewModel = viewModel,
                         mistakes = state.mistakes,
-                        knowledgePointInsights = state.weaknessInsights,
                         knowledgePoints = state.knowledgePoints,
                         knowledgePointLinks = state.knowledgePointLinks,
                         exportOriginalImagesOnly = !state.aiExcludeSourceImageByDefault,
                         onOpen = { navController.navigate(TijiRoutes.detail(it)) },
                         onCreate = { navController.navigate(TijiRoutes.CAPTURE) },
-                        onOpenKnowledge = { navController.navigate(TijiRoutes.KNOWLEDGE) },
                         onStartSelectedReview = { selectedIds ->
                             val activeIds = state.mistakes.mapTo(mutableSetOf()) { it.id }
                             val validIds = selectedIds.filter { it in activeIds }.distinct()

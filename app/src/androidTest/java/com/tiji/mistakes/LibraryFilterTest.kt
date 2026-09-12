@@ -80,6 +80,11 @@ class LibraryFilterTest {
     @Test
     fun librarySearchAndFiltersChangeResults() {
         composeRule.onNodeWithTag("nav_library").performClick()
+        composeRule.onNodeWithText("重点知识点").assertDoesNotExist()
+        composeRule.onNodeWithText("知识点库").assertDoesNotExist()
+        composeRule.onNodeWithTag("library_knowledge_filter").assertDoesNotExist()
+        composeRule.onNodeWithText("结构化知识点").assertDoesNotExist()
+        composeRule.onNodeWithText("旧标签兼容").assertDoesNotExist()
         scrollToFixture(fixtureIds.first())
 
         composeRule.onNodeWithTag("library_search")
@@ -104,13 +109,9 @@ class LibraryFilterTest {
         composeRule.onNodeWithTag("mistake_card_${fixtureIds[1]}").assertExists()
         composeRule.onNodeWithTag("mistake_card_${fixtureIds[2]}").assertDoesNotExist()
 
-        composeRule.onNodeWithTag("library_knowledge_filter").performClick()
-        composeRule.onNodeWithText("函数 · 数学").assertExists().performClick()
-        scrollToFixture(fixtureIds[0])
-        composeRule.onNodeWithTag("mistake_card_${fixtureIds[0]}").assertExists()
-        composeRule.onNodeWithTag("mistake_card_${fixtureIds[1]}").assertDoesNotExist()
-
         composeRule.onNodeWithTag("library_mastery_filter").performClick()
+        composeRule.onNodeWithText("结构化知识点").assertDoesNotExist()
+        composeRule.onNodeWithText("旧标签兼容").assertDoesNotExist()
         composeRule.onAllNodesWithText("未掌握")[1].assertExists().performClick()
         composeRule.onNodeWithText("完成").performClick()
         scrollToFixture(fixtureIds[0])

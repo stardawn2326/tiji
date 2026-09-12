@@ -68,7 +68,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.tiji.mistakes.data.KnowledgePointEntity
 import com.tiji.mistakes.data.MistakeEntity
 import com.tiji.mistakes.data.MistakeKnowledgePointCrossRef
-import com.tiji.mistakes.domain.KnowledgePointInsight
 import com.tiji.mistakes.service.HtmlPdfExportService
 import com.tiji.mistakes.service.PdfExportOptions
 import com.tiji.mistakes.service.PdfTemplate
@@ -80,7 +79,6 @@ import com.tiji.mistakes.ui.common.discardPdfPreview
 import com.tiji.mistakes.ui.common.launchDurablePdfExport
 import com.tiji.mistakes.ui.common.masteryLabel
 import com.tiji.mistakes.ui.common.MistakeOrder
-import com.tiji.mistakes.ui.common.parseTagValues
 import com.tiji.mistakes.ui.common.PdfPreviewDialog
 import com.tiji.mistakes.ui.common.PdfPreviewLoadingDialog
 import com.tiji.mistakes.ui.common.PdfExportOptionsDialog
@@ -103,13 +101,11 @@ internal fun LibraryScreen(
     onSelectKnowledgePoint: (String?) -> Unit,
     viewModel: MistakeViewModel,
     mistakes: List<MistakeEntity>,
-    knowledgePointInsights: List<KnowledgePointInsight> = emptyList(),
     knowledgePoints: List<KnowledgePointEntity> = emptyList(),
     knowledgePointLinks: List<MistakeKnowledgePointCrossRef> = emptyList(),
     exportOriginalImagesOnly: Boolean,
     onOpen: (Long) -> Unit,
     onCreate: () -> Unit,
-    onOpenKnowledge: () -> Unit,
     onStartSelectedReview: (List<Long>) -> Unit = {}
 ) {
     val query by viewModel.searchQuery.collectAsStateWithLifecycle()
@@ -123,8 +119,6 @@ internal fun LibraryScreen(
     var showFilterDialog by remember { mutableStateOf(false) }
     var masteryFilter by remember { mutableStateOf<Int?>(null) }
     var difficultyFilter by remember { mutableStateOf<Int?>(null) }
-    var tagFilter by remember { mutableStateOf<String?>(null) }
-    var tagMenuExpanded by remember { mutableStateOf(false) }
     var sortMenuExpanded by remember { mutableStateOf(false) }
     var visibleLimit by remember { mutableIntStateOf(40) }
     var pendingExportIds by rememberSaveable { mutableStateOf(longArrayOf()) }
@@ -192,35 +186,22 @@ internal fun LibraryScreen(
             if (selectedSubject != null && selectedSubject !in this) add(selectedSubject)
         }
     }
-    val availableTags = remember(mistakes) {
-        mistakes.flatMap { parseTagValues(it.tags) }.distinct().sorted()
-    }
-    val availableKnowledgePoints = remember(knowledgePoints, knowledgePointLinks, selectedSubject) {
-        val linkedPointIds = knowledgePointLinks.map { it.knowledgePointId }.toSet()
-        knowledgePoints
-            .filter { it.id in linkedPointIds && (selectedSubject == null || it.subject == selectedSubject) }
-            .sortedWith(compareBy({ it.subject }, { it.normalizedName }, { it.stableId }))
-    }
-    val selectedKnowledgePoint = remember(knowledgePoints, selectedKnowledgePointStableId) {
-        knowledgePoints.firstOrNull { it.stableId == selectedKnowledgePointStableId }
-    }
     val selectedKnowledgePointMistakeIds = remember(selectedKnowledgePointStableId, knowledgePoints, knowledgePointLinks) {
         selectedKnowledgePointStableId?.let { stableId ->
             val pointId = knowledgePoints.firstOrNull { it.stableId == stableId }?.id
             pointId?.let { id -> knowledgePointLinks.filter { it.knowledgePointId == id }.map { it.mistakeId }.toSet() }
         }
     }
-    val visibleMistakes = remember(mistakes, order, selectedSubject, selectedKnowledgePointStableId, selectedKnowledgePointMistakeIds, masteryFilter, difficultyFilter, tagFilter) {
+    val visibleMistakes = remember(mistakes, order, selectedSubject, selectedKnowledgePointStableId, selectedKnowledgePointMistakeIds, masteryFilter, difficultyFilter) {
         val filtered = mistakes.filter {
             (selectedSubject == null || normalizedSubject(it.subject) == selectedSubject) &&
                 (selectedKnowledgePointMistakeIds == null || it.id in selectedKnowledgePointMistakeIds) &&
                 (masteryFilter == null || it.mastery == masteryFilter) &&
-                (tagFilter?.let { filter -> filter in parseTagValues(it.tags) } ?: true) &&
                 difficultyMatchesFilter(it.difficulty, difficultyFilter)
         }
         when(order) { MistakeOrder.NEWEST -> filtered.sortedByDescending { it.uploadedAt }; MistakeOrder.OLDEST -> filtered.sortedBy { it.uploadedAt }; MistakeOrder.UPDATED -> filtered.sortedByDescending { it.updatedAt } }
     }
-    LaunchedEffect(query, order, selectedSubject, selectedKnowledgePointStableId, masteryFilter, difficultyFilter, tagFilter) {
+    LaunchedEffect(query, order, selectedSubject, selectedKnowledgePointStableId, masteryFilter, difficultyFilter) {
         selectedIds = emptySet()
         selectionMode = false
         visibleLimit = 40
@@ -374,36 +355,6 @@ internal fun LibraryScreen(
                             TijiChip(selected = masteryFilter == value, onClick = { masteryFilter = value }, label = { Text(label) })
                         }
                     }
-                    Text("结构化知识点", style = MaterialTheme.typography.titleSmall)
-                    if (availableKnowledgePoints.isEmpty()) {
-                        Text("暂无已整理的知识点", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    } else {
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            item {
-                                TijiChip(selected = selectedKnowledgePointStableId == null, onClick = { onSelectKnowledgePoint(null) }, label = { Text("全部") })
-                            }
-                            items(availableKnowledgePoints, key = { it.stableId }) { point ->
-                                TijiChip(
-                                    selected = selectedKnowledgePointStableId == point.stableId,
-                                    onClick = { onSelectKnowledgePoint(point.stableId) },
-                                    label = { Text(point.name) }
-                                )
-                            }
-                        }
-                    }
-                    Text("旧标签兼容", style = MaterialTheme.typography.titleSmall)
-                    if (availableTags.isEmpty()) {
-                        Text("暂无旧标签", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    } else {
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            item {
-                                TijiChip(selected = tagFilter == null, onClick = { tagFilter = null }, label = { Text("全部") })
-                            }
-                            items(availableTags) { tag ->
-                                TijiChip(selected = tagFilter == tag, onClick = { tagFilter = tag }, label = { Text(tag) })
-                            }
-                        }
-                    }
                     Text("难度", style = MaterialTheme.typography.titleSmall)
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         item {
@@ -422,7 +373,7 @@ internal fun LibraryScreen(
             },
             confirmButton = { TijiTextButton(onClick = { showFilterDialog = false }) { Text("完成") } },
             dismissButton = {
-                TijiTextButton(onClick = { onSelectKnowledgePoint(null); masteryFilter = null; difficultyFilter = null; tagFilter = null; showFilterDialog = false }) { Text("清除筛选") }
+                TijiTextButton(onClick = { onSelectKnowledgePoint(null); masteryFilter = null; difficultyFilter = null; showFilterDialog = false }) { Text("清除筛选") }
             }
         )
     }
@@ -545,63 +496,8 @@ internal fun LibraryScreen(
                     )
                 }
             }
-            if (knowledgePointInsights.isNotEmpty()) {
-                Spacer(Modifier.height(8.dp))
-                Text("重点知识点", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Spacer(Modifier.height(4.dp))
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(knowledgePointInsights.take(8), key = { it.point.stableId }) { insight ->
-                        TijiChip(
-                            selected = selectedKnowledgePointStableId == insight.point.stableId,
-                            onClick = {
-                                onSelectKnowledgePoint(
-                                    selectedKnowledgePointStableId.takeUnless { it == insight.point.stableId }
-                                        ?: insight.point.stableId
-                                )
-                            },
-                            label = { Text("${insight.point.name} · ${insight.label}") }
-                        )
-                    }
-                }
-            }
             Spacer(Modifier.height(8.dp))
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                item {
-                    TijiChip(selected = false, onClick = onOpenKnowledge,
-                        label = { Text("知识点库") }, modifier = Modifier.testTag("library_open_knowledge"))
-                }
-                item {
-                    Box {
-                        TijiChip(
-                            selected = selectedKnowledgePointStableId != null || tagFilter != null,
-                            onClick = { tagMenuExpanded = true },
-                            modifier = Modifier.heightIn(min = 48.dp).testTag("library_knowledge_filter"),
-                            label = { Text(selectedKnowledgePoint?.name ?: tagFilter ?: "知识点") }
-                        )
-                        TijiMenu(expanded = tagMenuExpanded, onDismissRequest = { tagMenuExpanded = false }) {
-                            TijiMenuItem(
-                                text = { Text("全部知识点") },
-                                onClick = { onSelectKnowledgePoint(null); tagFilter = null; tagMenuExpanded = false }
-                            )
-                            availableKnowledgePoints.forEach { point ->
-                                TijiMenuItem(
-                                    text = { Text("${point.name} · ${point.subject}") },
-                                    onClick = { onSelectKnowledgePoint(point.stableId); tagMenuExpanded = false }
-                                )
-                            }
-                            val legacyOnlyTags = availableTags.filterNot { tag -> availableKnowledgePoints.any { it.name == tag } }
-                            legacyOnlyTags.forEach { tag ->
-                                TijiMenuItem(
-                                    text = { Text("$tag · 旧标签") },
-                                    onClick = { tagFilter = tag; onSelectKnowledgePoint(null); tagMenuExpanded = false }
-                                )
-                            }
-                            if (availableKnowledgePoints.isEmpty() && legacyOnlyTags.isEmpty()) {
-                                TijiMenuItem(text = { Text("暂无知识点") }, enabled = false, onClick = {})
-                            }
-                        }
-                    }
-                }
                 item {
                     TijiChip(
                         selected = masteryFilter != null,
@@ -649,7 +545,7 @@ internal fun LibraryScreen(
           }
             if (visibleMistakes.isEmpty()) {
               item {
-                val hasFilter = query.isNotBlank() || selectedSubject != null || selectedKnowledgePointStableId != null || masteryFilter != null || difficultyFilter != null || tagFilter != null
+                val hasFilter = query.isNotBlank() || selectedSubject != null || selectedKnowledgePointStableId != null || masteryFilter != null || difficultyFilter != null
                 TijiPaperCard {
                     Column(
                         modifier = Modifier.fillMaxWidth(),
@@ -683,7 +579,6 @@ internal fun LibraryScreen(
                                 onSelectKnowledgePoint(null)
                                 masteryFilter = null
                                 difficultyFilter = null
-                                tagFilter = null
                             }) { Text("清除筛选") }
                         } else {
                             TijiSecondaryButton(onClick = onCreate) { Text("录入第一道错题") }

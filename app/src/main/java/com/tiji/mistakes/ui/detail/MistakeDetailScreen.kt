@@ -261,7 +261,6 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
             title = { Text("这次怎么样？") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("选择本次复习的真实掌握程度。", style = MaterialTheme.typography.bodyMedium)
                     if (reviewSubmitting) {
                         Text("正在记录…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                     }
