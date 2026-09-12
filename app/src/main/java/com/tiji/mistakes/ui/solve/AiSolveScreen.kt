@@ -1075,9 +1075,12 @@ internal fun AiSolveScreen(
             }
             if (completeSolution.isNotBlank() && !isLoading) item {
                 val verification = aiSolveState.verification
-                val hasVerificationDetails = verification.status == AiVerificationStatus.WARNING ||
-                    verification.status == AiVerificationStatus.FAILED
-                if (!hasVerificationDetails) {
+                val verificationUi = aiVerificationUiCopy(
+                    reliabilityMode = aiSolveState.reliabilityMode,
+                    status = verification.status,
+                    displayMessage = verification.displayMessage
+                )
+                if (!verificationUi.detailed) {
                     TijiSurfaceCard(contentPadding = 12.dp) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Icon(
@@ -1087,10 +1090,9 @@ internal fun AiSolveScreen(
                                 modifier = Modifier.size(20.dp)
                             )
                             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text("已完成检查", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                                Text(verificationUi.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                                 Text(
-                                    if (aiSolveState.reliabilityMode == AiSolveReliabilityMode.FAST) "快速模式：未执行独立校验"
-                                    else verification.displayMessage,
+                                    verificationUi.message,
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -1110,12 +1112,12 @@ internal fun AiSolveScreen(
                     ) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                             Text(
-                                if (verification.status == AiVerificationStatus.FAILED) "解答存在疑点" else "识别结果需要确认",
+                                verificationUi.title,
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
                                 color = verificationContent
                             )
-                            Text(verification.displayMessage, color = verificationContent)
+                            Text(verificationUi.message, color = verificationContent)
                             verification.issues.forEach { issue ->
                                 Text("· ${issue.message}", style = MaterialTheme.typography.bodySmall, color = verificationContent)
                             }
@@ -1503,6 +1505,36 @@ internal fun AiChatHistoryScreen(
             }
         }
     }
+
+internal data class AiVerificationUiCopy(
+    val title: String,
+    val message: String,
+    val detailed: Boolean
+)
+
+internal fun aiVerificationUiCopy(
+    reliabilityMode: AiSolveReliabilityMode,
+    status: AiVerificationStatus,
+    displayMessage: String
+): AiVerificationUiCopy {
+    if (reliabilityMode == AiSolveReliabilityMode.FAST) {
+        return AiVerificationUiCopy(
+            title = "未启用独立检查",
+            message = "本次仅完成解题，未执行独立一致性校验。",
+            detailed = false
+        )
+    }
+    return when (status) {
+        AiVerificationStatus.PASS -> AiVerificationUiCopy("已完成检查", displayMessage, false)
+        AiVerificationStatus.UNAVAILABLE -> AiVerificationUiCopy(
+            "本次未完成检查",
+            displayMessage.ifBlank { "本次未完成一致性检查。" },
+            false
+        )
+        AiVerificationStatus.WARNING -> AiVerificationUiCopy("建议核对", displayMessage, true)
+        AiVerificationStatus.FAILED -> AiVerificationUiCopy("解答存在疑点", displayMessage, true)
+    }
+}
 
 internal fun aiSolveModeLabel(mode: AiRecognitionMode): String = when (mode) {
     AiRecognitionMode.VISION -> "视觉模型"

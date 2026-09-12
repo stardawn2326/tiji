@@ -172,6 +172,7 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
     var editing by remember(current.id) { mutableStateOf(false) }
     var showMoreInfo by remember(current.id) { mutableStateOf(false) }
     var showReviewCheckIn by remember(current.id) { mutableStateOf(false) }
+    var reviewSubmitting by remember(current.id) { mutableStateOf(false) }
     var explanationExpanded by remember(current.id) { mutableStateOf(false) }
     var detailMenuExpanded by remember(current.id) { mutableStateOf(false) }
     var saveMessage by remember(current.id) { mutableStateOf("") }
@@ -265,11 +266,17 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("选择本次复习的真实掌握程度。", style = MaterialTheme.typography.bodyMedium)
+                    if (reviewSubmitting) {
+                        Text("正在记录…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                    }
                     ReviewGrade.values().forEach { grade ->
                         OutlinedButton(
                             onClick = {
+                                if (reviewSubmitting) return@OutlinedButton
+                                reviewSubmitting = true
                                 showReviewCheckIn = false
-                                viewModel.review(current, grade) { record ->
+                                val reviewJob = viewModel.review(current, grade) { record ->
+                                    reviewSubmitting = false
                                     mistake = current.copy(
                                         mastery = record.masteryAfter,
                                         reviewCount = current.reviewCount + 1,
@@ -278,7 +285,13 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                                     )
                                     saveMessage = "已记录：${reviewGradeUiLabel(grade)}"
                                 }
+                                if (reviewJob == null) {
+                                    reviewSubmitting = false
+                                } else {
+                                    reviewJob.invokeOnCompletion { reviewSubmitting = false }
+                                }
                             },
+                            enabled = !reviewSubmitting,
                             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                                 .testTag("detail_grade_${grade.name.lowercase()}"),
                         ) {
@@ -449,6 +462,7 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                         ) {
                             OutlinedButton(
                                 onClick = { showReviewCheckIn = true },
+                                enabled = !reviewSubmitting,
                                 modifier = Modifier.weight(0.9f).heightIn(min = 52.dp).testTag("detail_mastery_action"),
                                 contentPadding = PaddingValues(horizontal = 8.dp)
                             ) {

@@ -46,6 +46,7 @@ enum class PdfTemplate(val label: String, val fileSuffix: String) {
 
 data class PdfExportOptions(
     val template: PdfTemplate = PdfTemplate.PRACTICE,
+    /** The only source-image decision used by the current export operation. */
     val includeSourceImages: Boolean = true,
     val answerSpaceMm: Int = 24,
     /** Retained for the legacy photo-only export setting. It is only valid for practice PDFs. */

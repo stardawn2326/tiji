@@ -132,6 +132,8 @@ internal fun ReviewQuestionScreen(
     var reviewMenuExpanded by remember(currentId) { mutableStateOf(false) }
     var reviewReasonExpanded by remember(currentId) { mutableStateOf(false) }
     var autoAdvancePending by remember(currentId) { mutableStateOf(false) }
+    var reviewSubmitting by remember(currentId) { mutableStateOf(false) }
+    var autoAdvanceJob by remember(currentId) { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     val scope = rememberCoroutineScope()
     val currentSavedStatus = if (isUnifiedSession) null else reviewStatuses[currentId]
     val focusedGrade = focusedSession?.gradesByMistake?.get(currentId)?.let {
@@ -154,7 +156,14 @@ internal fun ReviewQuestionScreen(
         }
     }
 
-    fun moveBy(delta: Int) {
+    fun cancelPendingAutoAdvance() {
+        autoAdvanceJob?.cancel()
+        autoAdvanceJob = null
+        autoAdvancePending = false
+    }
+
+    fun moveBy(delta: Int, cancelAutoAdvance: Boolean = true) {
+        if (cancelAutoAdvance) cancelPendingAutoAdvance()
         if (isUnifiedSession) {
             viewModel.moveReviewSession(resolvedSessionKey, delta)
             return
@@ -165,6 +174,7 @@ internal fun ReviewQuestionScreen(
     }
 
     fun completeFocusedSession() {
+        cancelPendingAutoAdvance()
         if (!isUnifiedSession) return
         viewModel.completeReviewSession(resolvedSessionKey)
     }
@@ -180,6 +190,7 @@ internal fun ReviewQuestionScreen(
     val currentReviewHistory by reviewHistoryFlow.collectAsStateWithLifecycle(emptyList())
     val reviewReason = current?.let { reviewReasonFor(it, currentReviewHistory.firstOrNull(), sessionContext) }
     val exitSession = {
+        cancelPendingAutoAdvance()
         if (isUnifiedSession) viewModel.clearReviewSession(resolvedSessionKey)
         onBack()
     }
@@ -187,14 +198,44 @@ internal fun ReviewQuestionScreen(
         if (autoAdvancePending) return
         autoAdvancePending = true
         val isLastQuestion = effectiveReviewIds.isEmpty() || currentIndex == effectiveReviewIds.lastIndex
-        scope.launch {
+        autoAdvanceJob = scope.launch {
             delay(520)
+            autoAdvanceJob = null
             autoAdvancePending = false
             if (isLastQuestion) {
                 if (isUnifiedSession) completeFocusedSession() else exitSession()
             } else {
-                moveBy(1)
+                moveBy(1, cancelAutoAdvance = false)
             }
+        }
+    }
+    fun submitReview(grade: ReviewGrade) {
+        val currentMistake = current ?: return
+        if (selectedGrade != null || reviewSubmitting || autoAdvancePending) return
+        reviewSubmitting = true
+        val reviewJob = if (isUnifiedSession) {
+            viewModel.review(
+                mistake = currentMistake,
+                grade = grade,
+                sessionKey = resolvedSessionKey,
+                onRecorded = {
+                    reviewSubmitting = false
+                    onReviewed(currentMistake.id, grade)
+                    advanceAfterRecorded()
+                }
+            )
+        } else {
+            dailySelectedGrade = grade
+            viewModel.review(currentMistake, grade) {
+                reviewSubmitting = false
+                onReviewed(currentMistake.id, grade)
+                advanceAfterRecorded()
+            }
+        }
+        if (reviewJob == null) {
+            reviewSubmitting = false
+        } else {
+            reviewJob.invokeOnCompletion { reviewSubmitting = false }
         }
     }
     val showSummary = isUnifiedSession && focusedSession?.summaryVisible == true
@@ -393,28 +434,8 @@ internal fun ReviewQuestionScreen(
                                         ReviewGrade.EASY -> semanticColors.reviewEasy
                                     }
                                         Card(
-                                            onClick = {
-                                                if (selectedGrade == null) {
-                                                    if (isUnifiedSession) {
-                                                        viewModel.review(
-                                                            mistake = current,
-                                                            grade = grade,
-                                                            sessionKey = resolvedSessionKey,
-                                                            onRecorded = {
-                                                                onReviewed(current.id, grade)
-                                                                advanceAfterRecorded()
-                                                            }
-                                                        )
-                                                    } else {
-                                                        dailySelectedGrade = grade
-                                                        viewModel.review(current, grade) {
-                                                            onReviewed(current.id, grade)
-                                                            advanceAfterRecorded()
-                                                        }
-                                                    }
-                                                }
-                                            },
-                                        enabled = selectedGrade == null || selected,
+                                            onClick = { submitReview(grade) },
+                                        enabled = !reviewSubmitting && !autoAdvancePending && (selectedGrade == null || selected),
                                         colors = CardDefaults.cardColors(
                                             containerColor = if (selected) gradeColor.copy(alpha = 0.16f) else gradeColor.copy(alpha = 0.07f)
                                         ),
@@ -432,7 +453,10 @@ internal fun ReviewQuestionScreen(
                                     }
                                 }
                             }
-                            selectedGrade?.let { Text("已记录：${reviewGradeUiLabel(it)}", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall) }
+                            when {
+                                reviewSubmitting -> Text("正在记录…", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
+                                selectedGrade != null -> Text("已记录：${reviewGradeUiLabel(selectedGrade!!)}", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
+                            }
                         }
                     }
                 }
@@ -441,7 +465,7 @@ internal fun ReviewQuestionScreen(
                     val summaryLoading = isUnifiedSession &&
                         summaryState.sessionKey == resolvedSessionKey && summaryState.isLoading
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                        OutlinedButton(onClick = { moveBy(-1) }, enabled = currentIndex > 0, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("上一题") }
+                        OutlinedButton(onClick = { moveBy(-1) }, enabled = !reviewSubmitting && !autoAdvancePending && currentIndex > 0, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("上一题") }
                         Text(if (effectiveReviewIds.isEmpty()) "复习题" else "${currentIndex + 1} / ${effectiveReviewIds.size}", modifier = Modifier.padding(horizontal = 12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Button(
                             onClick = {
@@ -449,7 +473,7 @@ internal fun ReviewQuestionScreen(
                                     if (isUnifiedSession) completeFocusedSession() else exitSession()
                                 } else moveBy(1)
                             },
-                            enabled = if (isLastQuestion && isUnifiedSession) !summaryLoading else {
+                            enabled = !reviewSubmitting && !autoAdvancePending && if (isLastQuestion && isUnifiedSession) !summaryLoading else {
                                 isLastQuestion || currentIndex in 0 until (effectiveReviewIds.size - 1)
                             },
                             modifier = Modifier.weight(1f).heightIn(min = 48.dp)

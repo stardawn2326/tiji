@@ -33,6 +33,10 @@ data class MistakeEntity(
     val tags: String = "",
     /** 0 means not assessed yet; the UI renders it as five empty stars. */
     val difficulty: Int = 0,
+    /**
+     * Compatibility/save preference captured with the mistake. The current export
+     * decision is always PdfExportOptions.includeSourceImages.
+     */
     val includeSourceImageInPdf: Boolean = true,
     val mastery: Int = 0,
     val imagePath: String? = null,
