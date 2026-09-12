@@ -7,12 +7,12 @@ plugins {
 
 android {
     namespace = "com.tiji.mistakes"
-    compileSdk = 35
+    compileSdk = 34
 
     defaultConfig {
         applicationId = "com.tiji.mistakes"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 34
         versionCode = 114
         versionName = "1.0.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
