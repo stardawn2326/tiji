@@ -28,19 +28,19 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Print
-import androidx.compose.material3.Button
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import com.tiji.mistakes.ui.design.TijiButton
+import com.tiji.mistakes.ui.design.TijiDialog
+import com.tiji.mistakes.ui.design.TijiMenu
+import com.tiji.mistakes.ui.design.TijiMenuItem
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import com.tiji.mistakes.ui.design.TijiIconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
+import com.tiji.mistakes.ui.design.TijiSecondaryButton
+import com.tiji.mistakes.ui.design.TijiScreen
+import com.tiji.mistakes.ui.design.TijiSurface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
+import com.tiji.mistakes.ui.design.TijiTextButton
+import com.tiji.mistakes.ui.design.TijiTopBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -76,8 +76,8 @@ import com.tiji.mistakes.ui.common.formatReviewDateTime
 import com.tiji.mistakes.ui.common.isPhotoEntryImagePath
 import com.tiji.mistakes.ui.common.masteryLabel
 import com.tiji.mistakes.ui.common.parseErrorReasons
-import com.tiji.mistakes.ui.ConceptSectionHeader
-import com.tiji.mistakes.ui.ConceptTag
+import com.tiji.mistakes.ui.design.TijiSectionHeader
+import com.tiji.mistakes.ui.design.TijiTag
 import com.tiji.mistakes.ui.image.ImagePreview
 import com.tiji.mistakes.ui.math.MathText
 import com.tiji.mistakes.ui.editor.MistakeFields
@@ -92,9 +92,9 @@ import com.tiji.mistakes.ui.common.launchDurablePdfExport
 import com.tiji.mistakes.ui.normalizedSubject
 import com.tiji.mistakes.ui.editor.PhotoEditFields
 import com.tiji.mistakes.ui.solve.ContentBlockImages
-import com.tiji.mistakes.ui.TijiDimens
-import com.tiji.mistakes.ui.TijiStatusBadge
-import com.tiji.mistakes.ui.TijiSurfaceCard
+import com.tiji.mistakes.ui.design.TijiDimens
+import com.tiji.mistakes.ui.design.TijiStatusBadge
+import com.tiji.mistakes.ui.design.TijiPaperCard
 import java.io.File
 import kotlinx.coroutines.launch
 
@@ -132,10 +132,10 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
     }
     val reviewHistory by viewModel.reviewHistory(id).collectAsStateWithLifecycle(emptyList())
     if (current == null) {
-        Scaffold(topBar = { TopAppBar(title = { Text("错题详情") }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, null) } }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)) }) { padding ->
+        TijiScreen(topBar = { TijiTopBar(title = { Text("错题详情") }, navigationIcon = { TijiIconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "返回") } }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)) }) { padding ->
             Column(Modifier.padding(padding).fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(loadError ?: "正在读取错题…", color = if (loadError == null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error)
-                if (loadError != null) OutlinedButton(onClick = onBack) { Text("返回错题库") }
+                if (loadError != null) TijiSecondaryButton(onClick = onBack) { Text("返回错题库") }
             }
         }
         return
@@ -257,7 +257,7 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
         )
     }
     if (showReviewCheckIn) {
-        AlertDialog(
+        TijiDialog(
             onDismissRequest = { showReviewCheckIn = false },
             title = { Text("这次怎么样？") },
             text = {
@@ -267,7 +267,7 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                         Text("正在记录…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                     }
                     ReviewGrade.values().forEach { grade ->
-                        OutlinedButton(
+                        TijiSecondaryButton(
                             onClick = {
                                 if (reviewSubmitting) return@OutlinedButton
                                 reviewSubmitting = true
@@ -299,7 +299,7 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
             },
             confirmButton = {},
             dismissButton = {
-                TextButton(onClick = { showReviewCheckIn = false }) { Text("取消") }
+                TijiTextButton(onClick = { showReviewCheckIn = false }) { Text("取消") }
             }
         )
     }
@@ -436,15 +436,15 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
     LaunchedEffect(editing) {
         if (editing) detailListState.scrollToItem(0)
     }
-    Scaffold(
+    TijiScreen(
         bottomBar = {
             if (editing) {
-                Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 1.dp) {
+                TijiSurface(color = MaterialTheme.colorScheme.surface, tonalElevation = 1.dp) {
                     Row(
                         Modifier.navigationBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Button(
+                        TijiButton(
                             onClick = {
                                 viewModel.save(current.copy(title = normalizeAsciiPunctuation(title), questionText = normalizeAsciiPunctuation(question), userAnswer = normalizeAsciiPunctuation(userAnswer), answerText = normalizeAsciiPunctuation(answer), explanation = normalizeAsciiPunctuation(explanation), note = normalizeAsciiPunctuation(note), errorReason = normalizeAsciiPunctuation(errorReason), subject = normalizeAsciiPunctuation(subject), questionType = normalizeAsciiPunctuation(questionType), tags = normalizeAsciiPunctuation(tags), difficulty = difficulty, includeSourceImageInPdf = current.includeSourceImageInPdf, imagePath = questionImage, sourceImagePaths = org.json.JSONArray(originalQuestionImages).toString(), contentBlocks = QuestionContentBlockCodec.encode(detailContentBlocks), answerImagePath = answerImage, explanationImagePath = explanationImage))
                                 editing = false
@@ -457,22 +457,22 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
             }
         },
         topBar = {
-            TopAppBar(
+            TijiTopBar(
                 title = { Text("错题详情") },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回错题库") } },
+                navigationIcon = { TijiIconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回错题库") } },
                 actions = {
-                    IconButton(onClick = { detailMenuExpanded = true }, modifier = Modifier.testTag("detail_more")) {
+                    TijiIconButton(onClick = { detailMenuExpanded = true }, modifier = Modifier.testTag("detail_more")) {
                         Icon(Icons.Outlined.MoreVert, contentDescription = "更多操作")
                     }
-                    DropdownMenu(
+                    TijiMenu(
                         expanded = detailMenuExpanded,
                         onDismissRequest = { detailMenuExpanded = false }
                     ) {
-                        DropdownMenuItem(
+                        TijiMenuItem(
                             text = { Text("编辑错题") },
                             onClick = { detailMenuExpanded = false; editing = true; saveMessage = "" }
                         )
-                        DropdownMenuItem(
+                        TijiMenuItem(
                             text = { Text(if (inReviewPlan) "移出复习" else "加入复习") },
                             onClick = {
                                 detailMenuExpanded = false
@@ -481,7 +481,7 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                                 inReviewPlan = enabled
                             }
                         )
-                        DropdownMenuItem(
+                        TijiMenuItem(
                             text = { Text("打印此题") },
                             leadingIcon = { Icon(Icons.Outlined.Print, contentDescription = null) },
                             onClick = {
@@ -489,7 +489,7 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                                 showPdfOptions = true
                             }
                         )
-                        DropdownMenuItem(
+                        TijiMenuItem(
                             text = { Text("删除错题") },
                             leadingIcon = { Icon(Icons.Outlined.Delete, contentDescription = null) },
                             onClick = { detailMenuExpanded = false; onDelete(id); onBack() }
@@ -506,20 +506,20 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                 start = TijiDimens.pagePadding,
                 top = 12.dp,
                 end = TijiDimens.pagePadding,
-                bottom = if (editing) 104.dp else 24.dp
+                bottom = 24.dp
             ),
             verticalArrangement = Arrangement.spacedBy(TijiDimens.cardGap),
             modifier = Modifier.padding(padding).fillMaxSize().testTag("detail_content")
         ) {
             if (!editing) {
                 item {
-                    TijiSurfaceCard {
+                    TijiPaperCard {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                                 Row(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    ConceptTag(normalizedSubject(subject))
+                                    TijiTag(normalizedSubject(subject))
                                     if (questionType.isNotBlank() && questionType != "未分类") {
-                                        ConceptTag(questionType, containerColor = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer)
+                                        TijiTag(questionType, containerColor = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer)
                                     }
                                 }
                                 Text(
@@ -535,8 +535,8 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                     }
                 }
                 if (originalQuestionImages.isNotEmpty()) item {
-                    TijiSurfaceCard {
-                        ConceptSectionHeader("题目图片", if (originalQuestionImages.size > 1) "${originalQuestionImages.size} 张，按保存顺序排列" else "原题图片")
+                    TijiPaperCard {
+                        TijiSectionHeader("题目图片", if (originalQuestionImages.size > 1) "${originalQuestionImages.size} 张，按保存顺序排列" else "原题图片")
                         originalQuestionImages.forEachIndexed { index, path ->
                             if (originalQuestionImages.size > 1) Text("第 ${index + 1} 张", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             ImagePreview(path, onDelete = { removeDetailImage(PhotoRole.QUESTION, path) })
@@ -544,41 +544,15 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                     }
                 }
                 if (!photoOnly && question.isNotBlank()) item {
-                    TijiSurfaceCard {
-                        ConceptSectionHeader("题目", "先回想自己的解法")
+                    TijiPaperCard {
+                        TijiSectionHeader("题目", "先回想自己的解法")
                         MathText(question, preserveSourceExactly = true, naturalQuestionWrap = true, compactQuestionLayout = true, compactVerticalSpacing = true)
                         ContentBlockImages(detailContentBlocks.filter { it.role == ContentBlockRole.QUESTION }, onDelete = ::removeDetailContentBlock)
                     }
                 }
                 if (!photoOnly) item {
-                    TijiSurfaceCard {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text("更多信息", style = MaterialTheme.typography.titleMedium)
-                                Text("作答、错因和笔记", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            TextButton(
-                                onClick = { showMoreInfo = !showMoreInfo },
-                                modifier = Modifier.testTag("detail_more_info_toggle")
-                            ) {
-                                Text(if (showMoreInfo) "收起" else "查看")
-                            }
-                        }
-                    }
-                }
-                if (!photoOnly && showMoreInfo) item {
-                    TijiSurfaceCard {
-                        ConceptSectionHeader("我的答案", "回看当时写下的思路")
-                        if (userAnswer.isBlank()) {
-                            Text("还没有记录你的作答", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        } else {
-                            MathText(userAnswer, compactVerticalSpacing = true)
-                        }
-                    }
-                }
-                if (!photoOnly) item {
-                    TijiSurfaceCard {
-                        ConceptSectionHeader("正确答案", "对照检查你的思路")
+                    TijiPaperCard {
+                        TijiSectionHeader("正确答案", "对照检查你的思路")
                         if (answer.isBlank()) {
                             Text("暂未补充正确答案", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         } else {
@@ -587,47 +561,14 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                         ContentBlockImages(detailContentBlocks.filter { it.role == ContentBlockRole.ANSWER }, onDelete = ::removeDetailContentBlock)
                     }
                 }
-                if (!photoOnly && showMoreInfo) item {
-                    TijiSurfaceCard {
-                        ConceptSectionHeader("错因标签", "用几个词标记这次为什么会错")
-                        val reasons = parseErrorReasons(errorReason)
-                        if (reasons.isEmpty()) {
-                            Text("还没有记录错因，可在编辑中补充。", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        } else {
-                            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                items(reasons) { reason ->
-                                    ConceptTag(reason, containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.onErrorContainer)
-                                }
-                            }
-                        }
-                    }
-                }
-                answerImage?.let { image ->
-                    item {
-                        TijiSurfaceCard {
-                            ConceptSectionHeader("答案图片")
-                            ImagePreview(image, onDelete = { removeDetailImage(PhotoRole.ANSWER, image) })
-                        }
-                    }
-                }
-                if (!photoOnly && showMoreInfo) item {
-                    TijiSurfaceCard {
-                        ConceptSectionHeader("我的总结", "记录这次为什么会错")
-                        if (note.isBlank()) {
-                            Text("还没有写下复盘总结。", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        } else {
-                            Text(note, style = MaterialTheme.typography.bodyLarge)
-                        }
-                    }
-                }
                 if (!photoOnly && explanation.isNotBlank()) item {
-                    TijiSurfaceCard {
+                    TijiPaperCard {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                 Text("解析", style = MaterialTheme.typography.titleMedium)
                                 Text("需要时再展开完整推导", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            TextButton(
+                            TijiTextButton(
                                 onClick = { explanationExpanded = !explanationExpanded },
                                 modifier = Modifier.testTag("detail_explanation_toggle")
                             ) {
@@ -640,10 +581,69 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                         }
                     }
                 }
+                if (!photoOnly) item {
+                    TijiPaperCard {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text("更多信息", style = MaterialTheme.typography.titleMedium)
+                                Text("作答、错因和笔记", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            TijiTextButton(
+                                onClick = { showMoreInfo = !showMoreInfo },
+                                modifier = Modifier.testTag("detail_more_info_toggle")
+                            ) {
+                                Text(if (showMoreInfo) "收起" else "查看")
+                            }
+                        }
+                    }
+                }
+                if (!photoOnly && showMoreInfo) item {
+                    TijiPaperCard {
+                        TijiSectionHeader("我的答案", "回看当时写下的思路")
+                        if (userAnswer.isBlank()) {
+                            Text("还没有记录你的作答", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        } else {
+                            MathText(userAnswer, compactVerticalSpacing = true)
+                        }
+                    }
+                }
+                if (!photoOnly && showMoreInfo) item {
+                    TijiPaperCard {
+                        TijiSectionHeader("错因标签", "用几个词标记这次为什么会错")
+                        val reasons = parseErrorReasons(errorReason)
+                        if (reasons.isEmpty()) {
+                            Text("还没有记录错因，可在编辑中补充。", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        } else {
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                items(reasons) { reason ->
+                                    TijiTag(reason, containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.onErrorContainer)
+                                }
+                            }
+                        }
+                    }
+                }
+                answerImage?.let { image ->
+                    item {
+                        TijiPaperCard {
+                            TijiSectionHeader("答案图片")
+                            ImagePreview(image, onDelete = { removeDetailImage(PhotoRole.ANSWER, image) })
+                        }
+                    }
+                }
+                if (!photoOnly && showMoreInfo) item {
+                    TijiPaperCard {
+                        TijiSectionHeader("我的总结", "记录这次为什么会错")
+                        if (note.isBlank()) {
+                            Text("还没有写下复盘总结。", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        } else {
+                            Text(note, style = MaterialTheme.typography.bodyLarge)
+                        }
+                    }
+                }
                 explanationImage?.let { image ->
                     item {
-                        TijiSurfaceCard {
-                            ConceptSectionHeader("解析图片")
+                        TijiPaperCard {
+                            TijiSectionHeader("解析图片")
                             ImagePreview(image, onDelete = { removeDetailImage(PhotoRole.EXPLANATION, image) })
                         }
                     }
@@ -716,8 +716,8 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                 }
             }
             item {
-                TijiSurfaceCard(modifier = Modifier.testTag("detail_review_card")) {
-                    ConceptSectionHeader("复习记录", "用间隔复习把错误变成长期记忆")
+                TijiPaperCard(modifier = Modifier.testTag("detail_review_card")) {
+                    TijiSectionHeader("复习记录", "用间隔复习把错误变成长期记忆")
                     Row(horizontalArrangement = Arrangement.spacedBy(18.dp), modifier = Modifier.padding(top = 8.dp)) {
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text("复习次数", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -736,7 +736,7 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                         }
                     }
                     if (!editing) {
-                        OutlinedButton(
+                        TijiSecondaryButton(
                             onClick = { showReviewCheckIn = true },
                             enabled = !reviewSubmitting,
                             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("detail_mastery_action")
