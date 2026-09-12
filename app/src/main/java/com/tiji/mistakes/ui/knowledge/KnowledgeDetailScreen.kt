@@ -166,7 +166,7 @@ internal fun KnowledgeDetailScreen(
                     context,
                     uri,
                     exportItems,
-                    documentTitle = if (exportOptions.template == PdfTemplate.ANSWER) "题迹 · ${point.name}答案" else "题迹 · ${point.name}练习",
+                    documentTitle = if (exportOptions.template == PdfTemplate.ANSWER) "题迹 · ${point.name}解析答案" else "题迹 · ${point.name}题目",
                     options = exportOptions
                 )
                 if (result.isSuccess) sourcePreview?.let { discardPdfPreview(it.absolutePath) }
@@ -196,7 +196,7 @@ internal fun KnowledgeDetailScreen(
     fun requestPdfPreview(options: PdfExportOptions) {
         if (relatedMistakes.isEmpty()) return
         val safeName = point.name.replace(Regex("[\\\\/:*?\"<>|]"), "_")
-        val filename = if (options.template == PdfTemplate.ANSWER) "知识点-$safeName-答案.pdf" else "知识点-$safeName-练习.pdf"
+        val filename = if (options.template == PdfTemplate.ANSWER) "知识点-$safeName-解析答案.pdf" else "知识点-$safeName-题目.pdf"
         pendingExportIds = relatedMistakes.map { it.id }.toLongArray()
         PendingPdfExportStore.knowledgeIds = pendingExportIds.copyOf()
         PendingPdfExportStore.knowledgeOptions = options
@@ -208,7 +208,7 @@ internal fun KnowledgeDetailScreen(
             val result = HtmlPdfExportService.createQuestionPreview(
                 context,
                 relatedMistakes,
-                documentTitle = if (options.template == PdfTemplate.ANSWER) "题迹 · ${point.name}答案" else "题迹 · ${point.name}练习",
+                documentTitle = if (options.template == PdfTemplate.ANSWER) "题迹 · ${point.name}解析答案" else "题迹 · ${point.name}题目",
                 options = options
             )
             isPreparingPreview = false
@@ -253,7 +253,7 @@ internal fun KnowledgeDetailScreen(
                 PendingPdfExportStore.knowledgeOptions = PdfExportOptions()
             },
             onSave = {
-                exportLauncher.launch(previewFilename.ifBlank { "知识点练习.pdf" })
+                exportLauncher.launch(previewFilename.ifBlank { "知识点题目.pdf" })
             },
             onPrint = {
                 val result = HtmlPdfExportService.printPdf(context, previewFile, previewFilename)

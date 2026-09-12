@@ -45,8 +45,10 @@ internal fun MistakeSaveSheet(
     onDismiss: () -> Unit,
     onSave: (MistakeSaveMetadata) -> Unit,
     saving: Boolean = false,
+    metadataLoading: Boolean = false,
     suggestedSubjects: List<String> = emptyList(),
-    suggestedQuestionTypes: List<String> = emptyList()
+    suggestedQuestionTypes: List<String> = emptyList(),
+    suggestedTags: List<String> = emptyList()
 ) {
     var subject by remember(initial.subject) { mutableStateOf(initial.subject) }
     var questionType by remember(initial.questionType) { mutableStateOf(initial.questionType) }
@@ -81,6 +83,21 @@ internal fun MistakeSaveSheet(
                 onSelected = { subject = it }
             )
             TijiTextField(
+                value = tags,
+                onValueChange = { tags = it },
+                label = { Text("知识点 / 标签") },
+                placeholder = { Text("多个标签用逗号分隔") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            SuggestionChips(
+                title = "常用知识点 / 标签",
+                values = suggestedTags,
+                onSelected = {
+                    tags = if (tags.isBlank()) it else "$tags, $it"
+                }
+            )
+            TijiTextField(
                 value = questionType,
                 onValueChange = { questionType = it },
                 label = { Text("题型") },
@@ -95,6 +112,13 @@ internal fun MistakeSaveSheet(
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("难度", style = MaterialTheme.typography.labelLarge)
                 DifficultyPicker(difficulty = difficulty, onDifficulty = { difficulty = it })
+            }
+            if (metadataLoading) {
+                Text(
+                    "正在根据当前解题内容补充分类，可继续编辑；完成后再保存。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
             TijiChip(
                 selected = inReviewPlan,
@@ -114,12 +138,18 @@ internal fun MistakeSaveSheet(
                         )
                     )
                 },
-                enabled = !saving,
+                enabled = !saving && !metadataLoading,
                 loading = saving,
                 modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
                 contentPadding = PaddingValues(vertical = 14.dp)
             ) {
-                Text(if (saving) "正在保存…" else "保存到错题库")
+                Text(
+                    when {
+                        saving -> "正在保存…"
+                        metadataLoading -> "正在整理分类…"
+                        else -> "保存到错题库"
+                    }
+                )
             }
         }
     }

@@ -92,8 +92,11 @@ class PdfExportTemplateTest {
         assertTrue(practice.contains("作答区"))
         assertFalse(practice.contains("只应出现在答案版的答案"))
         assertFalse(practice.contains("只应出现在答案版的解析"))
+        assertTrue(practice.contains("题目内容"))
         assertTrue(answer.contains("只应出现在答案版的答案"))
         assertTrue(answer.contains("只应出现在答案版的解析"))
+        assertFalse(answer.contains("题目内容"))
+        assertFalse(answer.contains("作答区"))
     }
 
     @Test

@@ -918,6 +918,24 @@ class MistakeViewModel(
         aiChatRequestId = 0L
     }
 
+    /** Keeps a correction request visible in the follow-up history while the main solve is rebuilt. */
+    fun appendAiChatMessage(message: AiChatMessage) {
+        if (message.prompt.isBlank() || message.reply.isBlank()) return
+        val current = aiChatStore.read()
+        if (current.running) return
+        val next = current.copy(
+            requestId = maxOf(current.requestId, _aiChat.value.requestId),
+            lastPrompt = message.prompt,
+            lastImagePaths = message.imagePaths,
+            status = "COMPLETED",
+            error = null,
+            messages = (current.messages + message).takeLast(30)
+        )
+        aiChatStore.write(next)
+        _aiChat.value = next.toUiState()
+        updateActiveHistory { record -> record.copy(chatMessages = next.messages) }
+    }
+
     private fun observeAiChat(requestId: Long) {
         aiChatObserverJob?.cancel()
         aiChatObserverJob = viewModelScope.launch {

@@ -190,7 +190,7 @@ internal fun ReviewScreen(
                     context,
                     uri,
                     exportItems,
-                    documentTitle = if (exportOptions.template == PdfTemplate.ANSWER) "题迹 · 今日复习答案" else "题迹 · 今日复习",
+                    documentTitle = if (exportOptions.template == PdfTemplate.ANSWER) "题迹 · 今日复习解析答案" else "题迹 · 今日复习题目",
                     options = exportOptions
                 )
                 if (result.isSuccess) sourcePreview?.let { discardPdfPreview(it.absolutePath) }
@@ -218,7 +218,7 @@ internal fun ReviewScreen(
         showPdfOptions = true
     }
     fun requestReviewPreview(options: PdfExportOptions) {
-        val filename = if (options.template == PdfTemplate.ANSWER) "今日复习-答案.pdf" else "今日复习-练习.pdf"
+        val filename = if (options.template == PdfTemplate.ANSWER) "今日复习-解析答案.pdf" else "今日复习-题目.pdf"
         pendingExportIds = planned.map { it.id }.toLongArray()
         PendingPdfExportStore.reviewIds = pendingExportIds.copyOf()
         PendingPdfExportStore.reviewOptions = options
@@ -230,7 +230,7 @@ internal fun ReviewScreen(
             val result = HtmlPdfExportService.createQuestionPreview(
                 context,
                 planned,
-                documentTitle = if (options.template == PdfTemplate.ANSWER) "题迹 · 今日复习答案" else "题迹 · 今日复习",
+                documentTitle = if (options.template == PdfTemplate.ANSWER) "题迹 · 今日复习解析答案" else "题迹 · 今日复习题目",
                 options = options
             )
             isPreparingPreview = false

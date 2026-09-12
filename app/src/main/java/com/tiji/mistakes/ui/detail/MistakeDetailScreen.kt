@@ -203,12 +203,12 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
         pdfOptions = options
         showPdfOptions = false
         isPreparingPdf = true
-        val filename = if (options.template == PdfTemplate.ANSWER) "题迹-此题-答案.pdf" else "题迹-此题-练习.pdf"
+        val filename = if (options.template == PdfTemplate.ANSWER) "题迹-此题-解析答案.pdf" else "题迹-此题-题目.pdf"
         scope.launch {
             val result = HtmlPdfExportService.createQuestionPreview(
                 context,
                 listOf(current),
-                documentTitle = if (options.template == PdfTemplate.ANSWER) "题迹 · 此题答案" else "题迹 · 此题练习",
+                documentTitle = if (options.template == PdfTemplate.ANSWER) "题迹 · 此题解析答案" else "题迹 · 此题题目",
                 options = options
             )
             isPreparingPdf = false

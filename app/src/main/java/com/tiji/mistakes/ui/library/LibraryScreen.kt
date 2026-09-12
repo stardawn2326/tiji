@@ -159,7 +159,7 @@ internal fun LibraryScreen(
                     context,
                     uri,
                     exportItems,
-                    documentTitle = if (exportOptions.template == PdfTemplate.ANSWER) "题迹 · 参考答案" else "题迹 · 错题练习",
+                    documentTitle = if (exportOptions.template == PdfTemplate.ANSWER) "题迹 · 解析答案" else "题迹 · 题目",
                     options = exportOptions
                 )
                 if (result.isSuccess) sourcePreview?.let { discardPdfPreview(it.absolutePath) }
@@ -230,7 +230,7 @@ internal fun LibraryScreen(
         if (exportItems.isEmpty()) return
         pdfOptions = options
         PendingPdfExportStore.libraryOptions = options
-        val filename = if (options.template == PdfTemplate.ANSWER) "题迹选中题目-答案.pdf" else "题迹选中题目-练习.pdf"
+        val filename = if (options.template == PdfTemplate.ANSWER) "题迹选中题目-解析答案.pdf" else "题迹选中题目-题目.pdf"
         PendingPdfExportStore.libraryFilename = filename
         showPdfOptions = false
         isPreparingPreview = true
@@ -238,7 +238,7 @@ internal fun LibraryScreen(
             val result = HtmlPdfExportService.createQuestionPreview(
                 context,
                 exportItems,
-                documentTitle = if (options.template == PdfTemplate.ANSWER) "题迹 · 参考答案" else "题迹 · 错题练习",
+                documentTitle = if (options.template == PdfTemplate.ANSWER) "题迹 · 解析答案" else "题迹 · 题目",
                 options = options
             )
             isPreparingPreview = false

@@ -745,28 +745,18 @@ private val AI_STRUCTURED_SOLUTION_RULE = """
     math/block 的 latex 字段不带 $、$$、\\(、\\)、\\[、\\] 定界符。JSON 中 LaTeX 命令的反斜杠必须正确转义；矩阵和 aligned 的每个 LaTeX 行分隔必须在 JSON 字符串中编码为四个反斜杠字符。不要把多行数学结构拆成多个 text/math，也不要用物理换行代替结构片段。
 """.trimIndent()
 
-private val AI_STRUCTURED_SOLUTION_V3_RULE = """
-    schemaVersion 3 是当前首选的解答协议。若能返回合法 JSON，必须严格放在以下标记之间，且不要输出结构外文字：
-    [[TIJI_SOLUTION_V3_START]]
-    {"schemaVersion":3,"recognition":{"segments":[{"type":"text","text":"完整原题"}],"uncertainItems":[],"warning":""},"solution":{"approach":[{"type":"text","text":"解题方法"}],"steps":[{"segments":[{"type":"text","text":"必要推导"}],"reason":"为什么采用这一步","concepts":["相关知识点"]}],"finalAnswer":[{"type":"text","text":"最终结论"}]},"learning":{"subject":"","questionType":"","knowledgePoints":[],"difficulty":0,"pitfalls":[]}}
-    [[TIJI_SOLUTION_V3_END]]
-    recognition.segments 必须忠实覆盖完整原题；uncertainItems 只记录无法确认的原始片段、候选修正和原因，不能用猜测替代原文；warning 用于简短提示。solution.approach、steps、finalAnswer 必须保留完整解题内容，steps 中的 reason 解释每一步为什么成立，concepts 记录该步知识点。learning 只填写从题目和解答中有依据的学习元数据。
-    V3 的 verification 字段由独立校验器写入，解题模型不要伪造“通过”或“100%正确”。若不能保证 schemaVersion 3 JSON 完整、合法且至少包含 recognition 与 solution 内容，必须完整回退为 schemaVersion 2；若 V2 也无法保证完整，则回退为旧版四分区文本。保留现有 V2/旧版的全部公式、换行和题目忠实性约束。
-""".trimIndent()
 private val AI_SEMANTIC_LINE_BREAK_RULE = """
     只在 recognition（题目识别）中表达原题自身的语义换行：选择题的 A./B./C./D.、①②③、(1)(2) 以及罗马数字序号（Ⅰ）（Ⅱ）（Ⅲ）、(Ⅰ)(Ⅱ)(Ⅲ)、Ⅰ./Ⅱ./Ⅲ.、Ⅰ、/Ⅱ、/Ⅲ、或 Ⅰ：/Ⅱ：/Ⅲ：使用 lineBreak；序号必须与其后的题干保持同一行。只有同一道题中至少出现两个按顺序递增的罗马数字序号时才按分题处理，单独的 I、V、X 或普通英文不要拆分。普通文字因图片宽度产生的物理换行必须合并，公式、LaTeX、数学变量和同一段文字不能在内部断行；已有语义换行不得重复添加。不要把这条小题拆分规则套用到 approach、derivation 或 finalAnswer，也不要据此改写解答正文。
 """.trimIndent()
 
 private val AI_SOLUTION_FORMAT_RULE = """
     解题部分的中文正文使用自然的中文标点；数学公式环境内部只使用半角西文符号和标准 LaTeX。变量保持斜体，函数名和运算符使用标准命令（如 \sin、\cos、\ln、\log、\lim），求和与积分使用 \sum、\int。独立公式末尾的标点放在公式外侧。
-    不要用纯文本斜杠替代分式。除内部元数据、题目标记、题目 segments 和规定的 schemaVersion 3/2 解答 JSON 外，不要输出其他 JSON、分类分析或解释性尾注。
+    不要用纯文本斜杠替代分式。除内部元数据、题目标记、题目 segments 和规定的 schemaVersion 2 解答 JSON 外，不要输出其他 JSON、分类分析或解释性尾注。
 """.trimIndent()
 
 /** Exact solve-output mode recovered from the user-provided v50 APK. */
 internal fun structuredSolveOutputInstruction(): String = """
-    请直接解题，并优先按 schemaVersion 3 输出结构化解答；schemaVersion 3 不可用时再按兼容协议回退。
-    $AI_STRUCTURED_SOLUTION_V3_RULE
-    兼容回退仍要求：请直接解题，并严格按 schemaVersion 2 输出结构化解答。
+    请直接解题。新解题请求必须以 schemaVersion 2 作为唯一首选协议，禁止生成 schemaVersion 3、reason、concepts、learning、verification 或 uncertainItems 字段。
     $AI_STRUCTURED_SOLUTION_RULE
     $AI_INLINE_FORMULA_RULE
     $AI_MATH_SEGMENT_RULE
@@ -1071,7 +1061,7 @@ class AiVisionService internal constructor(
                 ""
             }
             val instruction = """
-                输出的第一行必须严格为 [[TIJI_META:{"difficulty":0,"subject":"","questionType":"","title":"简短题型总结","graphic":{"present":false}}]]。该内部兼容元数据行必须保持空值/0；若使用 schemaVersion 3，只能在 learning 中填写基于当前题目和解答的有依据建议，无法确认的字段留空，保存后的独立分类任务仍可补充或修正。$AI_TITLE_RULE 该行是程序内部元数据，用户界面会隐藏，不要重复该标记。
+                输出的第一行必须严格为 [[TIJI_META:{"difficulty":0,"subject":"","questionType":"","title":"简短题型总结","graphic":{"present":false}}]]。该内部兼容元数据行保持空值/0；解题协议不承载分类字段，保存表单打开前会把完整解答交给独立分类任务，得到的科目、知识点/标签、题型和难度将作为可编辑初始值。$AI_TITLE_RULE 该行是程序内部元数据，用户界面会隐藏，不要重复该标记。
                 $AI_GRAPHIC_RULES
                 $hiddenDiagramInstruction
                 $supplementalTextInstruction
@@ -1899,7 +1889,7 @@ $retryInstruction
     ): String {
         val feedback = correctionContext?.trim()?.takeIf { it.isNotBlank() } ?: return ""
         val outputRule = if (structuredSolve) {
-            "必须重新输出内部题目标记、题目 segments 和完整 schemaVersion 3 解答结构；若 V3 无法保证合法，再输出完整 schemaVersion 2 解答结构，完成整道题，而不是只回复修改之处。"
+            "必须重新输出内部题目标记、题目 segments 和完整 schemaVersion 2 解答结构，完成整道题，而不是只回复修改之处。"
         } else {
             "必须重新输出内部题目标记和完整的直接解答，而不是只回复修改之处；不要使用固定分段标题。"
         }

@@ -209,6 +209,18 @@ internal fun NewCaptureScreen(
             .take(8)
             .toList()
     }
+    val suggestedTags = remember(allMistakes) {
+        allMistakes.asSequence()
+            .flatMap { mistake ->
+                mistake.tags.split(',', '，', '、', ';', '；')
+                    .asSequence()
+                    .map(String::trim)
+            }
+            .filter(String::isNotBlank)
+            .distinct()
+            .take(8)
+            .toList()
+    }
     val activeQuestionImage = if (mode == EntryMode.AI) aiRecognitionImages.firstOrNull() else photoQuestionImage
     val visualApiKey = visualAssistProfile?.let { profile ->
         secureStore.read(profile.id).ifBlank { profile.keyProfileId?.let(secureStore::read).orEmpty() }
@@ -627,7 +639,8 @@ internal fun NewCaptureScreen(
                 onSave = ::persistCapture,
                 saving = saving,
                 suggestedSubjects = suggestedSubjects,
-                suggestedQuestionTypes = suggestedQuestionTypes
+                suggestedQuestionTypes = suggestedQuestionTypes,
+                suggestedTags = suggestedTags
             )
         }
         LazyColumn(
