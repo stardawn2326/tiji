@@ -29,7 +29,6 @@ internal data class TijiNavGraphState(
     val reviewSubjects: String,
     val randomReview: Boolean,
     val librarySubject: String?,
-    val libraryKnowledgePointStableId: String?,
     val aiProfiles: List<AiProfile>,
     val activeAiProfileId: String,
     val activeAiProfile: AiProfile,

@@ -65,9 +65,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.tiji.mistakes.data.KnowledgePointEntity
 import com.tiji.mistakes.data.MistakeEntity
-import com.tiji.mistakes.data.MistakeKnowledgePointCrossRef
 import com.tiji.mistakes.service.HtmlPdfExportService
 import com.tiji.mistakes.service.PdfExportOptions
 import com.tiji.mistakes.service.PdfTemplate
@@ -95,14 +93,10 @@ import kotlinx.coroutines.launch
 @Composable
 internal fun LibraryScreen(
     selectedSubject: String?,
-    selectedKnowledgePointStableId: String?,
     resetScrollToken: Int,
     onSelectSubject: (String?) -> Unit,
-    onSelectKnowledgePoint: (String?) -> Unit,
     viewModel: MistakeViewModel,
     mistakes: List<MistakeEntity>,
-    knowledgePoints: List<KnowledgePointEntity> = emptyList(),
-    knowledgePointLinks: List<MistakeKnowledgePointCrossRef> = emptyList(),
     exportOriginalImagesOnly: Boolean,
     onOpen: (Long) -> Unit,
     onCreate: () -> Unit,
@@ -186,22 +180,15 @@ internal fun LibraryScreen(
             if (selectedSubject != null && selectedSubject !in this) add(selectedSubject)
         }
     }
-    val selectedKnowledgePointMistakeIds = remember(selectedKnowledgePointStableId, knowledgePoints, knowledgePointLinks) {
-        selectedKnowledgePointStableId?.let { stableId ->
-            val pointId = knowledgePoints.firstOrNull { it.stableId == stableId }?.id
-            pointId?.let { id -> knowledgePointLinks.filter { it.knowledgePointId == id }.map { it.mistakeId }.toSet() }
-        }
-    }
-    val visibleMistakes = remember(mistakes, order, selectedSubject, selectedKnowledgePointStableId, selectedKnowledgePointMistakeIds, masteryFilter, difficultyFilter) {
+    val visibleMistakes = remember(mistakes, order, selectedSubject, masteryFilter, difficultyFilter) {
         val filtered = mistakes.filter {
             (selectedSubject == null || normalizedSubject(it.subject) == selectedSubject) &&
-                (selectedKnowledgePointMistakeIds == null || it.id in selectedKnowledgePointMistakeIds) &&
                 (masteryFilter == null || it.mastery == masteryFilter) &&
                 difficultyMatchesFilter(it.difficulty, difficultyFilter)
         }
         when(order) { MistakeOrder.NEWEST -> filtered.sortedByDescending { it.uploadedAt }; MistakeOrder.OLDEST -> filtered.sortedBy { it.uploadedAt }; MistakeOrder.UPDATED -> filtered.sortedByDescending { it.updatedAt } }
     }
-    LaunchedEffect(query, order, selectedSubject, selectedKnowledgePointStableId, masteryFilter, difficultyFilter) {
+    LaunchedEffect(query, order, selectedSubject, masteryFilter, difficultyFilter) {
         selectedIds = emptySet()
         selectionMode = false
         visibleLimit = 40
@@ -373,7 +360,7 @@ internal fun LibraryScreen(
             },
             confirmButton = { TijiTextButton(onClick = { showFilterDialog = false }) { Text("完成") } },
             dismissButton = {
-                TijiTextButton(onClick = { onSelectKnowledgePoint(null); masteryFilter = null; difficultyFilter = null; showFilterDialog = false }) { Text("清除筛选") }
+                TijiTextButton(onClick = { masteryFilter = null; difficultyFilter = null; showFilterDialog = false }) { Text("清除筛选") }
             }
         )
     }
@@ -545,7 +532,7 @@ internal fun LibraryScreen(
           }
             if (visibleMistakes.isEmpty()) {
               item {
-                val hasFilter = query.isNotBlank() || selectedSubject != null || selectedKnowledgePointStableId != null || masteryFilter != null || difficultyFilter != null
+                val hasFilter = query.isNotBlank() || selectedSubject != null || masteryFilter != null || difficultyFilter != null
                 TijiPaperCard {
                     Column(
                         modifier = Modifier.fillMaxWidth(),
@@ -576,7 +563,6 @@ internal fun LibraryScreen(
                             TijiSecondaryButton(onClick = {
                                 viewModel.setQuery("")
                                 onSelectSubject(null)
-                                onSelectKnowledgePoint(null)
                                 masteryFilter = null
                                 difficultyFilter = null
                             }) { Text("清除筛选") }

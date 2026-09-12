@@ -60,8 +60,7 @@ internal fun TijiNavGraph(
     snackbarHostState: SnackbarHostState,
     ocrModelManager: OcrModelManager,
     state: TijiNavGraphState,
-    onLibrarySubject: (String?) -> Unit,
-    onLibraryKnowledgePoint: (String?) -> Unit
+    onLibrarySubject: (String?) -> Unit
 ) {
     val activeReviewSession by viewModel.reviewSession.collectAsStateWithLifecycle()
     NavHost(
@@ -138,14 +137,10 @@ internal fun TijiNavGraph(
                 composable(TijiRoutes.LIBRARY) {
                     LibraryScreen(
                         selectedSubject = state.librarySubject,
-                        selectedKnowledgePointStableId = state.libraryKnowledgePointStableId,
                         resetScrollToken = state.libraryVisitToken,
                         onSelectSubject = { subject -> onLibrarySubject(subject) },
-                        onSelectKnowledgePoint = { stableId -> onLibraryKnowledgePoint(stableId) },
                         viewModel = viewModel,
                         mistakes = state.mistakes,
-                        knowledgePoints = state.knowledgePoints,
-                        knowledgePointLinks = state.knowledgePointLinks,
                         exportOriginalImagesOnly = !state.aiExcludeSourceImageByDefault,
                         onOpen = { navController.navigate(TijiRoutes.detail(it)) },
                         onCreate = { navController.navigate(TijiRoutes.CAPTURE) },
@@ -259,10 +254,6 @@ internal fun TijiNavGraph(
                         exportOriginalImagesOnly = !state.aiExcludeSourceImageByDefault,
                         onBack = { navController.popBackStack() },
                         onOpenMistake = { id -> navController.navigate(TijiRoutes.detail(id)) },
-                        onOpenLibrary = { selectedId ->
-                            onLibraryKnowledgePoint(selectedId)
-                            navController.navigate(TijiRoutes.LIBRARY)
-                        },
                         onStartFocusedReview = { selectedId, pointName ->
                             scope.launch {
                                 val queue = viewModel.focusedReviewQueue(selectedId)

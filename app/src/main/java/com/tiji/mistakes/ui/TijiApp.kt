@@ -96,7 +96,6 @@ fun TijiApp() {
     val todayDate = remember(reviewNow) { LearningCalendar.localDate(reviewNow).toString() }
     val todayWeekday = remember(reviewNow) { LearningCalendar.localDate(reviewNow).dayOfWeek.value }
     var librarySubject by rememberSaveable { mutableStateOf<String?>(null) }
-    var libraryKnowledgePointStableId by rememberSaveable { mutableStateOf<String?>(null) }
     val dueMistakes by viewModel.dueMistakes.collectAsStateWithLifecycle()
     val dueCount by viewModel.dueCount.collectAsStateWithLifecycle()
     val recentReviewRecords by viewModel.recentReviewRecords.collectAsStateWithLifecycle()
@@ -186,7 +185,6 @@ fun TijiApp() {
         reviewSubjects = reviewSubjects,
         randomReview = randomReview,
         librarySubject = librarySubject,
-        libraryKnowledgePointStableId = libraryKnowledgePointStableId,
         aiProfiles = aiProfiles,
         activeAiProfileId = activeAiProfileId,
         activeAiProfile = activeAiProfile,
@@ -268,11 +266,6 @@ fun TijiApp() {
                 state = navState,
                 onLibrarySubject = { subject ->
                     librarySubject = subject
-                    libraryKnowledgePointStableId = null
-                },
-                onLibraryKnowledgePoint = { stableId ->
-                    libraryKnowledgePointStableId = stableId
-                    librarySubject = null
                 }
             )
         }

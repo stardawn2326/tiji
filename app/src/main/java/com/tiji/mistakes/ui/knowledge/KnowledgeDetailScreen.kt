@@ -44,7 +44,6 @@ import com.tiji.mistakes.ui.design.TijiSecondaryButton
 import com.tiji.mistakes.ui.design.TijiScreen
 import com.tiji.mistakes.ui.design.TijiSurface
 import androidx.compose.material3.Text
-import com.tiji.mistakes.ui.design.TijiTextButton
 import com.tiji.mistakes.ui.design.TijiTopBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -96,7 +95,6 @@ internal fun KnowledgeDetailScreen(
     exportOriginalImagesOnly: Boolean = false,
     onBack: () -> Unit,
     onOpenMistake: (Long) -> Unit,
-    onOpenLibrary: (String) -> Unit,
     onStartFocusedReview: (String, String) -> Unit
 ) {
     if (point == null) {
@@ -367,9 +365,6 @@ internal fun KnowledgeDetailScreen(
                         Column(Modifier.weight(1f)) {
                             Text("最近复习", style = MaterialTheme.typography.titleMedium)
                             Text("展示最新 5 次真实反馈", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        if (relatedMistakes.isNotEmpty()) {
-                            TijiTextButton(onClick = { onOpenLibrary(point.stableId) }) { Text("查看相关错题") }
                         }
                     }
                     if (reviewRecords.isEmpty()) {
