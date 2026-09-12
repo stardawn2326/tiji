@@ -106,6 +106,7 @@ internal fun LibraryScreen(
     exportOriginalImagesOnly: Boolean,
     onOpen: (Long) -> Unit,
     onCreate: () -> Unit,
+    onOpenKnowledge: () -> Unit,
     onStartSelectedReview: (List<Long>) -> Unit = {}
 ) {
     val query by viewModel.searchQuery.collectAsStateWithLifecycle()
@@ -481,6 +482,11 @@ internal fun LibraryScreen(
                         IconButton(onClick = onCreate) {
                             Icon(Icons.Outlined.AddAPhoto, contentDescription = "录入错题")
                         }
+                        TextButton(
+                            onClick = onOpenKnowledge,
+                            modifier = Modifier.height(40.dp).testTag("library_open_knowledge"),
+                            contentPadding = PaddingValues(horizontal = 8.dp)
+                        ) { Text("知识点") }
                         TextButton(
                             onClick = { selectionMode = true },
                             modifier = Modifier.height(40.dp),

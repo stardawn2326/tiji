@@ -10,8 +10,11 @@ internal object TijiRoutes {
     const val SOLVE = "solve"
     const val REVIEW = "review"
     const val SETTINGS = "settings"
-    const val SETTINGS_DETAIL = "settings-detail"
-    const val SETTINGS_DETAIL_PATTERN = "$SETTINGS_DETAIL/{section}"
+    const val SETTINGS_AI = "settings/ai"
+    const val SETTINGS_REVIEW = "settings/review"
+    const val SETTINGS_DATA = "settings/data"
+    const val SETTINGS_APPEARANCE = "settings/appearance"
+    const val SETTINGS_ABOUT = "settings/about"
     const val AI_SOLVE_HISTORY = "ai-solve-history"
     const val AI_CHAT_HISTORY = "ai-chat-history"
     const val VISUAL_CONFIG = "visual-config"
@@ -26,31 +29,11 @@ internal object TijiRoutes {
     const val KNOWLEDGE_DETAIL = "knowledge-detail"
     const val KNOWLEDGE_DETAIL_PATTERN = "$KNOWLEDGE_DETAIL/{stableId}"
 
-    fun settingsDetail(section: SettingsSection): String = "$SETTINGS_DETAIL/${section.key}"
     fun visualConfig(textProfileId: String): String = "$VISUAL_CONFIG/$textProfileId"
     fun detail(id: Long): String = "$DETAIL/$id"
     fun reviewSession(sessionId: String): String = "$REVIEW_SESSION/${Uri.encode(sessionId)}"
 
     fun knowledgeDetail(stableId: String): String = "$KNOWLEDGE_DETAIL/${Uri.encode(stableId)}"
-}
-
-internal enum class SettingsSection(
-    val key: String,
-    val pageTag: String,
-    val initialItemIndex: Int
-) {
-    REVIEW("review", "settings_review", 2),
-    SUBJECT("subject", "settings_subject", 2),
-    AI("ai", "settings_ai", 3),
-    DATA("data", "settings_data", 6),
-    APPEARANCE("appearance", "settings_appearance", 1),
-    ABOUT("about", "settings_about", 7),
-    OVERVIEW("overview", "settings_overview", 0);
-
-    companion object {
-        fun fromKey(key: String?): SettingsSection =
-            entries.firstOrNull { it.key == key } ?: OVERVIEW
-    }
 }
 
 internal data class BottomDestination(
@@ -73,7 +56,7 @@ internal fun bottomRouteIndex(route: String?): Int {
 }
 
 internal fun isSecondaryRoute(route: String?): Boolean =
-    route?.substringBefore('/')?.let { it !in bottomRouteOrder } ?: false
+    route?.let { it !in bottomRouteOrder || '/' in it } ?: false
 
 internal fun pageSlideDirection(
     initialRoute: String?,

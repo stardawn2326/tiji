@@ -221,7 +221,7 @@ fun TijiApp() {
                                 selected = route == destination.route ||
                                     (destination.route == TijiRoutes.LIBRARY && route == TijiRoutes.DETAIL_PATTERN) ||
                                     (destination.route == TijiRoutes.REVIEW && (route == TijiRoutes.REVIEW_CALENDAR || route == TijiRoutes.REVIEW_SESSION_PATTERN)) ||
-                                    (destination.route == TijiRoutes.SETTINGS && (route == TijiRoutes.SETTINGS_DETAIL || route == TijiRoutes.SETTINGS_DETAIL_PATTERN)),
+                                    (destination.route == TijiRoutes.SETTINGS && route == TijiRoutes.SETTINGS),
                                 onClick = {
                                     when (destination.route) {
                                         TijiRoutes.HOME -> homeVisitToken += 1

@@ -37,8 +37,12 @@ import com.tiji.mistakes.ui.review.ReviewCalendarScreen
 import com.tiji.mistakes.ui.review.ReviewQuestionScreen
 import com.tiji.mistakes.ui.review.ReviewScreen
 import com.tiji.mistakes.ui.review.ReviewSessionUnavailableScreen
-import com.tiji.mistakes.ui.settings.MyScreen
-import com.tiji.mistakes.ui.settings.SettingsScreen
+import com.tiji.mistakes.ui.settings.AboutScreen
+import com.tiji.mistakes.ui.settings.AiSettingsScreen
+import com.tiji.mistakes.ui.settings.AppearanceSettingsScreen
+import com.tiji.mistakes.ui.settings.DataSettingsScreen
+import com.tiji.mistakes.ui.settings.ReviewSettingsScreen
+import com.tiji.mistakes.ui.settings.SettingsHomeScreen
 import com.tiji.mistakes.ui.settings.VisualAssistConfigScreen
 import com.tiji.mistakes.ui.solve.AiChatHistoryScreen
 import com.tiji.mistakes.ui.solve.AiSolveHistoryScreen
@@ -124,6 +128,7 @@ internal fun TijiNavGraph(
                         exportOriginalImagesOnly = !state.aiExcludeSourceImageByDefault,
                         onOpen = { navController.navigate(TijiRoutes.detail(it)) },
                         onCreate = { navController.navigate(TijiRoutes.CAPTURE) },
+                        onOpenKnowledge = { navController.navigate(TijiRoutes.KNOWLEDGE) },
                         onStartSelectedReview = { selectedIds ->
                             val activeIds = state.mistakes.mapTo(mutableSetOf()) { it.id }
                             val validIds = selectedIds.filter { it in activeIds }.distinct()
@@ -158,7 +163,7 @@ internal fun TijiNavGraph(
                         onSavePlanSnapshot = { date, ids -> scope.launch { preferences.ensureReviewPlanSnapshot(date, ids) } },
                         onCheckIn = { scope.launch { preferences.setReviewCheckIn(state.todayDate, true) } },
                         onOpenCalendar = { navController.navigate(TijiRoutes.REVIEW_CALENDAR) },
-                         onOpenSettings = { navController.navigate(TijiRoutes.settingsDetail(SettingsSection.OVERVIEW)) },
+                          onOpenSettings = { navController.navigate(TijiRoutes.SETTINGS) },
                         onStartSession = { ids ->
                             val plan = ReviewSessionPlan(
                                 sessionKey = viewModel.newReviewSessionId(),
@@ -187,7 +192,7 @@ internal fun TijiNavGraph(
                         aiUploadConsent = state.aiUploadConsent,
                         aiExcludeSourceImageByDefault = state.aiExcludeSourceImageByDefault,
                         onActiveAiProfile = { id -> scope.launch { preferences.setActiveAiProfile(id, state.aiProfiles) } },
-                        onOpenSettings = { navController.navigate(TijiRoutes.settingsDetail(SettingsSection.OVERVIEW)) },
+                         onOpenSettings = { navController.navigate(TijiRoutes.SETTINGS) },
                         onOpenSolveHistory = { navController.navigate(TijiRoutes.AI_SOLVE_HISTORY) },
                         onOpenMistake = { id -> navController.navigate(TijiRoutes.detail(id)) },
                         onAiUploadConsent = { value -> scope.launch { preferences.setAiUploadConsent(value) } },
@@ -197,14 +202,18 @@ internal fun TijiNavGraph(
                     )
                 }
                 composable(TijiRoutes.SETTINGS) {
-                    MyScreen(
+                    SettingsHomeScreen(
                         resetScrollToken = state.settingsVisitToken,
-                        onOpenReviewSettings = { navController.navigate(TijiRoutes.settingsDetail(SettingsSection.REVIEW)) },
-                        onOpenKnowledge = { navController.navigate(TijiRoutes.KNOWLEDGE) },
-                        onOpenAiSettings = { navController.navigate(TijiRoutes.settingsDetail(SettingsSection.AI)) },
-                        onOpenDataSettings = { navController.navigate(TijiRoutes.settingsDetail(SettingsSection.DATA)) },
-                        onOpenAppearanceSettings = { navController.navigate(TijiRoutes.settingsDetail(SettingsSection.APPEARANCE)) },
-                        onOpenAbout = { navController.navigate(TijiRoutes.settingsDetail(SettingsSection.ABOUT)) }
+                        activeAiProfile = state.activeAiProfile,
+                        reviewPlanEnabled = state.reviewPlanEnabled,
+                        dailyReviewLimit = state.dailyReviewLimit,
+                        themeMode = ThemeMode.fromKey(state.themeModeKey),
+                        themePalette = ThemePalette.fromKey(state.themePaletteKey),
+                        onOpenAiSettings = { navController.navigate(TijiRoutes.SETTINGS_AI) },
+                        onOpenReviewSettings = { navController.navigate(TijiRoutes.SETTINGS_REVIEW) },
+                        onOpenDataSettings = { navController.navigate(TijiRoutes.SETTINGS_DATA) },
+                        onOpenAppearanceSettings = { navController.navigate(TijiRoutes.SETTINGS_APPEARANCE) },
+                        onOpenAbout = { navController.navigate(TijiRoutes.SETTINGS_ABOUT) }
                     )
                 }
                 composable(TijiRoutes.KNOWLEDGE) {
@@ -257,39 +266,19 @@ internal fun TijiNavGraph(
                         }
                     )
                 }
-                composable(TijiRoutes.SETTINGS_DETAIL_PATTERN) { entry ->
-                    val section = SettingsSection.fromKey(entry.arguments?.getString("section"))
-                    SettingsScreen(
-                        resetScrollToken = state.settingsVisitToken,
-                        pageTag = section.pageTag,
-                        initialItemIndex = section.initialItemIndex,
-                        themeMode = ThemeMode.fromKey(state.themeModeKey),
-                        themePalette = ThemePalette.fromKey(state.themePaletteKey),
+                composable(TijiRoutes.SETTINGS_AI) {
+                    AiSettingsScreen(
                         aiEndpoint = state.activeAiProfile.endpoint,
                         aiModel = state.activeAiProfile.model,
                         aiProfiles = state.aiProfiles,
                         activeAiProfileId = state.activeAiProfileId,
                         aiVisualProfiles = state.aiVisualProfiles,
                         aiVisualBindings = state.aiVisualBindings,
-                        dailyReviewLimit = state.dailyReviewLimit,
-                        reviewSubjects = state.reviewSubjects,
-                        reviewPlanEnabled = state.reviewPlanEnabled,
-                        randomReview = state.randomReview,
-                        mistakes = state.mistakes,
-                        backgroundScope = scope,
                         ocrModelManager = ocrModelManager,
-                        aiExcludeSourceImageByDefault = state.aiExcludeSourceImageByDefault,
-                        onAiExcludeSourceImageByDefault = { value -> scope.launch { preferences.setAiExcludeSourceImageByDefault(value) } },
-                        onThemeMode = { value -> scope.launch { preferences.setThemeMode(value.key) } },
-                        onThemePalette = { value -> scope.launch { preferences.setThemePalette(value.key) } },
                         onSaveAiConfig = { endpoint, model -> scope.launch { preferences.setAiEndpoint(endpoint); preferences.setAiModel(model) } },
                         onAiProfiles = { profiles -> scope.launch { preferences.setAiProfiles(profiles) } },
                         onActiveAiProfile = { id -> scope.launch { preferences.setActiveAiProfile(id, state.aiProfiles) } },
                         onOpenVisualAssistConfig = { textProfileId -> navController.navigate(TijiRoutes.visualConfig(textProfileId)) },
-                        onDailyReviewLimit = { value -> scope.launch { preferences.setDailyReviewLimit(value) } },
-                        onReviewSubjects = { value -> scope.launch { preferences.setReviewSubjects(value) } },
-                        onReviewPlanEnabled = { value -> scope.launch { preferences.setReviewPlanEnabled(value) } },
-                        onRandomReview = { value -> scope.launch { preferences.setRandomReview(value) } },
                         onDeleteAiProfile = { id ->
                             val previousProfiles = state.aiProfiles
                             val remainingProfiles = previousProfiles.filterNot { it.id == id }
@@ -313,6 +302,30 @@ internal fun TijiNavGraph(
                                 }
                             }
                         },
+                        onBack = { navController.popBackStack() }
+                    )
+                }
+                composable(TijiRoutes.SETTINGS_REVIEW) {
+                    ReviewSettingsScreen(
+                        dailyReviewLimit = state.dailyReviewLimit,
+                        reviewSubjects = state.reviewSubjects,
+                        reviewPlanEnabled = state.reviewPlanEnabled,
+                        randomReview = state.randomReview,
+                        mistakes = state.mistakes,
+                        onDailyReviewLimit = { value -> scope.launch { preferences.setDailyReviewLimit(value) } },
+                        onReviewSubjects = { value -> scope.launch { preferences.setReviewSubjects(value) } },
+                        onReviewPlanEnabled = { value -> scope.launch { preferences.setReviewPlanEnabled(value) } },
+                        onRandomReview = { value -> scope.launch { preferences.setRandomReview(value) } },
+                        onBack = { navController.popBackStack() }
+                    )
+                }
+                composable(TijiRoutes.SETTINGS_DATA) {
+                    DataSettingsScreen(
+                        aiExcludeSourceImageByDefault = state.aiExcludeSourceImageByDefault,
+                        onAiExcludeSourceImageByDefault = { value ->
+                            scope.launch { preferences.setAiExcludeSourceImageByDefault(value) }
+                        },
+                        backgroundScope = scope,
                         onResetData = { onFinished ->
                             scope.launch {
                                 runCatching {
@@ -324,8 +337,21 @@ internal fun TijiNavGraph(
                                     onFinished("重置失败：${error.message ?: "未知错误"}")
                                 }
                             }
-                        }
+                        },
+                        onBack = { navController.popBackStack() }
                     )
+                }
+                composable(TijiRoutes.SETTINGS_APPEARANCE) {
+                    AppearanceSettingsScreen(
+                        themeMode = ThemeMode.fromKey(state.themeModeKey),
+                        themePalette = ThemePalette.fromKey(state.themePaletteKey),
+                        onThemeMode = { value -> scope.launch { preferences.setThemeMode(value.key) } },
+                        onThemePalette = { value -> scope.launch { preferences.setThemePalette(value.key) } },
+                        onBack = { navController.popBackStack() }
+                    )
+                }
+                composable(TijiRoutes.SETTINGS_ABOUT) {
+                    AboutScreen(onBack = { navController.popBackStack() })
                 }
                 composable(TijiRoutes.AI_SOLVE_HISTORY) {
                     AiSolveHistoryScreen(
@@ -385,7 +411,7 @@ internal fun TijiNavGraph(
                         onAiUploadConsent = { value -> scope.launch { preferences.setAiUploadConsent(value) } },
                         onActiveAiProfile = { id -> scope.launch { preferences.setActiveAiProfile(id, state.aiProfiles) } },
                          onAiInputMode = { value -> scope.launch { preferences.setAiCaptureInputMode(value.name) } },
-                        onOpenSettings = { navController.navigate(TijiRoutes.settingsDetail(SettingsSection.OVERVIEW)) }
+                        onOpenSettings = { navController.navigate(TijiRoutes.SETTINGS) }
                     )
                 }
                 composable(TijiRoutes.DETAIL_PATTERN) { entry ->

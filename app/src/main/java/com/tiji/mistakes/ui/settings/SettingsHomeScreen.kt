@@ -3,23 +3,22 @@ package com.tiji.mistakes.ui.settings
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.ChevronRight
-import androidx.compose.material.icons.outlined.FolderOpen
+import androidx.compose.material.icons.outlined.FileOpen
 import androidx.compose.material.icons.outlined.Lightbulb
 import androidx.compose.material.icons.outlined.Style
 import androidx.compose.material3.Icon
@@ -31,16 +30,23 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import com.tiji.mistakes.data.AiProfile
 import com.tiji.mistakes.ui.ConceptPageHeader
+import com.tiji.mistakes.ui.ThemeMode
+import com.tiji.mistakes.ui.ThemePalette
 import com.tiji.mistakes.ui.TijiDimens
 import com.tiji.mistakes.ui.TijiSurfaceCard
 
 @Composable
-internal fun MyScreen(
+internal fun SettingsHomeScreen(
     resetScrollToken: Int,
-    onOpenReviewSettings: () -> Unit,
-    onOpenKnowledge: () -> Unit,
+    activeAiProfile: AiProfile,
+    reviewPlanEnabled: Boolean,
+    dailyReviewLimit: Int,
+    themeMode: ThemeMode,
+    themePalette: ThemePalette,
     onOpenAiSettings: () -> Unit,
+    onOpenReviewSettings: () -> Unit,
     onOpenDataSettings: () -> Unit,
     onOpenAppearanceSettings: () -> Unit,
     onOpenAbout: () -> Unit
@@ -55,38 +61,64 @@ internal fun MyScreen(
         contentPadding = PaddingValues(horizontal = TijiDimens.pagePadding, vertical = 20.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
-        item { ConceptPageHeader("设置", "管理 AI、复习、数据和外观；学习内容仍在对应一级页面完成。") }
         item {
-            MySection("学习") {
-                MySettingRow("复习计划", "安排今天和接下来的复习节奏", Icons.Outlined.CalendarMonth, onOpenReviewSettings)
-                MySettingRow("科目与知识点", "浏览知识点、薄弱度和关联错题", Icons.AutoMirrored.Outlined.MenuBook, onOpenKnowledge)
+            ConceptPageHeader("设置", "管理 AI、复习、数据和外观；学习内容仍在对应一级页面完成。")
+        }
+        item {
+            SettingsHomeSection("AI") {
+                SettingsHomeRow(
+                    title = "AI 模型",
+                    subtitle = "当前模型：${activeAiProfile.model}",
+                    icon = Icons.Outlined.AutoAwesome,
+                    onClick = onOpenAiSettings
+                )
             }
         }
         item {
-            MySection("AI") {
-                MySettingRow("AI 模型", "管理文本模型和连接配置", Icons.Outlined.AutoAwesome, onOpenAiSettings)
+            SettingsHomeSection("复习") {
+                SettingsHomeRow(
+                    title = "复习计划",
+                    subtitle = if (reviewPlanEnabled) "已开启 · 每日上限 $dailyReviewLimit 题" else "尚未开启，安排今天和接下来的复习节奏",
+                    icon = Icons.Outlined.CalendarMonth,
+                    onClick = onOpenReviewSettings
+                )
             }
         }
         item {
-            MySection("数据") {
-                MySettingRow("数据备份与导入", "导出、恢复或重置本机数据", Icons.Outlined.FolderOpen, onOpenDataSettings)
+            SettingsHomeSection("数据") {
+                SettingsHomeRow(
+                    title = "备份与恢复",
+                    subtitle = "导出、检查、合并恢复或重置本机数据",
+                    icon = Icons.Outlined.FileOpen,
+                    onClick = onOpenDataSettings
+                )
             }
         }
         item {
-            MySection("外观") {
-                MySettingRow("显示模式与主题", "调整明亮、深色和强调色", Icons.Outlined.Style, onOpenAppearanceSettings)
+            SettingsHomeSection("外观") {
+                SettingsHomeRow(
+                    title = "显示模式与主题",
+                    subtitle = "${themeMode.label} · ${themePalette.label}",
+                    icon = Icons.Outlined.Style,
+                    onClick = onOpenAppearanceSettings
+                )
             }
         }
         item {
-            MySection("关于") {
-                MySettingRow("关于题迹", "版本、说明和使用边界", Icons.Outlined.Lightbulb, onOpenAbout)
+            SettingsHomeSection("关于") {
+                SettingsHomeRow(
+                    title = "关于题迹",
+                    subtitle = "版本、说明和使用边界",
+                    icon = Icons.Outlined.Lightbulb,
+                    onClick = onOpenAbout
+                )
             }
         }
     }
 }
 
 @Composable
-private fun MySection(title: String, content: @Composable () -> Unit) {
+private fun SettingsHomeSection(title: String, content: @Composable () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
         TijiSurfaceCard { content() }
@@ -94,7 +126,7 @@ private fun MySection(title: String, content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun MySettingRow(
+private fun SettingsHomeRow(
     title: String,
     subtitle: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
@@ -103,7 +135,7 @@ private fun MySettingRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 56.dp)
+            .heightIn(min = 64.dp)
             .clickable(onClick = onClick)
             .testTag("my_setting_$title")
             .padding(horizontal = 4.dp, vertical = 8.dp),
