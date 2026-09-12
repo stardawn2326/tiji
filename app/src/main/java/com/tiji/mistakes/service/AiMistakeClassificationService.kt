@@ -23,6 +23,21 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 
+/** New automatic classification writes only the four values represented by the editor. */
+internal fun normalizeClassificationDifficulty(value: Int): Int = when {
+    value <= 0 -> 0
+    value >= 4 -> 4
+    else -> value
+}
+
+/** Merges free-form labels using the same delimiter and case-insensitive rules as storage. */
+internal fun mergeTagText(existing: String, additions: Iterable<String>): String =
+    (KnowledgePointNormalizer.parseTags(existing) + additions.flatMap(KnowledgePointNormalizer::parseTags))
+        .map(KnowledgePointNormalizer::cleanName)
+        .filter(String::isNotBlank)
+        .distinctBy(KnowledgePointNormalizer::normalizeName)
+        .joinToString(", ")
+
 /** Apply only classifier metadata; solved content is immutable in this stage. */
 internal fun mergeClassificationMetadata(
     mistake: com.tiji.mistakes.data.MistakeEntity,
@@ -34,20 +49,13 @@ internal fun mergeClassificationMetadata(
     val questionType = mistake.questionType
         .takeUnless { it.isBlank() || it == "未分类" }
         ?: classification.questionType.ifBlank { "未分类" }
-    val tags = (
-        KnowledgePointNormalizer.parseTags(mistake.tags) +
-            classification.tags +
-            classification.knowledgePoints
-        )
-        .map(KnowledgePointNormalizer::cleanName)
-        .filter(String::isNotBlank)
-        .distinctBy(KnowledgePointNormalizer::normalizeName)
-        .joinToString(", ")
+    val tags = mergeTagText(mistake.tags, classification.tags + classification.knowledgePoints)
     return mistake.copy(
         subject = subject,
         questionType = questionType,
         tags = tags,
-        difficulty = mistake.difficulty.takeIf { it > 0 } ?: classification.difficulty
+        difficulty = mistake.difficulty.takeIf { it > 0 }
+            ?: normalizeClassificationDifficulty(classification.difficulty)
     )
 }
 

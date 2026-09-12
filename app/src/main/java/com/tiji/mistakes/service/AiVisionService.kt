@@ -1408,7 +1408,7 @@ class AiVisionService internal constructor(
             val prompt = """
                 根据下面已经完成的解题内容提取错题分类元数据。不要重新解题，不要改写或补充题目、答案、解析。
                 只返回 JSON，字段只能是：subject, questionType, knowledgePoints, tags, difficulty。
-                difficulty 为 1 到 5，knowledgePoints 和 tags 为字符串数组。
+                difficulty 为 1 到 4，knowledgePoints 和 tags 为字符串数组。
                 subject 和 questionType 必须填写，绝不能省略、返回空字符串或改成嵌套对象；无法确定时分别填写“其他”和“其他题型”。
                 返回格式示例：{"subject":"数学","questionType":"计算题","knowledgePoints":["定积分"],"tags":["积分"],"difficulty":3}
 
@@ -1418,7 +1418,8 @@ class AiVisionService internal constructor(
                 .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", prompt)))
             // Classification is metadata-only. Parsing without a required
             // question lets the response omit all solve fields.
-            parseRecognition(extractContent(request(endpoint, apiKey, body)), requireQuestion = false)
+            val parsed = parseRecognition(extractContent(request(endpoint, apiKey, body)), requireQuestion = false)
+            parsed.copy(difficulty = normalizeClassificationDifficulty(parsed.difficulty))
         }
     }
     suspend fun testConnection(endpoint: String, model: String, apiKey: String): Result<Unit> = withContext(Dispatchers.IO) {

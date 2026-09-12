@@ -28,6 +28,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.tiji.mistakes.service.mergeTagText
 import com.tiji.mistakes.ui.design.TijiDimens
 
 /** The only metadata surface shared by solve, recognition, photo, and manual capture. */
@@ -39,6 +40,13 @@ internal data class MistakeSaveMetadata(
     val inReviewPlan: Boolean = true
 )
 
+internal enum class MistakeSaveField {
+    SUBJECT,
+    TAGS,
+    QUESTION_TYPE,
+    DIFFICULTY
+}
+
 @Composable
 internal fun MistakeSaveSheet(
     initial: MistakeSaveMetadata,
@@ -48,7 +56,8 @@ internal fun MistakeSaveSheet(
     metadataLoading: Boolean = false,
     suggestedSubjects: List<String> = emptyList(),
     suggestedQuestionTypes: List<String> = emptyList(),
-    suggestedTags: List<String> = emptyList()
+    suggestedTags: List<String> = emptyList(),
+    onFieldEdited: (MistakeSaveField) -> Unit = {}
 ) {
     var subject by remember(initial.subject) { mutableStateOf(initial.subject) }
     var questionType by remember(initial.questionType) { mutableStateOf(initial.questionType) }
@@ -72,7 +81,10 @@ internal fun MistakeSaveSheet(
             Text("保存错题", style = MaterialTheme.typography.headlineSmall)
             TijiTextField(
                 value = subject,
-                onValueChange = { subject = it },
+                onValueChange = {
+                    subject = it
+                    onFieldEdited(MistakeSaveField.SUBJECT)
+                },
                 label = { Text("科目") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
@@ -80,11 +92,17 @@ internal fun MistakeSaveSheet(
             SuggestionChips(
                 title = "常用科目",
                 values = suggestedSubjects,
-                onSelected = { subject = it }
+                onSelected = {
+                    subject = it
+                    onFieldEdited(MistakeSaveField.SUBJECT)
+                }
             )
             TijiTextField(
                 value = tags,
-                onValueChange = { tags = it },
+                onValueChange = {
+                    tags = it
+                    onFieldEdited(MistakeSaveField.TAGS)
+                },
                 label = { Text("知识点 / 标签") },
                 placeholder = { Text("多个标签用逗号分隔") },
                 singleLine = true,
@@ -94,12 +112,16 @@ internal fun MistakeSaveSheet(
                 title = "常用知识点 / 标签",
                 values = suggestedTags,
                 onSelected = {
-                    tags = if (tags.isBlank()) it else "$tags, $it"
+                    tags = mergeTagText(tags, listOf(it))
+                    onFieldEdited(MistakeSaveField.TAGS)
                 }
             )
             TijiTextField(
                 value = questionType,
-                onValueChange = { questionType = it },
+                onValueChange = {
+                    questionType = it
+                    onFieldEdited(MistakeSaveField.QUESTION_TYPE)
+                },
                 label = { Text("题型") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
@@ -107,15 +129,21 @@ internal fun MistakeSaveSheet(
             SuggestionChips(
                 title = "常用题型",
                 values = suggestedQuestionTypes,
-                onSelected = { questionType = it }
+                onSelected = {
+                    questionType = it
+                    onFieldEdited(MistakeSaveField.QUESTION_TYPE)
+                }
             )
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("难度", style = MaterialTheme.typography.labelLarge)
-                DifficultyPicker(difficulty = difficulty, onDifficulty = { difficulty = it })
-            }
+            DifficultyPicker(
+                difficulty = difficulty,
+                onDifficulty = {
+                    difficulty = it
+                    onFieldEdited(MistakeSaveField.DIFFICULTY)
+                }
+            )
             if (metadataLoading) {
                 Text(
-                    "正在根据当前解题内容补充分类，可继续编辑；完成后再保存。",
+                    "正在根据当前解题内容补充分类；你可以继续编辑或直接保存。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -138,19 +166,18 @@ internal fun MistakeSaveSheet(
                         )
                     )
                 },
-                enabled = !saving && !metadataLoading,
+                enabled = !saving,
                 loading = saving,
                 modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
                 contentPadding = PaddingValues(vertical = 14.dp)
-            ) {
-                Text(
-                    when {
-                        saving -> "正在保存…"
-                        metadataLoading -> "正在整理分类…"
-                        else -> "保存到错题库"
-                    }
-                )
-            }
+                ) {
+                    Text(
+                        when {
+                            saving -> "正在保存…"
+                            else -> "保存到错题库"
+                        }
+                    )
+                }
         }
     }
 }

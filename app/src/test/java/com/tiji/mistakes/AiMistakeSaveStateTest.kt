@@ -5,6 +5,8 @@ import com.tiji.mistakes.service.AiRecognitionResult
 import com.tiji.mistakes.service.AiMistakeSavePhase
 import com.tiji.mistakes.service.AiMistakeSaveState
 import com.tiji.mistakes.service.mergeClassificationMetadata
+import com.tiji.mistakes.service.mergeTagText
+import com.tiji.mistakes.service.normalizeClassificationDifficulty
 import com.tiji.mistakes.domain.ai.AiSolvedMistakeDraftInput
 import com.tiji.mistakes.domain.ai.AiSolvedMistakeDraftMapper
 import com.tiji.mistakes.service.AiStructuredSolutionV3Codec
@@ -19,6 +21,17 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AiMistakeSaveStateTest {
+    @Test
+    fun newClassificationUsesFourDifficultyLevelsAndDeduplicatedTags() {
+        assertEquals(0, normalizeClassificationDifficulty(-1))
+        assertEquals(0, normalizeClassificationDifficulty(0))
+        assertEquals(1, normalizeClassificationDifficulty(1))
+        assertEquals(3, normalizeClassificationDifficulty(3))
+        assertEquals(4, normalizeClassificationDifficulty(4))
+        assertEquals(4, normalizeClassificationDifficulty(5))
+        assertEquals("积分, 定积分", mergeTagText("积分；", listOf("积分", "定积分")))
+    }
+
     @Test
     fun savingAndClassificationAreRunningButTerminalResultsAreNot() {
         assertTrue(AiMistakeSaveState("saving", 1L, phase = AiMistakeSavePhase.SAVING).running)

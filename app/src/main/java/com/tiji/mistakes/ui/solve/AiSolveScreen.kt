@@ -82,6 +82,8 @@ import com.tiji.mistakes.service.AiChatMessage
 import com.tiji.mistakes.service.AiAnswerDiagnosisState
 import com.tiji.mistakes.service.AiAnswerDiagnosisStatus
 import com.tiji.mistakes.service.AiAnswerVerdict
+import com.tiji.mistakes.service.mergeTagText
+import com.tiji.mistakes.service.normalizeClassificationDifficulty
 import com.tiji.mistakes.service.AiProviderPreset
 import com.tiji.mistakes.service.AiRecognitionMode
 import com.tiji.mistakes.service.AiSolveHistoryRecord
@@ -116,6 +118,7 @@ import com.tiji.mistakes.ui.design.TijiDropZone
 import com.tiji.mistakes.ui.design.TijiSectionHeader
 import com.tiji.mistakes.ui.design.TijiTag
 import com.tiji.mistakes.ui.editor.MistakeSaveMetadata
+import com.tiji.mistakes.ui.editor.MistakeSaveField
 import com.tiji.mistakes.ui.editor.MistakeSaveSheet
 import com.tiji.mistakes.ui.image.ImagePreview
 import com.tiji.mistakes.ui.math.MathText
@@ -183,6 +186,7 @@ internal fun AiSolveScreen(
     var showSaveSheet by rememberSaveable { mutableStateOf(false) }
     var saveMetadataLoading by rememberSaveable { mutableStateOf(false) }
     var saveMetadataToken by rememberSaveable { mutableIntStateOf(0) }
+    var saveMetadataEditedFields by remember { mutableStateOf(emptySet<MistakeSaveField>()) }
     var userAnswerDraft by rememberSaveable { mutableStateOf("") }
     var errorReason by rememberSaveable { mutableStateOf("") }
     var recognitionEditDraft by rememberSaveable { mutableStateOf("") }
@@ -564,13 +568,21 @@ internal fun AiSolveScreen(
     fun openSaveSheetWithClassification() {
         val token = saveMetadataToken + 1
         saveMetadataToken = token
+        saveMetadataEditedFields = emptySet()
         val apiKey = secureStore.read(activeAiProfileId)
+        showSaveSheet = true
         if (completeSolution.isBlank() || apiKey.isBlank()) {
-            showSaveSheet = true
+            saveMetadataLoading = false
             return
         }
         saveMetadataLoading = true
         message = "正在根据当前解题内容整理分类…"
+        val solvedContent = buildString {
+            append("题目：\n")
+            append(question)
+            append("\n\n解答：\n")
+            append(visibleAiSolution(completeSolution))
+        }
         scope.launch {
             val result = withTimeoutOrNull(20_000L) {
                 withContext(Dispatchers.IO) {
@@ -578,38 +590,36 @@ internal fun AiSolveScreen(
                         endpoint = aiEndpoint,
                         model = aiModel,
                         apiKey = apiKey,
-                        solvedContent = buildString {
-                            append("题目：\n")
-                            append(question)
-                            append("\n\n解答：\n")
-                            append(visibleAiSolution(completeSolution))
-                        }
+                        solvedContent = solvedContent
                     )
                 }
             } ?: Result.failure(IllegalStateException("分类请求超时"))
             if (saveMetadataToken != token) return@launch
             result.onSuccess { classification ->
-                if (subject.isBlank()) subject = classification.subject.trim()
-                if (questionType.isBlank()) questionType = classification.questionType.trim()
-                if (tags.isBlank()) {
-                    tags = (classification.tags + classification.knowledgePoints)
-                        .map(String::trim)
-                        .filter(String::isNotBlank)
-                        .distinct()
-                        .joinToString(", ")
+                if (MistakeSaveField.SUBJECT !in saveMetadataEditedFields && subject.isBlank()) {
+                    subject = classification.subject.trim()
                 }
-                if (difficulty == 0) difficulty = classification.difficulty.coerceIn(0, 5)
+                if (MistakeSaveField.QUESTION_TYPE !in saveMetadataEditedFields && questionType.isBlank()) {
+                    questionType = classification.questionType.trim()
+                }
+                if (MistakeSaveField.TAGS !in saveMetadataEditedFields && tags.isBlank()) {
+                    tags = mergeTagText("", classification.tags + classification.knowledgePoints)
+                }
+                if (MistakeSaveField.DIFFICULTY !in saveMetadataEditedFields && difficulty == 0) {
+                    difficulty = normalizeClassificationDifficulty(classification.difficulty)
+                }
                 message = "分类已带入保存表单，可继续修改。"
             }.onFailure { error ->
                 message = "自动分类暂不可用，可在保存表单中手动补充：${error.message ?: "未知错误"}"
             }
             saveMetadataLoading = false
-            showSaveSheet = true
         }
     }
 
     fun persistSolvedMistake(metadata: MistakeSaveMetadata) {
         if (aiMistakeSaveState.running) return
+        saveMetadataToken += 1
+        saveMetadataLoading = false
         savedMessage = ""
         subject = metadata.subject
         questionType = metadata.questionType
@@ -793,6 +803,7 @@ internal fun AiSolveScreen(
                 if (!aiMistakeSaveState.running) {
                     saveMetadataToken += 1
                     saveMetadataLoading = false
+                    saveMetadataEditedFields = emptySet()
                     showSaveSheet = false
                 }
             },
@@ -801,7 +812,10 @@ internal fun AiSolveScreen(
             metadataLoading = saveMetadataLoading,
             suggestedSubjects = suggestedSubjects,
             suggestedQuestionTypes = suggestedQuestionTypes,
-            suggestedTags = suggestedTags
+            suggestedTags = suggestedTags,
+            onFieldEdited = { field ->
+                saveMetadataEditedFields = saveMetadataEditedFields + field
+            }
         )
     }
 
