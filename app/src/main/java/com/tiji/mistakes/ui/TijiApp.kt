@@ -17,8 +17,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
+import com.tiji.mistakes.ui.design.TijiScreen
+import com.tiji.mistakes.ui.design.TijiSnackbar
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -158,7 +158,7 @@ fun TijiApp() {
     val destinations = remember {
         listOf(
             BottomDestination(TijiRoutes.HOME, "首页") { Icon(Icons.Outlined.Home, null) },
-            BottomDestination(TijiRoutes.LIBRARY, "错题") { Icon(Icons.AutoMirrored.Outlined.MenuBook, null) },
+            BottomDestination(TijiRoutes.LIBRARY, "错题库") { Icon(Icons.AutoMirrored.Outlined.MenuBook, null) },
             BottomDestination(TijiRoutes.SOLVE, "AI解题") { Icon(Icons.Outlined.AutoAwesome, null) },
             BottomDestination(TijiRoutes.REVIEW, "复习") { Icon(Icons.Outlined.Replay, null) },
             BottomDestination(TijiRoutes.SETTINGS, "设置") { Icon(Icons.Outlined.Settings, null) }
@@ -207,14 +207,14 @@ fun TijiApp() {
     )
 
     TijiTheme(mode = ThemeMode.fromKey(themeModeKey), palette = ThemePalette.fromKey(themePaletteKey)) {
-        Scaffold(
-            snackbarHost = { SnackbarHost(snackbarHostState) },
+        TijiScreen(
+            snackbarHost = { TijiSnackbar(snackbarHostState) },
             bottomBar = {
                 if (route in setOf(TijiRoutes.HOME, TijiRoutes.LIBRARY, TijiRoutes.SOLVE, TijiRoutes.REVIEW, TijiRoutes.SETTINGS)) {
                     NavigationBar(
                         containerColor = MaterialTheme.colorScheme.surface,
                         tonalElevation = 0.dp,
-                        modifier = Modifier.navigationBarsPadding()
+                        modifier = Modifier
                     ) {
                         destinations.forEach { destination ->
                             NavigationBarItem(
@@ -246,7 +246,7 @@ fun TijiApp() {
                                 colors = NavigationBarItemDefaults.colors(
                                     selectedIconColor = MaterialTheme.colorScheme.primary,
                                     selectedTextColor = MaterialTheme.colorScheme.primary,
-                                    indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                                    indicatorColor = androidx.compose.ui.graphics.Color.Transparent,
                                     unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
                                     unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
