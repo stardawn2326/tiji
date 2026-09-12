@@ -11,9 +11,11 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipe
 import androidx.compose.ui.test.swipeLeft
 import androidx.compose.ui.test.swipeRight
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.geometry.Offset
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.tiji.mistakes.data.AppDatabase
@@ -120,6 +122,15 @@ class FocusedReviewUiTest {
         composeRule.onNodeWithText(firstTitle).assertExists()
         composeRule.onAllNodesWithText("· 专项复习", substring = true).assertCountEquals(2)
         composeRule.onNodeWithText("2 / 2").assertDoesNotExist()
+        composeRule.onNodeWithTag("review_question_content").performTouchInput {
+            swipe(start = center, end = center + Offset(24f, 0f), durationMillis = 120)
+        }
+        composeRule.waitForIdle()
+        composeRule.onNodeWithText(firstTitle).assertExists()
+        composeRule.onNodeWithText(secondTitle).assertDoesNotExist()
+        composeRule.onNodeWithTag("review_question_content").performTouchInput { swipeRight() }
+        composeRule.waitForIdle()
+        composeRule.onNodeWithText(firstTitle).assertExists()
         composeRule.onNodeWithTag("review_question_content").performTouchInput { swipeLeft() }
         composeRule.waitUntil(5_000) {
             runCatching {
@@ -127,6 +138,9 @@ class FocusedReviewUiTest {
                 true
             }.getOrDefault(false)
         }
+        composeRule.onNodeWithTag("review_question_content").performTouchInput { swipeLeft() }
+        composeRule.waitForIdle()
+        composeRule.onNodeWithText(secondTitle).assertExists()
         composeRule.onNodeWithTag("review_question_content").performTouchInput { swipeRight() }
         composeRule.waitUntil(5_000) {
             runCatching {

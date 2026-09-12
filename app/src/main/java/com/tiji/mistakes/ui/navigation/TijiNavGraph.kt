@@ -5,8 +5,6 @@ package com.tiji.mistakes.ui.navigation
 import android.net.Uri
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
@@ -76,7 +74,12 @@ internal fun TijiNavGraph(
                             pageSlideDirection(initialState.destination.route, targetState.destination.route, popping = false),
                             tween(220)
                         )
-                    } else fadeIn(tween(180))
+                    } else {
+                        slideIntoContainer(
+                            pageSlideDirection(initialState.destination.route, targetState.destination.route, popping = false),
+                            tween(260)
+                        )
+                    }
                 },
                 exitTransition = {
                     if (isSecondaryRoute(initialState.destination.route) || isSecondaryRoute(targetState.destination.route)) {
@@ -84,7 +87,12 @@ internal fun TijiNavGraph(
                             pageSlideDirection(initialState.destination.route, targetState.destination.route, popping = false),
                             tween(220)
                         )
-                    } else fadeOut(tween(180))
+                    } else {
+                        slideOutOfContainer(
+                            pageSlideDirection(initialState.destination.route, targetState.destination.route, popping = false),
+                            tween(260)
+                        )
+                    }
                 },
                 popEnterTransition = {
                     if (isSecondaryRoute(initialState.destination.route) || isSecondaryRoute(targetState.destination.route)) {
@@ -92,7 +100,12 @@ internal fun TijiNavGraph(
                             pageSlideDirection(initialState.destination.route, targetState.destination.route, popping = true),
                             tween(220)
                         )
-                    } else fadeIn(tween(180))
+                    } else {
+                        slideIntoContainer(
+                            pageSlideDirection(initialState.destination.route, targetState.destination.route, popping = true),
+                            tween(260)
+                        )
+                    }
                 },
                 popExitTransition = {
                     if (isSecondaryRoute(initialState.destination.route) || isSecondaryRoute(targetState.destination.route)) {
@@ -100,7 +113,12 @@ internal fun TijiNavGraph(
                             pageSlideDirection(initialState.destination.route, targetState.destination.route, popping = true),
                             tween(220)
                         )
-                    } else fadeOut(tween(180))
+                    } else {
+                        slideOutOfContainer(
+                            pageSlideDirection(initialState.destination.route, targetState.destination.route, popping = true),
+                            tween(260)
+                        )
+                    }
                 }
             ) {
                 composable(TijiRoutes.HOME) {

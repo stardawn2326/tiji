@@ -203,8 +203,8 @@ class FocusedReviewRecreationTest {
 
     private fun goToNextQuestion() {
         composeRule.onNodeWithTag("review_question_content")
-            .performScrollToNode(hasText("下一题"))
-        composeRule.onNodeWithText("下一题").performClick()
+            .performScrollToNode(hasTestTag("review_next"))
+        composeRule.onNodeWithTag("review_next").performClick()
     }
 
     private fun openSummary() {

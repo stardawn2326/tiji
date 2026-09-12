@@ -2,10 +2,18 @@
 
 package com.tiji.mistakes.ui.review
 
+import android.provider.Settings
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -20,10 +28,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.ChevronLeft
+import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Visibility
@@ -41,17 +52,23 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.dp
@@ -81,9 +98,11 @@ import com.tiji.mistakes.ui.TijiStatusBadge
 import com.tiji.mistakes.ui.TijiSurfaceCard
 import java.time.ZoneId
 import java.time.temporal.ChronoUnit
-import kotlin.math.abs
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+private const val REVIEW_PAGE_TRANSITION_DURATION_MS = 220
+private val reviewPageEaseOut = CubicBezierEasing(0.23f, 1f, 0.32f, 1f)
 
 @Composable
 internal fun ReviewQuestionScreen(
@@ -138,6 +157,38 @@ internal fun ReviewQuestionScreen(
     var reviewSubmitting by remember(currentId) { mutableStateOf(false) }
     var autoAdvanceJob by remember(currentId) { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val reduceMotion = remember {
+        runCatching {
+            Settings.Global.getFloat(
+                context.contentResolver,
+                Settings.Global.ANIMATOR_DURATION_SCALE,
+                1f
+            ) == 0f
+        }.getOrDefault(false)
+    }
+    val questionOffset = remember { Animatable(0f) }
+    val questionListState = rememberLazyListState()
+    var pageWidthPx by remember { mutableFloatStateOf(0f) }
+    var dragOffsetPx by remember { mutableFloatStateOf(0f) }
+    var isDragging by remember { mutableStateOf(false) }
+    var navigationAnimating by remember { mutableStateOf(false) }
+    val settleSpec: AnimationSpec<Float> = remember(reduceMotion) {
+        if (reduceMotion) {
+            tween(durationMillis = 120, easing = reviewPageEaseOut)
+        } else {
+            spring(
+                dampingRatio = Spring.DampingRatioNoBouncy,
+                stiffness = Spring.StiffnessMediumLow
+            )
+        }
+    }
+    val travelSpec: AnimationSpec<Float> = remember(reduceMotion) {
+        tween(
+            durationMillis = if (reduceMotion) 120 else REVIEW_PAGE_TRANSITION_DURATION_MS,
+            easing = reviewPageEaseOut
+        )
+    }
     val currentSavedStatus = if (isUnifiedSession) null else reviewStatuses[currentId]
     val focusedGrade = focusedSession?.gradesByMistake?.get(currentId)?.let {
         runCatching { ReviewGrade.valueOf(it) }.getOrNull()
@@ -150,6 +201,7 @@ internal fun ReviewQuestionScreen(
     val selectedGrade = focusedGrade ?: dailySelectedGrade
 
     LaunchedEffect(currentId) {
+        questionListState.scrollToItem(0)
         mistake = null
         loadError = null
         if (currentId <= 0L) {
@@ -188,6 +240,25 @@ internal fun ReviewQuestionScreen(
     } else {
         effectiveReviewIds.indexOf(currentId)
     }
+    suspend fun navigateQuestion(delta: Int, cancelAutoAdvance: Boolean = true) {
+        if (navigationAnimating) return
+        val targetIndex = currentIndex + delta
+        if (targetIndex !in effectiveReviewIds.indices) {
+            questionOffset.animateTo(0f, settleSpec)
+            return
+        }
+        navigationAnimating = true
+        try {
+            val width = pageWidthPx.coerceAtLeast(1f)
+            val outgoingOffset = if (delta > 0) -width else width
+            questionOffset.animateTo(outgoingOffset, travelSpec)
+            moveBy(delta, cancelAutoAdvance = cancelAutoAdvance)
+            questionOffset.snapTo(-outgoingOffset)
+            questionOffset.animateTo(0f, travelSpec)
+        } finally {
+            navigationAnimating = false
+        }
+    }
     val progressLabel = if (effectiveReviewIds.isEmpty() || currentIndex < 0) "复习" else "${currentIndex + 1} / ${effectiveReviewIds.size}"
     val reviewHistoryFlow = remember(currentId) { viewModel.reviewHistory(currentId) }
     val currentReviewHistory by reviewHistoryFlow.collectAsStateWithLifecycle(emptyList())
@@ -212,7 +283,7 @@ internal fun ReviewQuestionScreen(
             if (isLastQuestion) {
                 if (isUnifiedSession) completeFocusedSession() else leaveQuestion()
             } else {
-                moveBy(1, cancelAutoAdvance = false)
+                navigateQuestion(1, cancelAutoAdvance = false)
             }
         }
     }
@@ -305,28 +376,78 @@ internal fun ReviewQuestionScreen(
                 if (loadError != null) OutlinedButton(onClick = onBack) { Text("返回复习") }
             }
         } else {
-            LazyColumn(
-                contentPadding = PaddingValues(start = TijiDimens.pagePadding, top = 8.dp, end = TijiDimens.pagePadding, bottom = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+            Box(
                 modifier = Modifier
                     .padding(padding)
                     .fillMaxSize()
-                    .pointerInput(currentId, currentIndex, reviewSubmitting, autoAdvancePending) {
-                        var horizontalDistance = 0f
+                    .onSizeChanged { pageWidthPx = it.width.toFloat() }
+                    .clipToBounds()
+                    .pointerInput(currentId, currentIndex, reviewSubmitting, autoAdvancePending, navigationAnimating, pageWidthPx) {
+                        var gestureActive = false
                         detectHorizontalDragGestures(
-                            onHorizontalDrag = { _, dragAmount -> horizontalDistance += dragAmount },
-                            onDragEnd = {
-                                val distance = horizontalDistance
-                                horizontalDistance = 0f
-                                if (!reviewSubmitting && !autoAdvancePending && abs(distance) >= 72.dp.toPx()) {
-                                    moveBy(if (distance < 0f) 1 else -1)
+                            onDragStart = {
+                                gestureActive = !reviewSubmitting && !autoAdvancePending && !navigationAnimating
+                                if (gestureActive) {
+                                    isDragging = true
+                                    dragOffsetPx = questionOffset.value
+                                    scope.launch { questionOffset.stop() }
                                 }
                             },
-                            onDragCancel = { horizontalDistance = 0f }
+                            onHorizontalDrag = { change, dragAmount ->
+                                if (gestureActive) {
+                                    val width = pageWidthPx.takeIf { it > 0f } ?: size.width.toFloat()
+                                    val proposedOffset = dragOffsetPx + dragAmount
+                                    val atBoundary = (currentIndex <= 0 && proposedOffset > 0f) ||
+                                        (currentIndex >= effectiveReviewIds.lastIndex && proposedOffset < 0f)
+                                    val adjustedDrag = dragAmount * if (atBoundary) 0.35f else 1f
+                                    dragOffsetPx = (dragOffsetPx + adjustedDrag).coerceIn(-width, width)
+                                    change.consume()
+                                }
+                            },
+                            onDragEnd = {
+                                if (gestureActive) {
+                                    val finalOffset = dragOffsetPx
+                                    gestureActive = false
+                                    scope.launch {
+                                        questionOffset.snapTo(finalOffset)
+                                        isDragging = false
+                                        val threshold = 72.dp.toPx()
+                                        val delta = when {
+                                            finalOffset <= -threshold -> 1
+                                            finalOffset >= threshold -> -1
+                                            else -> 0
+                                        }
+                                        if (delta == 0) {
+                                            questionOffset.animateTo(0f, settleSpec)
+                                        } else {
+                                            navigateQuestion(delta)
+                                        }
+                                    }
+                                }
+                            },
+                            onDragCancel = {
+                                if (gestureActive) {
+                                    val finalOffset = dragOffsetPx
+                                    gestureActive = false
+                                    scope.launch {
+                                        questionOffset.snapTo(finalOffset)
+                                        isDragging = false
+                                        questionOffset.animateTo(0f, settleSpec)
+                                    }
+                                }
+                            }
                         )
                     }
-                    .testTag("review_question_content")
-        ) {
+            ) {
+                LazyColumn(
+                    state = questionListState,
+                    contentPadding = PaddingValues(start = TijiDimens.pagePadding, top = 8.dp, end = TijiDimens.pagePadding, bottom = 24.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { translationX = if (isDragging) dragOffsetPx else questionOffset.value }
+                        .testTag("review_question_content")
+                ) {
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
@@ -344,12 +465,6 @@ internal fun ReviewQuestionScreen(
                             progress = { if (effectiveReviewIds.isEmpty()) 0f else ((currentIndex + 1).toFloat() / effectiveReviewIds.size).coerceIn(0f, 1f) },
                             modifier = Modifier.fillMaxWidth().height(7.dp),
                             trackColor = MaterialTheme.colorScheme.primaryContainer
-                        )
-                        Text(
-                            "左右滑动切题，也可使用底部按钮",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.fillMaxWidth().testTag("review_swipe_hint")
                         )
                     }
                 }
@@ -494,34 +609,47 @@ internal fun ReviewQuestionScreen(
                     val isLastQuestion = effectiveReviewIds.isNotEmpty() && currentIndex == effectiveReviewIds.lastIndex
                     val summaryLoading = isUnifiedSession &&
                         summaryState.sessionKey == resolvedSessionKey && summaryState.isLoading
+                    val controlsEnabled = !reviewSubmitting && !autoAdvancePending && !navigationAnimating
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                        OutlinedButton(onClick = { moveBy(-1) }, enabled = !reviewSubmitting && !autoAdvancePending && currentIndex > 0, modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("review_previous")) { Text("上一题") }
-                        Text(if (effectiveReviewIds.isEmpty()) "复习题" else "${currentIndex + 1} / ${effectiveReviewIds.size}", modifier = Modifier.padding(horizontal = 12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Button(
-                            onClick = {
-                                if (isLastQuestion) {
-                                    if (isUnifiedSession) completeFocusedSession() else exitSession()
-                                } else moveBy(1)
-                            },
-                            enabled = !reviewSubmitting && !autoAdvancePending && if (isLastQuestion && isUnifiedSession) !summaryLoading else {
-                                isLastQuestion || currentIndex in 0 until (effectiveReviewIds.size - 1)
-                            },
-                            modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("review_next")
+                        IconButton(
+                            onClick = { scope.launch { navigateQuestion(-1) } },
+                            enabled = controlsEnabled && currentIndex > 0,
+                            modifier = Modifier.testTag("review_previous")
                         ) {
-                            Text(
-                                when {
-                                    isLastQuestion && isUnifiedSession && summaryLoading -> "整理本次记录…"
-                                    isLastQuestion && isUnifiedSession -> "查看总结"
-                                    isLastQuestion -> "完成"
-                                    else -> "下一题"
-                                }
-                            )
+                            Icon(Icons.Outlined.ChevronLeft, contentDescription = "上一题")
+                        }
+                        Text(if (effectiveReviewIds.isEmpty()) "复习题" else "${currentIndex + 1} / ${effectiveReviewIds.size}", modifier = Modifier.padding(horizontal = 12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (isLastQuestion) {
+                            TextButton(
+                                onClick = {
+                                    if (isUnifiedSession) completeFocusedSession() else exitSession()
+                                },
+                                enabled = controlsEnabled && (!isUnifiedSession || !summaryLoading),
+                                modifier = Modifier.heightIn(min = 48.dp).testTag("review_next")
+                            ) {
+                                Text(
+                                    when {
+                                        isUnifiedSession && summaryLoading -> "整理本次记录…"
+                                        isUnifiedSession -> "查看总结"
+                                        else -> "完成"
+                                    }
+                                )
+                            }
+                        } else {
+                            IconButton(
+                                onClick = { scope.launch { navigateQuestion(1) } },
+                                enabled = controlsEnabled && currentIndex in 0 until (effectiveReviewIds.size - 1),
+                                modifier = Modifier.testTag("review_next")
+                            ) {
+                                Icon(Icons.Outlined.ChevronRight, contentDescription = "下一题")
+                            }
                         }
                     }
                 }
             }
         }
     }
+}
 }
 
 @Composable
