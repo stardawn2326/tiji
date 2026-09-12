@@ -108,16 +108,34 @@ class LibraryFilterTest {
         composeRule.onNodeWithTag("mistake_card_${fixtureIds[1]}").assertExists()
         composeRule.onNodeWithTag("mistake_card_${fixtureIds[2]}").assertDoesNotExist()
 
+        scrollToFilters()
         composeRule.onNodeWithTag("library_mastery_filter").performClick()
         composeRule.onNodeWithText("结构化知识点").assertDoesNotExist()
         composeRule.onNodeWithText("旧标签兼容").assertDoesNotExist()
+        composeRule.waitUntil(5_000) {
+            runCatching {
+                composeRule.onNodeWithTag("library_mastery_options")
+                    .performScrollToNode(hasTestTag("library_mastery_option_0"))
+                composeRule.onNodeWithTag("library_mastery_option_0").assertExists()
+                true
+            }.getOrDefault(false)
+        }
         composeRule.onNodeWithTag("library_mastery_option_0").performClick()
         composeRule.onNodeWithText("完成").performClick()
         scrollToFixture(fixtureIds[0])
         composeRule.onNodeWithTag("mistake_card_${fixtureIds[0]}").assertExists()
         composeRule.onNodeWithTag("mistake_card_${fixtureIds[1]}").assertDoesNotExist()
 
+        scrollToFilters()
         composeRule.onNodeWithTag("library_difficulty_filter").performClick()
+        composeRule.waitUntil(5_000) {
+            runCatching {
+                composeRule.onNodeWithTag("library_difficulty_options")
+                    .performScrollToNode(hasTestTag("library_difficulty_option_1"))
+                composeRule.onNodeWithTag("library_difficulty_option_1").assertExists()
+                true
+            }.getOrDefault(false)
+        }
         composeRule.onNodeWithTag("library_difficulty_option_1").performClick()
         composeRule.onNodeWithText("完成").performClick()
         scrollToFixture(fixtureIds[0])
@@ -170,6 +188,17 @@ class LibraryFilterTest {
                 composeRule.onNodeWithTag("library_mistakes_list")
                     .performScrollToNode(hasTestTag(cardTag))
                 composeRule.onAllNodesWithTag(cardTag).fetchSemanticsNodes().isNotEmpty()
+            }.getOrDefault(false)
+        }
+    }
+
+    private fun scrollToFilters() {
+        composeRule.waitUntil(5_000) {
+            runCatching {
+                composeRule.onNodeWithTag("library_mistakes_list")
+                    .performScrollToNode(hasTestTag("library_mastery_filter"))
+                composeRule.onNodeWithTag("library_mastery_filter").assertExists()
+                true
             }.getOrDefault(false)
         }
     }

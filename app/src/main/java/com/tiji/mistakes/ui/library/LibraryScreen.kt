@@ -334,7 +334,10 @@ internal fun LibraryScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("掌握状态", style = MaterialTheme.typography.titleSmall)
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.testTag("library_mastery_options")
+                    ) {
                         item {
                             TijiChip(selected = masteryFilter == null, onClick = { masteryFilter = null }, label = { Text("全部") })
                         }
@@ -348,7 +351,10 @@ internal fun LibraryScreen(
                         }
                     }
                     Text("难度", style = MaterialTheme.typography.titleSmall)
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.testTag("library_difficulty_options")
+                    ) {
                         item {
                             TijiChip(selected = difficultyFilter == null, onClick = { difficultyFilter = null }, label = { Text("全部") })
                         }
