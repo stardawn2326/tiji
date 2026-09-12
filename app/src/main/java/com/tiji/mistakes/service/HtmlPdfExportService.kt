@@ -6,6 +6,12 @@ import android.graphics.pdf.PdfDocument
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.os.ParcelFileDescriptor
+import android.print.PageRange
+import android.print.PrintAttributes
+import android.print.PrintDocumentAdapter
+import android.print.PrintDocumentInfo
+import android.print.PrintManager
 import android.util.Base64
 import android.util.Log
 import android.view.View
@@ -23,6 +29,7 @@ import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import org.json.JSONArray
 import java.io.File
+import java.io.FileInputStream
 import java.io.OutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -32,6 +39,25 @@ import kotlin.coroutines.resumeWithException
 import kotlin.math.ceil
 import kotlin.math.roundToInt
 
+enum class PdfTemplate(val label: String, val fileSuffix: String) {
+    PRACTICE("练习版", "练习"),
+    ANSWER("答案版", "答案")
+}
+
+data class PdfExportOptions(
+    val template: PdfTemplate = PdfTemplate.PRACTICE,
+    /** The only source-image decision used by the current export operation. */
+    val includeSourceImages: Boolean = true,
+    val answerSpaceMm: Int = 24,
+    /** Retained for the legacy photo-only export setting. It is only valid for practice PDFs. */
+    val originalImagesOnly: Boolean = false
+) {
+    fun normalized(): PdfExportOptions = copy(
+        answerSpaceMm = answerSpaceMm.coerceIn(14, 80),
+        originalImagesOnly = originalImagesOnly && template == PdfTemplate.PRACTICE
+    )
+}
+
 /** Prints the same KaTeX-based formula presentation used by the app into an A4 PDF. */
 @SuppressLint("SetJavaScriptEnabled")
 object HtmlPdfExportService {
@@ -40,13 +66,30 @@ object HtmlPdfExportService {
     private const val PAGE_HEIGHT_PX = 1123
     private const val A4_WIDTH_PT = 595
     private const val A4_HEIGHT_PT = 842
+
+    /**
+     * Exposes the same template source used by the exporter to instrumentation tests.
+     * Keeping this boundary here makes the PDF option contract testable without
+     * duplicating the HTML builder in the test source set.
+     */
+    internal fun buildHtmlForTest(
+        mistakes: List<MistakeEntity>,
+        documentTitle: String = "题迹错题练习册",
+        options: PdfExportOptions = PdfExportOptions()
+    ): String = buildHtml(mistakes, documentTitle, options.normalized())
     suspend fun writeQuestionPdf(
         context: Context,
         uri: Uri,
         mistakes: List<MistakeEntity>,
         documentTitle: String = "题迹错题练习册",
-        exportOriginalImagesOnly: Boolean = false
-    ): Result<Unit> = writePdf(context, mistakes, documentTitle, exportOriginalImagesOnly) {
+        exportOriginalImagesOnly: Boolean = false,
+        options: PdfExportOptions = PdfExportOptions()
+    ): Result<Unit> = writePdf(
+        context,
+        mistakes,
+        documentTitle,
+        options.copy(originalImagesOnly = options.originalImagesOnly || exportOriginalImagesOnly).normalized()
+    ) {
         context.contentResolver.openOutputStream(uri, "w") ?: error("无法创建 PDF 文件")
     }
 
@@ -54,8 +97,14 @@ object HtmlPdfExportService {
         context: Context,
         mistakes: List<MistakeEntity>,
         documentTitle: String = "题迹错题练习册",
-        exportOriginalImagesOnly: Boolean = false
-    ): Result<File> = createPreviewPdf(context, mistakes, documentTitle, exportOriginalImagesOnly)
+        exportOriginalImagesOnly: Boolean = false,
+        options: PdfExportOptions = PdfExportOptions()
+    ): Result<File> = createPreviewPdf(
+        context,
+        mistakes,
+        documentTitle,
+        options.copy(originalImagesOnly = options.originalImagesOnly || exportOriginalImagesOnly).normalized()
+    )
 
     suspend fun copyPreviewToUri(context: Context, previewFile: File, uri: Uri): Result<Unit> = runCatching {
         require(previewFile.isFile && previewFile.length() > 0L) { "PDF 预览文件不存在" }
@@ -67,15 +116,32 @@ object HtmlPdfExportService {
         }
     }.onFailure { error -> Log.e(TAG, "PDF preview copy failed", error) }
 
+    /** Sends an already-rendered local PDF to the Android print framework. */
+    fun printPdf(context: Context, pdfFile: File, jobName: String): Result<Unit> = runCatching {
+        require(pdfFile.isFile && pdfFile.length() > 0L) { "PDF 文件不存在" }
+        val printManager = context.getSystemService(Context.PRINT_SERVICE) as? PrintManager
+            ?: error("当前设备不支持系统打印")
+        printManager.print(
+            jobName.ifBlank { "题迹练习" },
+            PdfFilePrintAdapter(pdfFile),
+            PrintAttributes.Builder()
+                .setMediaSize(PrintAttributes.MediaSize.ISO_A4)
+                .setColorMode(PrintAttributes.COLOR_MODE_COLOR)
+                .setMinMargins(PrintAttributes.Margins.NO_MARGINS)
+                .build()
+        )
+        Unit
+    }.onFailure { error -> Log.e(TAG, "System print failed", error) }
+
     private suspend fun createPreviewPdf(
         context: Context,
         mistakes: List<MistakeEntity>,
         documentTitle: String,
-        exportOriginalImagesOnly: Boolean
+        options: PdfExportOptions
     ): Result<File> {
         val previewDirectory = File(context.cacheDir, "pdf-previews").apply { mkdirs() }
         val previewFile = File.createTempFile("tiji-preview-", ".pdf", previewDirectory)
-        return writePdf(context, mistakes, documentTitle, exportOriginalImagesOnly) { previewFile.outputStream() }
+        return writePdf(context, mistakes, documentTitle, options) { previewFile.outputStream() }
             .map { previewFile }
             .onFailure { previewFile.delete() }
     }
@@ -84,7 +150,7 @@ object HtmlPdfExportService {
         context: Context,
         mistakes: List<MistakeEntity>,
         documentTitle: String,
-        exportOriginalImagesOnly: Boolean,
+        options: PdfExportOptions,
         openOutputStream: () -> OutputStream
     ): Result<Unit> = runCatching {
         require(mistakes.isNotEmpty()) { "没有可导出的题目" }
@@ -110,7 +176,7 @@ object HtmlPdfExportService {
                 val assetLoader = WebViewAssetLoader.Builder()
                     .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(context))
                     .build()
-                val pageCount = loadHtml(webView, buildHtml(mistakes, documentTitle, exportOriginalImagesOnly), assetLoader)
+                val pageCount = loadHtml(webView, buildHtml(mistakes, documentTitle, options), assetLoader)
                 Log.d(TAG, "HTML ready, pages=$pageCount")
                 webView.setLayerType(View.LAYER_TYPE_SOFTWARE, null)
                 webView.measure(
@@ -229,12 +295,19 @@ object HtmlPdfExportService {
     private fun buildHtml(
         mistakes: List<MistakeEntity>,
         documentTitle: String,
-        exportOriginalImagesOnly: Boolean
+        options: PdfExportOptions
     ): String {
+        val normalizedOptions = options.normalized()
         val exportedOn = SimpleDateFormat("yyyy年M月d日", Locale.getDefault()).format(Date())
         val questions = mistakes.mapIndexed { index, mistake ->
-            buildQuestionHtml(index, mistake, exportOriginalImagesOnly)
+            buildQuestionHtml(index, mistake, normalizedOptions)
         }.joinToString("\n")
+        val answerSection = if (normalizedOptions.template == PdfTemplate.ANSWER) {
+            buildAnswerBookHtml(mistakes)
+        } else {
+            ""
+        }
+        val templateLabel = normalizedOptions.template.label
 
         return """
             <!doctype html>
@@ -310,7 +383,7 @@ object HtmlPdfExportService {
                 .question-image {
                   display: inline-block;
                   max-width: 100%;
-                  max-height: 40mm;
+                  max-height: 82mm;
                   object-fit: contain;
                 }
                 .original-images-only .question-image { width: auto; max-width: 100%; max-height: 165mm; }
@@ -322,15 +395,39 @@ object HtmlPdfExportService {
                   min-height: 50mm;
                   margin: .4mm 0 1.5mm;
                 }
+                .answer-heading {
+                  border-top: 1.2pt solid #3b5ecc;
+                  border-bottom: .55pt solid #d7e3ee;
+                  padding: 3mm 0 2mm;
+                  margin-bottom: 1.5mm;
+                }
+                .answer-heading-title {
+                  color: #244668;
+                  font-size: 16pt;
+                  font-weight: 700;
+                }
+                .answer-heading-subtitle {
+                  color: #718599;
+                  font-size: 9.2pt;
+                  margin-top: 1mm;
+                }
+                .answer-item {
+                  border-top: .55pt solid #d7e3ee;
+                  padding: 1.2mm 0 1.5mm;
+                }
+                .answer-item:first-of-type { border-top: 0; }
+                .answer-item .question-head { border-left-color: #718599; }
+                .answer-item .question-title { color: #244668; font-size: 11.5pt; }
+                .answer-item .answer-label { margin-top: 1mm; }
                 .empty-note { color: #718599; }
               </style>
             </head>
-            <body class="question-pdf">
+            <body class="question-pdf ${if (normalizedOptions.template == PdfTemplate.ANSWER) "answer-pdf" else "practice-pdf"}">
               <header class="book-header">
                 <div class="book-title">${escapeHtml(documentTitle)}</div>
-                <div class="book-meta">共 ${mistakes.size} 道题 · 导出于 ${escapeHtml(exportedOn)} · 正文与公式 10.5pt</div>
+                <div class="book-meta">${escapeHtml(templateLabel)} · 共 ${mistakes.size} 道题 · 导出于 ${escapeHtml(exportedOn)} · A4 纵向</div>
               </header>
-              <main>$questions</main>
+              <main>$questions$answerSection</main>
               <script src="katex.min.js"></script>
               <script>
                 (() => {
@@ -557,7 +654,7 @@ object HtmlPdfExportService {
                   function paginate() {
                     const header = document.querySelector('.book-header');
                     const main = document.querySelector('main');
-                    const questions = main ? Array.from(main.querySelectorAll(':scope > .question')) : [];
+                    const units = main ? Array.from(main.children) : [];
                     const pagesRoot = document.createElement('div');
                     pagesRoot.id = 'pdf-pages';
                     if (header) header.remove();
@@ -580,16 +677,25 @@ object HtmlPdfExportService {
 
                     let current = createPage();
                     if (header) current.content.appendChild(header);
-                    questions.forEach((question) => {
-                      current.content.appendChild(question);
+                    units.forEach((unit) => {
+                      const forceNewPage = unit.classList.contains('answer-heading') &&
+                        current.content.children.length > 0;
+                      if (forceNewPage) current = createPage();
+                      current.content.appendChild(unit);
                       if (fits(current.content)) return;
 
-                      current.content.removeChild(question);
-                      const children = Array.from(question.children);
+                      current.content.removeChild(unit);
+                      const children = Array.from(unit.children);
+                      const canSplit = unit.classList.contains('question') || unit.classList.contains('answer-item');
+                      if (!canSplit || children.length === 0) {
+                        current = createPage();
+                        current.content.appendChild(unit);
+                        return;
+                      }
                       const segments = children.length > 1
                         ? [children.slice(0, 2), ...children.slice(2).map((child) => [child])]
                         : [children];
-                      let fragment = question.cloneNode(false);
+                      let fragment = unit.cloneNode(false);
                       current.content.appendChild(fragment);
 
                       segments.forEach((segment, segmentIndex) => {
@@ -599,7 +705,7 @@ object HtmlPdfExportService {
                         segment.forEach((child) => fragment.removeChild(child));
                         if (!fragment.children.length) current.content.removeChild(fragment);
                         current = createPage();
-                        fragment = question.cloneNode(false);
+                        fragment = unit.cloneNode(false);
                         if (segmentIndex > 0) {
                           fragment.classList.add('question-continuation');
                           const continuationHead = children[0]?.cloneNode(true);
@@ -639,13 +745,13 @@ object HtmlPdfExportService {
         """.trimIndent()
     }
 
-    private fun buildQuestionHtml(index: Int, mistake: MistakeEntity, exportOriginalImagesOnly: Boolean): String {
+    private fun buildQuestionHtml(index: Int, mistake: MistakeEntity, options: PdfExportOptions): String {
         val title = mistake.title.ifBlank { "错题" }
         val metadata = listOf(mistake.subject, mistake.questionType)
             .map(String::trim)
             .filter(String::isNotBlank)
             .joinToString(" · ")
-        if (exportOriginalImagesOnly) {
+        if (options.originalImagesOnly && options.includeSourceImages) {
             val images = sourceImagePaths(mistake)
             return buildString {
                 append("<article class=\"question original-images-only\">")
@@ -672,14 +778,13 @@ object HtmlPdfExportService {
         if (metadata.isNotBlank()) body.append("<div class=\"question-meta\">${escapeHtml(metadata)}</div>")
         body.append("</div>")
 
-        if (mistake.includeSourceImageInPdf) {
+        if (options.includeSourceImages) {
             val sourceImages = sourceImagePaths(mistake)
             sourceImages.forEachIndexed { sourceIndex, path ->
                 appendImageSection(
                     body,
                     "",
-                    path,
-                    blackAndWhite = true
+                    path
                 )
             }
         }
@@ -690,10 +795,51 @@ object HtmlPdfExportService {
             "题目图"
         )
 
-        body.append("<div class=\"answer-label\">作答区</div>")
-        body.append("<div class=\"answer-space\" style=\"height:${answerSpaceMm(mistake)}mm\"></div>")
+        if (options.template == PdfTemplate.PRACTICE) {
+            body.append("<div class=\"answer-label\">作答区</div>")
+            body.append("<div class=\"answer-space\" style=\"height:${answerSpaceMm(mistake, options)}mm\"></div>")
+        }
         body.append("</article>")
         return body.toString()
+    }
+
+    private fun buildAnswerBookHtml(mistakes: List<MistakeEntity>): String = buildString {
+        append("<section class=\"answer-heading\">")
+        append("<div class=\"answer-heading-title\">参考答案与解析</div>")
+        append("<div class=\"answer-heading-subtitle\">答案集中在文档后半部分，便于先独立完成练习。</div>")
+        append("</section>")
+        mistakes.forEachIndexed { index, mistake ->
+            val title = mistake.title.ifBlank { "错题" }
+            val metadata = listOf(mistake.subject, mistake.questionType)
+                .map(String::trim)
+                .filter(String::isNotBlank)
+                .joinToString(" · ")
+            append("<article class=\"answer-item\">")
+            append("<div class=\"question-head\"><div class=\"question-title\">")
+            append(mathText("${index + 1}. $title"))
+            append("</div>")
+            if (metadata.isNotBlank()) append("<div class=\"question-meta\">${escapeHtml(metadata)}</div>")
+            append("</div>")
+            appendTextSection(this, "答案", mistake.answerText)
+            appendImageSection(this, "答案图", mistake.answerImagePath)
+            appendContentBlockImages(
+                this,
+                QuestionContentBlockCodec.decode(mistake.contentBlocks).filter {
+                    it.role == ContentBlockRole.ANSWER
+                }.sortedBy { it.order },
+                "答案图"
+            )
+            appendTextSection(this, "解析", mistake.explanation)
+            appendImageSection(this, "解析图", mistake.explanationImagePath)
+            appendContentBlockImages(
+                this,
+                QuestionContentBlockCodec.decode(mistake.contentBlocks).filter {
+                    it.role == ContentBlockRole.EXPLANATION
+                }.sortedBy { it.order },
+                "解析图"
+            )
+            append("</article>")
+        }
     }
 
     private fun appendTextSection(target: StringBuilder, label: String, source: String) {
@@ -909,7 +1055,7 @@ object HtmlPdfExportService {
         (0 until array.length()).mapNotNull { array.optString(it).takeIf(String::isNotBlank) }
     }.getOrDefault(emptyList()).ifEmpty { listOfNotNull(mistake.imagePath) }
 
-    private fun answerSpaceMm(mistake: MistakeEntity): Int {
+    private fun answerSpaceMm(mistake: MistakeEntity, options: PdfExportOptions): Int {
         val questionLayout = normalizeQuestionForDisplayLayout(mistake.questionText)
         val visualLines = questionLayout.lines().sumOf { line ->
             ceil(line.trim().length.coerceAtLeast(1) / 38.0).toInt().coerceAtLeast(1)
@@ -917,11 +1063,11 @@ object HtmlPdfExportService {
         val formulaWeight = Regex("""\\(?:frac|dfrac|tfrac|int|sum|prod|sqrt|lim)""")
             .findAll(mistake.questionText)
             .count()
-        val imageWeight = if (mistake.includeSourceImageInPdf && sourceImagePaths(mistake).any { File(it).isFile }) {
+        val imageWeight = if (options.includeSourceImages && sourceImagePaths(mistake).any { File(it).isFile }) {
             4 + sourceImagePaths(mistake).size.coerceAtMost(3)
         } else 0
-        return (14 + (visualLines - 1).coerceAtLeast(0) * 2 + formulaWeight * 2 + imageWeight)
-            .coerceAtLeast(14)
+        return (options.answerSpaceMm + (visualLines - 1).coerceAtLeast(0) * 2 + formulaWeight * 2 + imageWeight)
+            .coerceIn(options.answerSpaceMm, 80)
     }
 
     private fun mathText(
@@ -1016,4 +1162,53 @@ object HtmlPdfExportService {
         .replace(">", "&gt;")
         .replace("\"", "&quot;")
         .replace("'", "&#39;")
+}
+
+private class PdfFilePrintAdapter(private val pdfFile: File) : PrintDocumentAdapter() {
+    override fun onLayout(
+        oldAttributes: PrintAttributes?,
+        newAttributes: PrintAttributes,
+        cancellationSignal: android.os.CancellationSignal,
+        callback: LayoutResultCallback,
+        extras: android.os.Bundle?
+    ) {
+        if (cancellationSignal.isCanceled) {
+            callback.onLayoutCancelled()
+            return
+        }
+        runCatching {
+            PrintDocumentInfo.Builder(pdfFile.name)
+                .setContentType(PrintDocumentInfo.CONTENT_TYPE_DOCUMENT)
+                .setPageCount(PrintDocumentInfo.PAGE_COUNT_UNKNOWN)
+                .build()
+        }.onSuccess { info ->
+            callback.onLayoutFinished(info, oldAttributes == newAttributes)
+        }.onFailure { error ->
+            callback.onLayoutFailed(error.message ?: "无法准备打印文件")
+        }
+    }
+
+    override fun onWrite(
+        pages: Array<out PageRange>,
+        destination: ParcelFileDescriptor,
+        cancellationSignal: android.os.CancellationSignal,
+        callback: WriteResultCallback
+    ) {
+        if (cancellationSignal.isCanceled) {
+            callback.onWriteCancelled()
+            return
+        }
+        runCatching {
+            FileInputStream(pdfFile).use { input ->
+                ParcelFileDescriptor.AutoCloseOutputStream(destination).use { output ->
+                    input.copyTo(output)
+                    output.flush()
+                }
+            }
+        }.onSuccess {
+            callback.onWriteFinished(arrayOf(PageRange.ALL_PAGES))
+        }.onFailure { error ->
+            callback.onWriteFailed(error.message ?: "无法写入打印文件")
+        }
+    }
 }

@@ -1,7 +1,7 @@
 package com.tiji.mistakes
 
-import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -19,12 +19,11 @@ class MyNavigationTest {
 
     @Test
     fun everyMyEntryOpensItsConcreteSettingsDestination() {
-        composeRule.onNodeWithTag("nav_profile").performClick()
+        composeRule.onNodeWithTag("nav_settings").performClick()
         listOf(
             "复习计划" to "settings_review",
-            "科目与知识点" to "knowledge_list",
             "AI 模型" to "settings_ai",
-            "数据备份与导入" to "settings_data",
+            "备份与恢复" to "settings_data",
             "显示模式与主题" to "settings_appearance",
             "关于题迹" to "settings_about"
         ).forEach { (title, pageTag) ->
@@ -39,7 +38,7 @@ class MyNavigationTest {
                     composeRule.activity.onBackPressedDispatcher.onBackPressed()
                 }
                 composeRule.waitForIdle()
-                composeRule.onNodeWithTag("nav_profile").assertExists()
+                composeRule.onNodeWithTag("nav_settings").assertExists()
             }
     }
 }

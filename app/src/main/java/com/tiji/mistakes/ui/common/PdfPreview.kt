@@ -29,6 +29,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.FileDownload
+import androidx.compose.material.icons.outlined.Print
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -55,6 +56,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.tiji.mistakes.service.PdfExportOptions
+import com.tiji.mistakes.service.PdfTemplate
 import java.io.File
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CoroutineScope
@@ -67,9 +70,15 @@ internal object PendingPdfExportStore {
     var libraryIds = longArrayOf()
     var libraryPreviewPath = ""
     var libraryFilename = ""
+    var libraryOptions = PdfExportOptions()
     var reviewIds = longArrayOf()
     var reviewPreviewPath = ""
     var reviewFilename = ""
+    var reviewOptions = PdfExportOptions()
+    var knowledgeIds = longArrayOf()
+    var knowledgePreviewPath = ""
+    var knowledgeFilename = ""
+    var knowledgeOptions = PdfExportOptions()
 }
 
 internal val durablePdfExportScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -166,8 +175,10 @@ internal fun PdfPreviewPage(file: File, pageIndex: Int) {
 internal fun PdfPreviewDialog(
     file: File,
     questionCount: Int,
+    template: PdfTemplate = PdfTemplate.PRACTICE,
     onDismiss: () -> Unit,
-    onSave: () -> Unit
+    onSave: () -> Unit,
+    onPrint: () -> Unit = {}
 ) {
     val pageCount = remember(file.absolutePath, file.length()) { pdfPreviewPageCount(file) }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
@@ -181,7 +192,7 @@ internal fun PdfPreviewDialog(
                     Column(Modifier.weight(1f)) {
                         Text("PDF 预览", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                         Text(
-                            "共 $questionCount 道题，共 ${pageCount.coerceAtLeast(0)} 页 · 与最终导出一致",
+                            "${template.label} · 共 $questionCount 道题，共 ${pageCount.coerceAtLeast(0)} 页 · 与最终导出一致",
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -207,6 +218,11 @@ internal fun PdfPreviewDialog(
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("取消") }
+                    OutlinedButton(onClick = onPrint, enabled = pageCount > 0, modifier = Modifier.weight(1.15f)) {
+                        Icon(Icons.Outlined.Print, null)
+                        Spacer(Modifier.size(6.dp))
+                        Text("系统打印")
+                    }
                     Button(onClick = onSave, enabled = pageCount > 0, modifier = Modifier.weight(1f)) {
                         Icon(Icons.Outlined.FileDownload, null)
                         Spacer(Modifier.size(6.dp))

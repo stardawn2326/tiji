@@ -2,16 +2,14 @@
 
 package com.tiji.mistakes.ui.editor
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -55,21 +53,25 @@ internal fun MistakeFields(
     userAnswer: String = "",
     errorReason: String = "",
     onUserAnswer: (String) -> Unit = {},
-    onErrorReason: (String) -> Unit = {}
+    onErrorReason: (String) -> Unit = {},
+    showOptionalFields: Boolean = true,
+    showClassification: Boolean = true
 ) {
     val editorBodyTextStyle = MaterialTheme.typography.bodyLarge.copy(
         fontFamily = FontFamily.Serif
     )
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        OutlinedTextField(title, onTitle, label = { Text("标题") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        if (showRenderedPreview && title.isNotBlank()) {
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer), modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp)) {
-                    MathText(title, emphasized = true)
+        if (showOptionalFields) {
+            OutlinedTextField(title, onTitle, label = { Text("标题") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            if (showRenderedPreview && title.isNotBlank()) {
+                Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer), modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp)) {
+                        MathText(title, emphasized = true)
+                    }
                 }
+            } else {
+                FormulaPreview(title)
             }
-        } else {
-            FormulaPreview(title)
         }
         OutlinedTextField(
             question,
@@ -85,14 +87,16 @@ internal fun MistakeFields(
                 onDelete = onDeleteBlock
             )
         }
-        OutlinedTextField(
-            userAnswer,
-            onUserAnswer,
-            label = { Text("我的答案（选填）") },
-            textStyle = editorBodyTextStyle,
-            minLines = 2,
-            modifier = Modifier.fillMaxWidth()
-        )
+        if (showOptionalFields) {
+            OutlinedTextField(
+                userAnswer,
+                onUserAnswer,
+                label = { Text("我的答案（选填）") },
+                textStyle = editorBodyTextStyle,
+                minLines = 2,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
         OutlinedTextField(
             answer,
             onAnswer,
@@ -116,38 +120,42 @@ internal fun MistakeFields(
             FormulaPreview(answer)
             FormulaPreview(explanation, normalizeTerminalPeriod = true)
         }
-        OutlinedTextField(
-            note,
-            onNote,
-            label = { Text("我的总结") },
-            minLines = 2,
-            modifier = Modifier.fillMaxWidth()
-        )
-        ErrorReasonPicker(errorReason, onErrorReason)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        if (showOptionalFields) {
             OutlinedTextField(
-                subject,
-                onSubject,
-                label = { Text("科目") },
-                singleLine = true,
-                modifier = Modifier.weight(1f)
+                note,
+                onNote,
+                label = { Text("我的总结") },
+                minLines = 2,
+                modifier = Modifier.fillMaxWidth()
             )
-            OutlinedTextField(
-                questionType,
-                onQuestionType,
-                label = { Text("题目类型") },
-                singleLine = true,
-                modifier = Modifier.weight(1f)
-            )
+            ErrorReasonPicker(errorReason, onErrorReason)
         }
-        OutlinedTextField(
-            tags,
-            onTags,
-            label = { Text("分类 / 知识点标签") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth()
-        )
-        DifficultyPicker(difficulty, onDifficulty)
+        if (showClassification) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                OutlinedTextField(
+                    subject,
+                    onSubject,
+                    label = { Text("科目") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f)
+                )
+                OutlinedTextField(
+                    questionType,
+                    onQuestionType,
+                    label = { Text("题目类型") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            OutlinedTextField(
+                tags,
+                onTags,
+                label = { Text("分类 / 知识点标签") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            DifficultyPicker(difficulty, onDifficulty)
+        }
     }
 }
 
@@ -201,18 +209,20 @@ internal fun RenderedMistakeContentCard(
 internal fun DifficultyPicker(difficulty: Int, onDifficulty: (Int) -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(3.dp),
+        horizontalArrangement = Arrangement.spacedBy(0.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         (1..5).forEach { value ->
-            Text(
-                text = if (value <= difficulty) "★" else "☆",
-                color = if (value <= difficulty) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier
-                    .clickable { onDifficulty(value) }
-                    .semantics { contentDescription = "星级 $value" }
-            )
+            IconButton(
+                onClick = { onDifficulty(value) },
+                modifier = Modifier.semantics { contentDescription = "星级 $value" }
+            ) {
+                Text(
+                    text = if (value <= difficulty) "★" else "☆",
+                    color = if (value <= difficulty) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.titleLarge
+                )
+            }
         }
     }
 }

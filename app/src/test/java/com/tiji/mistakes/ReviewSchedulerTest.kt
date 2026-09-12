@@ -38,5 +38,11 @@ class ReviewSchedulerTest {
         assertEquals(3, ReviewScheduler.preview(mistake, ReviewGrade.EASY, now).intervalDays)
     }
 
+    @Test
+    fun gradeLabelsDescribeMasteryInTheReviewUi() {
+        assertEquals("掌握", ReviewGrade.GOOD.label)
+        assertEquals("熟练", ReviewGrade.EASY.label)
+    }
+
     private companion object { const val DAY = 24L * 60L * 60L * 1000L }
 }

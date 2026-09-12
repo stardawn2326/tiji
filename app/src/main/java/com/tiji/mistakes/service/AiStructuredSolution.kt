@@ -120,6 +120,7 @@ object AiStructuredSolutionCodec {
 
 /** Hide transport envelopes; strict V2 or the v50 four-heading fallback remains visible. */
 internal fun stripAiProtocolForDisplay(raw: String): String {
+    AiStructuredSolutionV3Codec.parse(raw)?.let { return it.copyText() }
     AiStructuredSolutionCodec.parse(raw)?.let { return it.copyText() }
     recoverPartialStructuredSolutionForDisplay(raw)?.let { return it }
     val recoveredQuestion = recoverQuestionSegmentsForDisplay(raw)

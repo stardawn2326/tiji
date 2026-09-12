@@ -47,6 +47,7 @@ class AppPreferences(private val context: Context) {
     private val aiVisualProfilesKey = stringPreferencesKey("ai_visual_profiles")
     private val aiVisualBindingsKey = stringPreferencesKey("ai_visual_bindings")
     private val aiSolveInputModeKey = stringPreferencesKey("ai_solve_input_mode")
+    private val aiSolveReliabilityModeKey = stringPreferencesKey("ai_solve_reliability_mode")
     private val aiCaptureInputModeKey = stringPreferencesKey("ai_capture_input_mode")
     private val aiUploadConsentKey = booleanPreferencesKey("ai_upload_consent")
     private val aiExcludeSourceImageByDefaultKey = booleanPreferencesKey("ai_exclude_source_image_by_default")
@@ -78,6 +79,9 @@ class AppPreferences(private val context: Context) {
         decodeVisualBindings(it[aiVisualBindingsKey])
     }
     val aiSolveInputMode: Flow<String> = context.tijiDataStore.data.map { it[aiSolveInputModeKey] ?: DEFAULT_INPUT_MODE }
+    val aiSolveReliabilityMode: Flow<String> = context.tijiDataStore.data.map {
+        it[aiSolveReliabilityModeKey] ?: "RELIABLE"
+    }
     val aiCaptureInputMode: Flow<String> = context.tijiDataStore.data.map { it[aiCaptureInputModeKey] ?: DEFAULT_INPUT_MODE }
     val aiUploadConsent: Flow<Boolean> = context.tijiDataStore.data.map { it[aiUploadConsentKey] ?: false }
     val aiExcludeSourceImageByDefault: Flow<Boolean> = context.tijiDataStore.data.map {
@@ -195,6 +199,10 @@ class AppPreferences(private val context: Context) {
 
     suspend fun setAiSolveInputMode(value: String) {
         context.tijiDataStore.edit { it[aiSolveInputModeKey] = value }
+    }
+
+    suspend fun setAiSolveReliabilityMode(value: String) {
+        context.tijiDataStore.edit { it[aiSolveReliabilityModeKey] = value }
     }
 
     suspend fun setAiCaptureInputMode(value: String) {
@@ -317,6 +325,7 @@ class AppPreferences(private val context: Context) {
             .put("aiModel", preferences[aiModelKey] ?: DEFAULT_MODEL)
             .put("aiProfiles", JSONArray(preferences[aiProfilesKey] ?: encodeProfiles(listOf(defaultProfile()))))
             .put("activeAiProfile", preferences[activeAiProfileKey] ?: DEFAULT_PROFILE_ID)
+            .put("aiSolveReliabilityMode", preferences[aiSolveReliabilityModeKey] ?: "RELIABLE")
             .put("aiUploadConsent", preferences[aiUploadConsentKey] ?: false)
             .put("aiExcludeSourceImageByDefault", preferences[aiExcludeSourceImageByDefaultKey] ?: true)
             .put("dailyReviewLimit", (preferences[dailyReviewLimitKey] ?: 20).coerceIn(1, 100))
@@ -378,6 +387,7 @@ class AppPreferences(private val context: Context) {
                     .put("model", json.optString("aiModel", DEFAULT_MODEL))
             )).toString()
             preferences[activeAiProfileKey] = json.optString("activeAiProfile", DEFAULT_PROFILE_ID)
+            preferences[aiSolveReliabilityModeKey] = json.optString("aiSolveReliabilityMode", "RELIABLE")
             preferences[aiUploadConsentKey] = json.optBoolean("aiUploadConsent", false)
             preferences[aiExcludeSourceImageByDefaultKey] = json.optBoolean("aiExcludeSourceImageByDefault", true)
             preferences[dailyReviewLimitKey] = json.optInt("dailyReviewLimit", 20).coerceIn(1, 100)

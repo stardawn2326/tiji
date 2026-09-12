@@ -2,10 +2,20 @@
 
 package com.tiji.mistakes.ui.review
 
+import android.provider.Settings
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -18,10 +28,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.ChevronLeft
+import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Visibility
@@ -39,15 +52,23 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.dp
@@ -59,6 +80,7 @@ import com.tiji.mistakes.domain.ReviewGrade
 import com.tiji.mistakes.domain.ReviewScheduler
 import com.tiji.mistakes.domain.ReviewSessionAnalytics
 import com.tiji.mistakes.domain.ReviewSessionContext
+import com.tiji.mistakes.domain.ReviewSessionSource
 import com.tiji.mistakes.domain.time.LearningCalendar
 import com.tiji.mistakes.ui.ConceptPageHeader
 import com.tiji.mistakes.ui.common.formatLocalDate
@@ -76,6 +98,11 @@ import com.tiji.mistakes.ui.TijiStatusBadge
 import com.tiji.mistakes.ui.TijiSurfaceCard
 import java.time.ZoneId
 import java.time.temporal.ChronoUnit
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
+private const val REVIEW_PAGE_TRANSITION_DURATION_MS = 220
+private val reviewPageEaseOut = CubicBezierEasing(0.23f, 1f, 0.32f, 1f)
 
 @Composable
 internal fun ReviewQuestionScreen(
@@ -101,24 +128,21 @@ internal fun ReviewQuestionScreen(
         }
     }
     val resolvedSessionKey = sessionKey ?: fallbackSessionKey
-    val isFocusedSession = sessionContext.isFocusedKnowledgePoint
+    val isUnifiedSession = sessionKey != null
     val savedReviewSession by viewModel.reviewSession.collectAsStateWithLifecycle()
     val focusedSession = savedReviewSession?.takeIf {
-        isFocusedSession && it.sessionKey == resolvedSessionKey
+        isUnifiedSession && it.sessionKey == resolvedSessionKey
     }
     val summaryState by viewModel.reviewSessionSummary.collectAsStateWithLifecycle()
-    LaunchedEffect(isFocusedSession, resolvedSessionKey, reviewIds) {
-        if (isFocusedSession) viewModel.beginReviewSession(resolvedSessionKey, reviewIds)
-    }
-    LaunchedEffect(isFocusedSession, resolvedSessionKey, focusedSession?.summaryVisible, focusedSession?.recordedReviewIds) {
-        if (isFocusedSession && focusedSession?.summaryVisible == true) {
+    LaunchedEffect(isUnifiedSession, resolvedSessionKey, focusedSession?.summaryVisible, focusedSession?.recordedReviewIds) {
+        if (isUnifiedSession && focusedSession?.summaryVisible == true) {
             viewModel.ensureReviewSessionSummaryLoaded(resolvedSessionKey)
         }
     }
     var dailyCurrentId by remember(id) { mutableLongStateOf(id) }
     val effectiveReviewIds = focusedSession?.reviewIds ?: reviewIds
     val focusedCurrentIndex = focusedSession?.currentIndex ?: effectiveReviewIds.indexOf(id).coerceAtLeast(0)
-    val currentId = if (isFocusedSession) {
+    val currentId = if (isUnifiedSession) {
         effectiveReviewIds.getOrNull(focusedCurrentIndex) ?: id
     } else {
         dailyCurrentId
@@ -128,7 +152,44 @@ internal fun ReviewQuestionScreen(
     var showAnswer by remember(currentId) { mutableStateOf(false) }
     var showExplanation by remember(currentId) { mutableStateOf(false) }
     var reviewMenuExpanded by remember(currentId) { mutableStateOf(false) }
-    val currentSavedStatus = if (isFocusedSession) null else reviewStatuses[currentId]
+    var reviewReasonExpanded by remember(currentId) { mutableStateOf(false) }
+    var autoAdvancePending by remember(currentId) { mutableStateOf(false) }
+    var reviewSubmitting by remember(currentId) { mutableStateOf(false) }
+    var autoAdvanceJob by remember(currentId) { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val reduceMotion = remember {
+        runCatching {
+            Settings.Global.getFloat(
+                context.contentResolver,
+                Settings.Global.ANIMATOR_DURATION_SCALE,
+                1f
+            ) == 0f
+        }.getOrDefault(false)
+    }
+    val questionOffset = remember { Animatable(0f) }
+    val questionListState = rememberLazyListState()
+    var pageWidthPx by remember { mutableFloatStateOf(0f) }
+    var dragOffsetPx by remember { mutableFloatStateOf(0f) }
+    var isDragging by remember { mutableStateOf(false) }
+    var navigationAnimating by remember { mutableStateOf(false) }
+    val settleSpec: AnimationSpec<Float> = remember(reduceMotion) {
+        if (reduceMotion) {
+            tween(durationMillis = 120, easing = reviewPageEaseOut)
+        } else {
+            spring(
+                dampingRatio = Spring.DampingRatioNoBouncy,
+                stiffness = Spring.StiffnessMediumLow
+            )
+        }
+    }
+    val travelSpec: AnimationSpec<Float> = remember(reduceMotion) {
+        tween(
+            durationMillis = if (reduceMotion) 120 else REVIEW_PAGE_TRANSITION_DURATION_MS,
+            easing = reviewPageEaseOut
+        )
+    }
+    val currentSavedStatus = if (isUnifiedSession) null else reviewStatuses[currentId]
     val focusedGrade = focusedSession?.gradesByMistake?.get(currentId)?.let {
         runCatching { ReviewGrade.valueOf(it) }.getOrNull()
     }
@@ -148,9 +209,21 @@ internal fun ReviewQuestionScreen(
             viewModel.find(currentId, onLoaded = { mistake = it }, onError = { loadError = it.message ?: "无法读取错题" })
         }
     }
+    LaunchedEffect(currentId, mistake != null) {
+        if (mistake != null) {
+            questionListState.scrollToItem(0)
+        }
+    }
 
-    fun moveBy(delta: Int) {
-        if (isFocusedSession) {
+    fun cancelPendingAutoAdvance() {
+        autoAdvanceJob?.cancel()
+        autoAdvanceJob = null
+        autoAdvancePending = false
+    }
+
+    fun moveBy(delta: Int, cancelAutoAdvance: Boolean = true) {
+        if (cancelAutoAdvance) cancelPendingAutoAdvance()
+        if (isUnifiedSession) {
             viewModel.moveReviewSession(resolvedSessionKey, delta)
             return
         }
@@ -160,25 +233,94 @@ internal fun ReviewQuestionScreen(
     }
 
     fun completeFocusedSession() {
-        if (!isFocusedSession) return
-        viewModel.completeFocusedReviewSession(resolvedSessionKey)
+        cancelPendingAutoAdvance()
+        if (!isUnifiedSession) return
+        viewModel.completeReviewSession(resolvedSessionKey)
     }
 
     val current = mistake
-    val currentIndex = if (isFocusedSession) {
+    val currentIndex = if (isUnifiedSession) {
         focusedSession?.currentIndex ?: effectiveReviewIds.indexOf(currentId)
     } else {
         effectiveReviewIds.indexOf(currentId)
+    }
+    suspend fun navigateQuestion(delta: Int, cancelAutoAdvance: Boolean = true) {
+        if (navigationAnimating) return
+        val targetIndex = currentIndex + delta
+        if (targetIndex !in effectiveReviewIds.indices) {
+            questionOffset.animateTo(0f, settleSpec)
+            return
+        }
+        navigationAnimating = true
+        try {
+            val width = pageWidthPx.coerceAtLeast(1f)
+            val outgoingOffset = if (delta > 0) -width else width
+            questionOffset.animateTo(outgoingOffset, travelSpec)
+            moveBy(delta, cancelAutoAdvance = cancelAutoAdvance)
+            questionOffset.snapTo(-outgoingOffset)
+            questionOffset.animateTo(0f, travelSpec)
+        } finally {
+            navigationAnimating = false
+        }
     }
     val progressLabel = if (effectiveReviewIds.isEmpty() || currentIndex < 0) "复习" else "${currentIndex + 1} / ${effectiveReviewIds.size}"
     val reviewHistoryFlow = remember(currentId) { viewModel.reviewHistory(currentId) }
     val currentReviewHistory by reviewHistoryFlow.collectAsStateWithLifecycle(emptyList())
     val reviewReason = current?.let { reviewReasonFor(it, currentReviewHistory.firstOrNull(), sessionContext) }
-    val exitSession = {
-        if (isFocusedSession) viewModel.clearReviewSession(resolvedSessionKey)
+    val leaveQuestion = {
+        cancelPendingAutoAdvance()
         onBack()
     }
-    val showSummary = isFocusedSession && focusedSession?.summaryVisible == true
+    val exitSession = {
+        cancelPendingAutoAdvance()
+        if (isUnifiedSession) viewModel.clearReviewSession(resolvedSessionKey)
+        onBack()
+    }
+    fun advanceAfterRecorded() {
+        if (autoAdvancePending) return
+        autoAdvancePending = true
+        val isLastQuestion = effectiveReviewIds.isEmpty() || currentIndex == effectiveReviewIds.lastIndex
+        autoAdvanceJob = scope.launch {
+            delay(520)
+            autoAdvanceJob = null
+            autoAdvancePending = false
+            if (isLastQuestion) {
+                if (isUnifiedSession) completeFocusedSession() else leaveQuestion()
+            } else {
+                navigateQuestion(1, cancelAutoAdvance = false)
+            }
+        }
+    }
+    fun submitReview(grade: ReviewGrade) {
+        val currentMistake = current ?: return
+        if (selectedGrade != null || reviewSubmitting || autoAdvancePending) return
+        reviewSubmitting = true
+        val reviewJob = if (isUnifiedSession) {
+            viewModel.review(
+                mistake = currentMistake,
+                grade = grade,
+                sessionKey = resolvedSessionKey,
+                onRecorded = {
+                    reviewSubmitting = false
+                    onReviewed(currentMistake.id, grade)
+                    advanceAfterRecorded()
+                }
+            )
+        } else {
+            dailySelectedGrade = grade
+            viewModel.review(currentMistake, grade) {
+                reviewSubmitting = false
+                onReviewed(currentMistake.id, grade)
+                advanceAfterRecorded()
+            }
+        }
+        if (reviewJob == null) {
+            reviewSubmitting = false
+        } else {
+            reviewJob.invokeOnCompletion { reviewSubmitting = false }
+        }
+    }
+    val showSummary = isUnifiedSession && focusedSession?.summaryVisible == true
     if (showSummary && summaryState.sessionKey == resolvedSessionKey && summaryState.isLoaded) {
         ReviewSessionSummaryScreen(
             context = sessionContext,
@@ -206,9 +348,9 @@ internal fun ReviewQuestionScreen(
                         }
                     }
                 },
-                navigationIcon = { IconButton(onClick = exitSession) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回复习") } },
+                navigationIcon = { IconButton(onClick = leaveQuestion) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回复习") } },
                 actions = {
-                    if (current != null && !sessionContext.isFocusedKnowledgePoint) {
+                    if (current != null && isUnifiedSession && sessionContext.source == com.tiji.mistakes.domain.ReviewSessionSource.TODAY_PLAN) {
                         IconButton(
                             onClick = { reviewMenuExpanded = true }
                         ) {
@@ -238,11 +380,78 @@ internal fun ReviewQuestionScreen(
                 if (loadError != null) OutlinedButton(onClick = onBack) { Text("返回复习") }
             }
         } else {
-            LazyColumn(
-                contentPadding = PaddingValues(start = TijiDimens.pagePadding, top = 8.dp, end = TijiDimens.pagePadding, bottom = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            modifier = Modifier.padding(padding).fillMaxSize().testTag("review_question_content")
-        ) {
+            Box(
+                modifier = Modifier
+                    .padding(padding)
+                    .fillMaxSize()
+                    .onSizeChanged { pageWidthPx = it.width.toFloat() }
+                    .clipToBounds()
+                    .pointerInput(currentId, currentIndex, reviewSubmitting, autoAdvancePending, navigationAnimating, pageWidthPx) {
+                        var gestureActive = false
+                        detectHorizontalDragGestures(
+                            onDragStart = {
+                                gestureActive = !reviewSubmitting && !autoAdvancePending && !navigationAnimating
+                                if (gestureActive) {
+                                    isDragging = true
+                                    dragOffsetPx = questionOffset.value
+                                    scope.launch { questionOffset.stop() }
+                                }
+                            },
+                            onHorizontalDrag = { change, dragAmount ->
+                                if (gestureActive) {
+                                    val width = pageWidthPx.takeIf { it > 0f } ?: size.width.toFloat()
+                                    val proposedOffset = dragOffsetPx + dragAmount
+                                    val atBoundary = (currentIndex <= 0 && proposedOffset > 0f) ||
+                                        (currentIndex >= effectiveReviewIds.lastIndex && proposedOffset < 0f)
+                                    val adjustedDrag = dragAmount * if (atBoundary) 0.35f else 1f
+                                    dragOffsetPx = (dragOffsetPx + adjustedDrag).coerceIn(-width, width)
+                                    change.consume()
+                                }
+                            },
+                            onDragEnd = {
+                                if (gestureActive) {
+                                    val finalOffset = dragOffsetPx
+                                    gestureActive = false
+                                    scope.launch {
+                                        questionOffset.snapTo(finalOffset)
+                                        isDragging = false
+                                        val threshold = 72.dp.toPx()
+                                        val delta = when {
+                                            finalOffset <= -threshold -> 1
+                                            finalOffset >= threshold -> -1
+                                            else -> 0
+                                        }
+                                        if (delta == 0) {
+                                            questionOffset.animateTo(0f, settleSpec)
+                                        } else {
+                                            navigateQuestion(delta)
+                                        }
+                                    }
+                                }
+                            },
+                            onDragCancel = {
+                                if (gestureActive) {
+                                    val finalOffset = dragOffsetPx
+                                    gestureActive = false
+                                    scope.launch {
+                                        questionOffset.snapTo(finalOffset)
+                                        isDragging = false
+                                        questionOffset.animateTo(0f, settleSpec)
+                                    }
+                                }
+                            }
+                        )
+                    }
+            ) {
+                LazyColumn(
+                    state = questionListState,
+                    contentPadding = PaddingValues(start = TijiDimens.pagePadding, top = 8.dp, end = TijiDimens.pagePadding, bottom = 24.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { translationX = if (isDragging) dragOffsetPx else questionOffset.value }
+                        .testTag("review_question_content")
+                ) {
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
@@ -266,21 +475,33 @@ internal fun ReviewQuestionScreen(
                 if (reviewReason != null) {
                     item {
                         TijiSurfaceCard(contentPadding = 12.dp) {
-                            Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().clickable {
+                                    reviewReasonExpanded = !reviewReasonExpanded
+                                },
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
                                 Icon(
                                     Icons.Outlined.Info,
-                                    contentDescription = null,
+                                    contentDescription = "查看复习原因",
                                     tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(20.dp)
                                 )
                                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                    Text("为什么今天复习", style = MaterialTheme.typography.labelLarge)
-                                    Text(
-                                        reviewReason,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Text("到期复习", style = MaterialTheme.typography.labelLarge)
+                                        Icon(Icons.Outlined.Info, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    }
+                                    if (reviewReasonExpanded) {
+                                        Text(
+                                            reviewReason,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
                                 }
+                                Text(if (reviewReasonExpanded) "收起" else "详情", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                             }
                         }
                     }
@@ -362,22 +583,8 @@ internal fun ReviewQuestionScreen(
                                         ReviewGrade.EASY -> semanticColors.reviewEasy
                                     }
                                         Card(
-                                            onClick = {
-                                                if (selectedGrade == null) {
-                                                    if (isFocusedSession) {
-                                                        viewModel.review(
-                                                            mistake = current,
-                                                            grade = grade,
-                                                            sessionKey = resolvedSessionKey,
-                                                            onRecorded = { onReviewed(current.id, grade) }
-                                                        )
-                                                    } else {
-                                                        dailySelectedGrade = grade
-                                                        viewModel.review(current, grade) { onReviewed(current.id, grade) }
-                                                    }
-                                                }
-                                            },
-                                        enabled = selectedGrade == null || selected,
+                                            onClick = { submitReview(grade) },
+                                        enabled = !reviewSubmitting && !autoAdvancePending && (selectedGrade == null || selected),
                                         colors = CardDefaults.cardColors(
                                             containerColor = if (selected) gradeColor.copy(alpha = 0.16f) else gradeColor.copy(alpha = 0.07f)
                                         ),
@@ -395,36 +602,51 @@ internal fun ReviewQuestionScreen(
                                     }
                                 }
                             }
-                            selectedGrade?.let { Text("已记录：${reviewGradeUiLabel(it)}", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall) }
+                            when {
+                                reviewSubmitting -> Text("正在记录…", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
+                                selectedGrade != null -> Text("已记录：${reviewGradeUiLabel(selectedGrade!!)}", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
+                            }
                         }
                     }
                 }
                 item {
                     val isLastQuestion = effectiveReviewIds.isNotEmpty() && currentIndex == effectiveReviewIds.lastIndex
-                    val summaryLoading = isFocusedSession &&
+                    val summaryLoading = isUnifiedSession &&
                         summaryState.sessionKey == resolvedSessionKey && summaryState.isLoading
+                    val controlsEnabled = !reviewSubmitting && !autoAdvancePending && !navigationAnimating
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                        OutlinedButton(onClick = { moveBy(-1) }, enabled = currentIndex > 0, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("上一题") }
-                        Text(if (effectiveReviewIds.isEmpty()) "复习题" else "${currentIndex + 1} / ${effectiveReviewIds.size}", modifier = Modifier.padding(horizontal = 12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Button(
-                            onClick = {
-                                if (isLastQuestion) {
-                                    if (isFocusedSession) completeFocusedSession() else exitSession()
-                                } else moveBy(1)
-                            },
-                            enabled = if (isLastQuestion && isFocusedSession) !summaryLoading else {
-                                isLastQuestion || currentIndex in 0 until (effectiveReviewIds.size - 1)
-                            },
-                            modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                        IconButton(
+                            onClick = { scope.launch { navigateQuestion(-1) } },
+                            enabled = controlsEnabled && currentIndex > 0,
+                            modifier = Modifier.testTag("review_previous")
                         ) {
-                            Text(
-                                when {
-                                    isLastQuestion && isFocusedSession && summaryLoading -> "整理本次记录…"
-                                    isLastQuestion && isFocusedSession -> "查看总结"
-                                    isLastQuestion -> "完成"
-                                    else -> "下一题"
-                                }
-                            )
+                            Icon(Icons.Outlined.ChevronLeft, contentDescription = "上一题")
+                        }
+                        Text(if (effectiveReviewIds.isEmpty()) "复习题" else "${currentIndex + 1} / ${effectiveReviewIds.size}", modifier = Modifier.padding(horizontal = 12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (isLastQuestion) {
+                            TextButton(
+                                onClick = {
+                                    if (isUnifiedSession) completeFocusedSession() else exitSession()
+                                },
+                                enabled = controlsEnabled && (!isUnifiedSession || !summaryLoading),
+                                modifier = Modifier.heightIn(min = 48.dp).testTag("review_next")
+                            ) {
+                                Text(
+                                    when {
+                                        isUnifiedSession && summaryLoading -> "整理本次记录…"
+                                        isUnifiedSession -> "查看总结"
+                                        else -> "完成"
+                                    }
+                                )
+                            }
+                        } else {
+                            IconButton(
+                                onClick = { scope.launch { navigateQuestion(1) } },
+                                enabled = controlsEnabled && currentIndex in 0 until (effectiveReviewIds.size - 1),
+                                modifier = Modifier.testTag("review_next")
+                            ) {
+                                Icon(Icons.Outlined.ChevronRight, contentDescription = "下一题")
+                            }
                         }
                     }
                 }
@@ -432,13 +654,14 @@ internal fun ReviewQuestionScreen(
         }
     }
 }
+}
 
 @Composable
 private fun ReviewSessionSummaryLoadingScreen(onBack: () -> Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("本次专项复习") },
+                title = { Text("本次复习") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回复习")
@@ -491,10 +714,15 @@ private fun ReviewSessionSummaryScreen(
     stats: com.tiji.mistakes.domain.ReviewSessionStats,
     onBack: () -> Unit
 ) {
+    val returnLabel = when (context.source) {
+        ReviewSessionSource.TODAY_PLAN -> "返回复习中心"
+        ReviewSessionSource.KNOWLEDGE_POINT -> "查看知识点"
+        ReviewSessionSource.LIBRARY_SELECTION -> "返回错题库"
+    }
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("本次专项复习") },
+                title = { Text("本次复习") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回知识点")
@@ -535,10 +763,10 @@ private fun ReviewSessionSummaryScreen(
                             modifier = Modifier.size(24.dp)
                         )
                         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text("本次专项复习", style = MaterialTheme.typography.titleMedium)
+                            Text("本次复习", style = MaterialTheme.typography.titleMedium)
                             Text(
                                 buildString {
-                                    append(context.knowledgePointName?.takeIf { !it.isNullOrBlank() } ?: "知识点练习")
+                                    append(context.knowledgePointName?.takeIf { !it.isNullOrBlank() } ?: context.source.label)
                                     context.knowledgePointLabel?.takeIf { it.isNotBlank() }?.let { append(" · ").append(it) }
                                 },
                                 style = MaterialTheme.typography.bodySmall,
@@ -553,21 +781,21 @@ private fun ReviewSessionSummaryScreen(
                         SessionMetric("完成", stats.completed, Modifier.weight(1f), "review_session_completed")
                         SessionMetric("忘记", stats.forgot, Modifier.weight(1f), "review_session_forgot")
                         SessionMetric("困难", stats.hard, Modifier.weight(1f), "review_session_hard")
-                        SessionMetric("会了", stats.good, Modifier.weight(1f), "review_session_good")
+                        SessionMetric(reviewGradeUiLabel(ReviewGrade.GOOD), stats.good, Modifier.weight(1f), "review_session_good")
                     }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        SessionMetric("简单", stats.easy, Modifier.weight(1f), "review_session_easy")
+                        SessionMetric(reviewGradeUiLabel(ReviewGrade.EASY), stats.easy, Modifier.weight(1f), "review_session_easy")
                         Spacer(Modifier.weight(3f))
                     }
                 }
             }
             item {
                 TijiSurfaceCard {
-                    ConceptSectionHeader("当前知识点", "可以回到这里继续巩固")
-                    ConceptTag(context.knowledgePointName?.takeIf { !it.isNullOrBlank() } ?: "专项复习")
+                    ConceptSectionHeader("下一步", "可以回到原入口继续巩固")
+                    ConceptTag(context.knowledgePointName?.takeIf { !it.isNullOrBlank() } ?: context.source.label)
                     Text(
                         "复习反馈已写入学习记录，下一次打开时会重新计算薄弱度。",
                         style = MaterialTheme.typography.bodyMedium,
@@ -580,7 +808,7 @@ private fun ReviewSessionSummaryScreen(
                         OutlinedButton(
                             onClick = onBack,
                             modifier = Modifier.weight(1f).heightIn(min = 48.dp)
-                        ) { Text("查看知识点") }
+                        ) { Text(returnLabel) }
                         Button(
                             onClick = onBack,
                             modifier = Modifier.weight(1f).heightIn(min = 48.dp)
@@ -602,5 +830,36 @@ private fun SessionMetric(label: String, value: Int, modifier: Modifier, testTag
             color = MaterialTheme.colorScheme.primary
         )
         Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+internal fun ReviewSessionUnavailableScreen(onBack: () -> Unit) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("复习会话") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回")
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        Column(
+            modifier = Modifier.padding(padding).fillMaxSize().padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text("这轮复习已不可恢复", style = MaterialTheme.typography.titleLarge)
+            Text(
+                "会话状态已经结束或不在当前任务中，请从复习中心重新开始。",
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            OutlinedButton(onClick = onBack, modifier = Modifier.heightIn(min = 48.dp)) {
+                Text("返回复习中心")
+            }
+        }
     }
 }

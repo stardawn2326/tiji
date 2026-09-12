@@ -78,10 +78,8 @@ class KnowledgeDetailAnalyticsTest {
 
     @Test
     fun knowledgeDetail30DayMetricExcludesOlderHistory() {
-        composeRule.onNodeWithTag("nav_profile").performClick()
-        composeRule.onNodeWithTag("my_settings_list")
-            .performScrollToNode(hasTestTag("my_setting_科目与知识点"))
-        composeRule.onNodeWithTag("my_setting_科目与知识点").performClick()
+        composeRule.onNodeWithTag("nav_library").performClick()
+        composeRule.onNodeWithTag("library_open_knowledge").performClick()
         composeRule.waitUntil(5_000) {
             runCatching {
                 composeRule.onNodeWithTag("knowledge_card_$pointStableId").assertExists()

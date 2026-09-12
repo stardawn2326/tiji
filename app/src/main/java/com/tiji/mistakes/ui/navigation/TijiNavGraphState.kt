@@ -6,17 +6,21 @@ import com.tiji.mistakes.data.MistakeEntity
 import com.tiji.mistakes.data.MistakeKnowledgePointCrossRef
 import com.tiji.mistakes.data.KnowledgePointEntity
 import com.tiji.mistakes.domain.KnowledgePointInsight
+import com.tiji.mistakes.domain.DailyStudyPlan
 import com.tiji.mistakes.domain.ReviewAnalyticsSummary
 
 internal data class TijiNavGraphState(
     val allMistakes: List<MistakeEntity>,
     val mistakes: List<MistakeEntity>,
+    val reviewNow: Long,
+    val todayDate: String,
     val dueMistakes: List<MistakeEntity>,
     val dueCount: Int,
     val knowledgePoints: List<KnowledgePointEntity>,
     val knowledgePointLinks: List<MistakeKnowledgePointCrossRef>,
     val reviewAnalytics: ReviewAnalyticsSummary,
     val weaknessInsights: List<KnowledgePointInsight>,
+    val dailyStudyPlan: DailyStudyPlan,
     val reviewPlanSnapshots: Map<String, List<Long>>,
     val reviewMastery: Map<String, Map<Long, String>>,
     val reviewCheckIns: Set<String>,
@@ -32,6 +36,7 @@ internal data class TijiNavGraphState(
     val aiVisualProfiles: List<AiVisualProfile>,
     val aiVisualBindings: Map<String, String>,
     val aiSolveInputMode: String,
+    val aiSolveReliabilityMode: String,
     val aiCaptureInputMode: String,
     val aiUploadConsent: Boolean,
     val aiExcludeSourceImageByDefault: Boolean,

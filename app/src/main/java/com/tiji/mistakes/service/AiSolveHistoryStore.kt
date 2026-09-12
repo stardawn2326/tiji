@@ -80,6 +80,7 @@ data class AiSolveHistoryRecord(
     val question: String = "",
     val completeText: String = "",
     val mode: AiRecognitionMode = AiRecognitionMode.VISION,
+    val reliabilityMode: AiSolveReliabilityMode = AiSolveReliabilityMode.RELIABLE,
     val configurationId: String = "",
     val visualConfigurationId: String = "",
     val modelName: String = "",
@@ -89,6 +90,10 @@ data class AiSolveHistoryRecord(
     val graphicImagePath: String? = null,
     val contentBlocks: String = "",
     val recognitionWarning: String = "",
+    val uncertainItems: List<String> = emptyList(),
+    val verification: AiVerificationResult = AiVerificationResult(),
+    val solutionProtocolVersion: Int = 0,
+    val diagnostics: AiSolveDiagnostics = AiSolveDiagnostics(),
     val chatMessages: List<AiChatMessage> = emptyList()
 ) {
     fun referencedImagePaths(): List<String> = buildList {
@@ -203,6 +208,7 @@ class AiSolveHistoryStore(context: Context) {
                 question = state.question.orEmpty(),
                 completeText = state.completeText.orEmpty(),
                 mode = state.mode,
+                reliabilityMode = state.reliabilityMode,
                 configurationId = state.configurationId,
                 visualConfigurationId = state.visualConfigurationId,
                 modelName = state.modelName,
@@ -212,6 +218,10 @@ class AiSolveHistoryStore(context: Context) {
                 graphicImagePath = state.graphicImagePath,
                 contentBlocks = state.contentBlocks,
                 recognitionWarning = state.recognitionWarning,
+                uncertainItems = state.uncertainItems,
+                verification = state.verification,
+                solutionProtocolVersion = state.solutionProtocolVersion,
+                diagnostics = state.diagnostics,
                 chatMessages = chatMessages.takeLast(MAX_CHAT_MESSAGES)
             )
         val (ownedRecord, created) = withOwnedImages(rawRecord)
@@ -270,6 +280,7 @@ class AiSolveHistoryStore(context: Context) {
         .put("question", record.question)
         .put("completeText", record.completeText)
         .put("mode", record.mode.name)
+        .put("reliabilityMode", record.reliabilityMode.name)
         .put("configurationId", record.configurationId)
         .put("visualConfigurationId", record.visualConfigurationId)
         .put("modelName", record.modelName)
@@ -279,6 +290,17 @@ class AiSolveHistoryStore(context: Context) {
         .put("graphicImagePath", record.graphicImagePath ?: JSONObject.NULL)
         .put("contentBlocks", record.contentBlocks)
         .put("recognitionWarning", record.recognitionWarning)
+        .put("uncertainItems", JSONArray(record.uncertainItems.filter(String::isNotBlank).distinct()))
+        .put("verification", encodeVerification(record.verification))
+        .put("solutionProtocolVersion", record.solutionProtocolVersion.coerceIn(0, 3))
+        .put("diagnostics", JSONObject()
+            .put("solveDurationMs", record.diagnostics.solveDurationMs)
+            .put("verifyDurationMs", record.diagnostics.verifyDurationMs)
+            .put("repairDurationMs", record.diagnostics.repairDurationMs)
+            .put("requestCount", record.diagnostics.requestCount)
+            .put("v3Success", record.diagnostics.v3Success)
+            .put("v2Fallback", record.diagnostics.v2Fallback)
+            .put("legacyFallback", record.diagnostics.legacyFallback))
         .put("chatMessages", JSONArray(record.chatMessages.map { message ->
             JSONObject()
                 .put("prompt", message.prompt.take(MAX_CHAT_PROMPT_LENGTH))
@@ -305,6 +327,7 @@ class AiSolveHistoryStore(context: Context) {
                         completeText = completeText,
                         mode = runCatching { AiRecognitionMode.valueOf(item.optString("mode")) }
                             .getOrDefault(AiRecognitionMode.VISION),
+                        reliabilityMode = AiSolveReliabilityMode.parse(item.optString("reliabilityMode")),
                         configurationId = item.optString("configurationId"),
                         visualConfigurationId = item.optString("visualConfigurationId"),
                         modelName = item.optString("modelName"),
@@ -320,6 +343,10 @@ class AiSolveHistoryStore(context: Context) {
                         graphicImagePath = item.optString("graphicImagePath").takeIf { it.isNotBlank() && it != "null" },
                         contentBlocks = item.optString("contentBlocks"),
                         recognitionWarning = item.optString("recognitionWarning"),
+                        uncertainItems = readStringList(item.optJSONArray("uncertainItems")),
+                        verification = parsePersistedVerification(item.optJSONObject("verification")),
+                        solutionProtocolVersion = item.optInt("solutionProtocolVersion", 0).coerceIn(0, 3),
+                        diagnostics = parseDiagnostics(item.optJSONObject("diagnostics")),
                         chatMessages = readChatMessages(item.optJSONArray("chatMessages"))
                     )
                 )
@@ -345,6 +372,26 @@ class AiSolveHistoryStore(context: Context) {
             )
         }
     }.takeLast(MAX_CHAT_MESSAGES)
+
+    private fun readStringList(array: JSONArray?): List<String> = if (array == null) {
+        emptyList()
+    } else {
+        (0 until array.length()).mapNotNull { index ->
+            array.optString(index).trim().takeIf(String::isNotBlank)
+        }.distinct()
+    }
+
+    private fun parseDiagnostics(json: JSONObject?): AiSolveDiagnostics = json?.let {
+        AiSolveDiagnostics(
+            solveDurationMs = it.optLong("solveDurationMs", 0L),
+            verifyDurationMs = it.optLong("verifyDurationMs", 0L),
+            repairDurationMs = it.optLong("repairDurationMs", 0L),
+            requestCount = it.optInt("requestCount", 0).coerceAtLeast(0),
+            v3Success = it.optBoolean("v3Success", false),
+            v2Fallback = it.optBoolean("v2Fallback", false),
+            legacyFallback = it.optBoolean("legacyFallback", false)
+        )
+    } ?: AiSolveDiagnostics()
 
     private companion object {
         const val FILE_NAME = "ai_solve_history"

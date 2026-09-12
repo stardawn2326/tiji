@@ -10,10 +10,13 @@ import com.tiji.mistakes.service.QuestionContentBlockCodec
 import com.tiji.mistakes.service.QuestionSegment
 import com.tiji.mistakes.service.TIJI_SOLUTION_V2_END
 import com.tiji.mistakes.service.TIJI_SOLUTION_V2_START
+import com.tiji.mistakes.service.TIJI_SOLUTION_V3_END
+import com.tiji.mistakes.service.TIJI_SOLUTION_V3_START
 import com.tiji.mistakes.service.extractRecognizedQuestionFromSolution
 import com.tiji.mistakes.service.mathSegmentFormatIssues
 import com.tiji.mistakes.service.validateOcrRecognition
 import com.tiji.mistakes.service.buildSupplementalTextInstruction
+import com.tiji.mistakes.service.buildRecognitionCorrectionInstruction
 import com.tiji.mistakes.service.structuredSolveOutputInstruction
 import com.tiji.mistakes.service.VisualEvidence
 import com.tiji.mistakes.service.combineVisualEvidence
@@ -63,6 +66,16 @@ class AiVisionServiceTest {
     }
 
     @Test
+    fun recognitionCorrectionIsExplicitAndDoesNotBecomeProtocolText() {
+        val instruction = buildRecognitionCorrectionInstruction("把 x=1 修正为 x=-1")
+
+        assertTrue(instruction.contains("<recognition_correction>"))
+        assertTrue(instruction.contains("x=-1"))
+        assertTrue(instruction.contains("只作为题目文字的修正依据"))
+        assertEquals("", buildRecognitionCorrectionInstruction("  "))
+    }
+
+    @Test
     fun followUpPromptRequestsSingleBodyStructureWithMarkdownFallback() {
         val prompt = service.buildFollowUpPrompt(
             context = "原题：求函数的极值。\n已有 AI 解答：极值点为 x=0。",
@@ -91,6 +104,9 @@ class AiVisionServiceTest {
 
         assertTrue(instruction.contains(TIJI_SOLUTION_V2_START))
         assertTrue(instruction.contains(TIJI_SOLUTION_V2_END))
+        assertTrue(instruction.contains("schemaVersion 3 是当前首选的解答协议"))
+        assertTrue(instruction.contains(TIJI_SOLUTION_V3_START))
+        assertTrue(instruction.contains(TIJI_SOLUTION_V3_END))
         assertTrue(instruction.contains("最终解答必须使用 schemaVersion 2 的机器可读结构"))
         assertTrue(instruction.contains("sections 必须且只能依次包含 recognition、approach、derivation、finalAnswer"))
         assertTrue(instruction.contains("禁止输出残缺 JSON"))
