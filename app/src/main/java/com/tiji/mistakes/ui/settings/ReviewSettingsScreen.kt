@@ -34,8 +34,8 @@ import androidx.compose.ui.unit.dp
 import com.tiji.mistakes.data.MistakeEntity
 import com.tiji.mistakes.ui.design.TijiDimens
 import com.tiji.mistakes.ui.common.weekLabels
-import com.tiji.mistakes.ui.review.components.ReviewAllocationRow
-import com.tiji.mistakes.ui.settings.components.SettingCard
+import com.tiji.mistakes.ui.design.TijiStepper
+import com.tiji.mistakes.ui.design.TijiSettingGroup
 
 @Composable
 internal fun ReviewSettingsScreen(
@@ -82,7 +82,7 @@ internal fun ReviewSettingsScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item {
-                SettingCard("复习计划", Icons.Outlined.CalendarMonth) {
+                TijiSettingGroup("复习计划", Icons.Outlined.CalendarMonth) {
                     Text(
                         "安排每天的复习数量和抽取方式。",
                         style = MaterialTheme.typography.bodySmall,
@@ -140,7 +140,7 @@ internal fun ReviewSettingsScreen(
                             val storageKey = "$selectedWeekday:$key"
                             val count = quotaTexts[storageKey]?.toIntOrNull()?.coerceAtLeast(0) ?: 0
                             val rowMax = maxOf(count, dailyReviewLimit - (allocatedForDay - count))
-                            ReviewAllocationRow(
+                            TijiStepper(
                                 label = key,
                                 count = count,
                                 maxCount = rowMax,

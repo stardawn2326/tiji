@@ -72,12 +72,12 @@ internal fun TijiNavGraph(
                     if (isSecondaryRoute(initialState.destination.route) || isSecondaryRoute(targetState.destination.route)) {
                         slideIntoContainer(
                             pageSlideDirection(initialState.destination.route, targetState.destination.route, popping = false),
-                            tween(220)
+                            tween(com.tiji.mistakes.ui.design.TijiMotion.Page)
                         )
                     } else {
                         slideIntoContainer(
                             pageSlideDirection(initialState.destination.route, targetState.destination.route, popping = false),
-                            tween(260)
+                            tween(com.tiji.mistakes.ui.design.TijiMotion.PrimaryTab)
                         )
                     }
                 },
@@ -85,12 +85,12 @@ internal fun TijiNavGraph(
                     if (isSecondaryRoute(initialState.destination.route) || isSecondaryRoute(targetState.destination.route)) {
                         slideOutOfContainer(
                             pageSlideDirection(initialState.destination.route, targetState.destination.route, popping = false),
-                            tween(220)
+                            tween(com.tiji.mistakes.ui.design.TijiMotion.Page)
                         )
                     } else {
                         slideOutOfContainer(
                             pageSlideDirection(initialState.destination.route, targetState.destination.route, popping = false),
-                            tween(260)
+                            tween(com.tiji.mistakes.ui.design.TijiMotion.PrimaryTab)
                         )
                     }
                 },
@@ -98,12 +98,12 @@ internal fun TijiNavGraph(
                     if (isSecondaryRoute(initialState.destination.route) || isSecondaryRoute(targetState.destination.route)) {
                         slideIntoContainer(
                             pageSlideDirection(initialState.destination.route, targetState.destination.route, popping = true),
-                            tween(220)
+                            tween(com.tiji.mistakes.ui.design.TijiMotion.Page)
                         )
                     } else {
                         slideIntoContainer(
                             pageSlideDirection(initialState.destination.route, targetState.destination.route, popping = true),
-                            tween(260)
+                            tween(com.tiji.mistakes.ui.design.TijiMotion.PrimaryTab)
                         )
                     }
                 },
@@ -111,12 +111,12 @@ internal fun TijiNavGraph(
                     if (isSecondaryRoute(initialState.destination.route) || isSecondaryRoute(targetState.destination.route)) {
                         slideOutOfContainer(
                             pageSlideDirection(initialState.destination.route, targetState.destination.route, popping = true),
-                            tween(220)
+                            tween(com.tiji.mistakes.ui.design.TijiMotion.Page)
                         )
                     } else {
                         slideOutOfContainer(
                             pageSlideDirection(initialState.destination.route, targetState.destination.route, popping = true),
-                            tween(260)
+                            tween(com.tiji.mistakes.ui.design.TijiMotion.PrimaryTab)
                         )
                     }
                 }

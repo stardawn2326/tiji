@@ -31,7 +31,7 @@ internal fun TijiButton(
     val pressed by interaction.collectIsPressedAsState()
     val pressedColor = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) Color(0xFF94A2FF) else Color(0xFF4054DC)
     Button(onClick, modifier.heightIn(min = 48.dp), enabled && !loading, shape,
-        if (pressed) colors.copy(containerColor = pressedColor) else colors,
+        if (pressed && colors.containerColor == MaterialTheme.colorScheme.primary) colors.copy(containerColor = pressedColor) else colors,
         elevation = ButtonDefaults.buttonElevation(0.dp, 0.dp),
         contentPadding = contentPadding, interactionSource = interaction) {
         if (loading) { CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = LocalContentColor.current); Spacer(Modifier.width(8.dp)) }

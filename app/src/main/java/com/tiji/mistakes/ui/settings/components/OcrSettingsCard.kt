@@ -1,4 +1,5 @@
 package com.tiji.mistakes.ui.settings.components
+import com.tiji.mistakes.ui.design.TijiSettingGroup
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -31,7 +32,7 @@ internal fun CombinedOcrSettingsCard(
     onUpdate: () -> Unit,
     onClear: () -> Unit
 ) {
-    SettingCard(
+    TijiSettingGroup(
         title = "OCR",
         icon = Icons.Outlined.Image,
         headerIcon = { OcrFrameBadgeIcon() },

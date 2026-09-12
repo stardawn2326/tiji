@@ -2,6 +2,7 @@
 
 package com.tiji.mistakes.ui.library
 
+import com.tiji.mistakes.ui.design.TijiMistakeCard
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import android.util.Log
@@ -71,7 +72,7 @@ import com.tiji.mistakes.domain.KnowledgePointInsight
 import com.tiji.mistakes.service.HtmlPdfExportService
 import com.tiji.mistakes.service.PdfExportOptions
 import com.tiji.mistakes.service.PdfTemplate
-import com.tiji.mistakes.ui.components.BatchBarAction
+import com.tiji.mistakes.ui.design.TijiContextAction
 import com.tiji.mistakes.ui.common.difficultyFilterLabel
 import com.tiji.mistakes.ui.common.discardPdfPreview
 import com.tiji.mistakes.ui.common.launchDurablePdfExport
@@ -461,41 +462,39 @@ internal fun LibraryScreen(
         },
         bottomBar = {
             if (selectionMode) {
-                TijiSurface(
-                    modifier = Modifier.fillMaxWidth().testTag("library_selection_action_bar"),
-                    color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 3.dp,
-                    shadowElevation = 2.dp
+                com.tiji.mistakes.ui.design.TijiBottomActionBar(
+                    modifier = Modifier.testTag("library_selection_action_bar")
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        BatchBarAction(
+                        TijiContextAction(
                             label = "开始复习",
                             enabled = selectedIds.isNotEmpty(),
                             modifier = Modifier.weight(1f).testTag("library_start_selected_review"),
                             onClick = ::startSelectedReview
                         )
-                        BatchBarAction(
+                        TijiContextAction(
                             label = "打印",
                             enabled = selectedIds.isNotEmpty(),
                             modifier = Modifier.weight(1f).testTag("library_print_selected"),
                             onClick = { openPdfOptions(selectedIds.toList()) }
                         )
-                        BatchBarAction(
+                        TijiContextAction(
                             label = "删除",
                             enabled = selectedIds.isNotEmpty(),
                             modifier = Modifier.weight(1f).testTag("library_delete_selected"),
                             onClick = { showBatchDeleteDialog = true }
                         )
-                    }
                 }
             }
         },
     ) { padding ->
-        Column(Modifier.padding(padding).padding(horizontal = TijiDimens.pagePadding, vertical = 20.dp).fillMaxSize()) {
+        LazyColumn(
+            state = mistakeListState,
+            modifier = Modifier.padding(padding).fillMaxSize().testTag("library_mistakes_list"),
+            contentPadding = PaddingValues(horizontal = TijiDimens.pagePadding, vertical = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+          item {
+           Column(Modifier.fillMaxWidth()) {
             TijiPageHeader(
                 title = "错题库",
                 subtitle = "按科目、状态和难度，找到下一道要解决的题。"
@@ -505,11 +504,6 @@ internal fun LibraryScreen(
                         TijiIconButton(onClick = onCreate) {
                             Icon(Icons.Outlined.AddAPhoto, contentDescription = "录入错题")
                         }
-                        TijiTextButton(
-                            onClick = onOpenKnowledge,
-                            modifier = Modifier.heightIn(min = 48.dp).testTag("library_open_knowledge"),
-                            contentPadding = PaddingValues(horizontal = 8.dp)
-                        ) { Text("知识点") }
                         TijiTextButton(
                             onClick = { selectionMode = true },
                             modifier = Modifier.heightIn(min = 48.dp),
@@ -568,6 +562,10 @@ internal fun LibraryScreen(
             }
             Spacer(Modifier.height(8.dp))
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                item {
+                    TijiChip(selected = false, onClick = onOpenKnowledge,
+                        label = { Text("知识点库") }, modifier = Modifier.testTag("library_open_knowledge"))
+                }
                 item {
                     Box {
                         TijiChip(
@@ -643,7 +641,10 @@ internal fun LibraryScreen(
                     }
                 }
             }
+           }
+          }
             if (visibleMistakes.isEmpty()) {
+              item {
                 val hasFilter = query.isNotBlank() || selectedSubject != null || selectedKnowledgePointStableId != null || masteryFilter != null || difficultyFilter != null || tagFilter != null
                 TijiPaperCard {
                     Column(
@@ -685,17 +686,12 @@ internal fun LibraryScreen(
                         }
                     }
                 }
-            } else LazyColumn(
-                state = mistakeListState,
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .testTag("library_mistakes_list"),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                contentPadding = PaddingValues(bottom = 90.dp)
-            ) {
+              }
+            } else {
                 items(displayedMistakes, key = { it.id }) { mistake ->
-                    ConceptMistakeCard(mistake, selected = mistake.id in selectedIds, selectionMode = selectionMode, onSelected = {
+                    TijiMistakeCard(mistake,
+                        knowledgeLabels = knowledgePoints.filter { point -> knowledgePointLinks.any { it.mistakeId == mistake.id && it.knowledgePointId == point.id } }.map { it.name },
+                        selected = mistake.id in selectedIds, selectionMode = selectionMode, onSelected = {
                         selectedIds = if (mistake.id in selectedIds) selectedIds - mistake.id else selectedIds + mistake.id
                     }) { if (selectionMode) { selectedIds = if (mistake.id in selectedIds) selectedIds - mistake.id else selectedIds + mistake.id } else onOpen(mistake.id) }
                 }

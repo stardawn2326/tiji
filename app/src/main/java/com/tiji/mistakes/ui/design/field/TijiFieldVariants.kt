@@ -28,3 +28,15 @@ internal fun TijiSearchField(value: String, onValueChange: (String) -> Unit, mod
     TijiTextField(value, onValueChange, modifier, label = { Text("搜索") }, placeholder = placeholder,
         singleLine = true, leadingIcon = { Icon(Icons.Outlined.Search, null) })
 }
+
+@Composable
+internal fun TijiMultilineField(value: String, onValueChange: (String) -> Unit, modifier: Modifier = Modifier,
+    label: (@Composable () -> Unit)? = null, placeholder: (@Composable () -> Unit)? = null,
+    textStyle: androidx.compose.ui.text.TextStyle = MaterialTheme.typography.bodyLarge,
+    enabled: Boolean = true, readOnly: Boolean = false, isError: Boolean = false,
+    minLines: Int = 2, maxLines: Int = Int.MAX_VALUE,
+    supportingText: (@Composable () -> Unit)? = null) {
+    TijiTextField(value, onValueChange, modifier, enabled = enabled, readOnly = readOnly,
+        textStyle = textStyle, label = label, placeholder = placeholder, isError = isError,
+        minLines = minLines, maxLines = maxLines, supportingText = supportingText)
+}

@@ -1,6 +1,6 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 
-package com.tiji.mistakes.ui.library
+package com.tiji.mistakes.ui.design
 
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
@@ -28,7 +28,7 @@ import com.tiji.mistakes.ui.design.TijiStatusBadge
 import com.tiji.mistakes.ui.design.TijiPaperCard
 
 @Composable
-internal fun ConceptMistakeCard(
+internal fun TijiMistakeCard(
     mistake: MistakeEntity,
     selected: Boolean = false,
     selectionMode: Boolean = false,

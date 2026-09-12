@@ -1,4 +1,4 @@
-package com.tiji.mistakes.ui.review.components
+package com.tiji.mistakes.ui.design
 
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.clickable
@@ -34,7 +34,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
 @Composable
-internal fun ReviewAllocationRow(label: String, count: Int, maxCount: Int, onCountChange: (Int) -> Unit) {
+internal fun TijiStepper(label: String, count: Int, maxCount: Int, onCountChange: (Int) -> Unit) {
     var showCountEditor by remember(label) { mutableStateOf(false) }
     var countDraft by remember(label, count) { mutableStateOf(count.toString()) }
     TijiCard(
@@ -43,25 +43,15 @@ internal fun ReviewAllocationRow(label: String, count: Int, maxCount: Int, onCou
     ) {
         Column(Modifier.padding(horizontal = 10.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                Text(label.ifBlank { "未分类" }, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold)
+                Text(label.ifBlank { "未分类" }, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
                 TijiSecondaryButton(
                     onClick = { onCountChange(count - 1) },
                     enabled = count > 0,
                     contentPadding = PaddingValues(horizontal = 7.dp, vertical = 0.dp),
                     modifier = Modifier.heightIn(min = 48.dp)
                 ) { Icon(Icons.Outlined.Remove, contentDescription = "减少") }
-                Text(
-                    count.toString(),
-                    modifier = Modifier
-                        .clickable {
-                            countDraft = count.toString()
-                            showCountEditor = true
-                        }
-                        .padding(horizontal = 8.dp),
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
+                TijiTextButton(onClick = { countDraft = count.toString(); showCountEditor = true },
+                    contentPadding = PaddingValues(8.dp)) { Text(count.toString()) }
                 TijiSecondaryButton(
                     onClick = { onCountChange(count + 1) },
                     enabled = count < maxCount,

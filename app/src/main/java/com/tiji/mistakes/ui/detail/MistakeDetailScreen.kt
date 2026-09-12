@@ -269,7 +269,7 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                     ReviewGrade.values().forEach { grade ->
                         TijiSecondaryButton(
                             onClick = {
-                                if (reviewSubmitting) return@OutlinedButton
+                                if (reviewSubmitting) return@TijiSecondaryButton
                                 reviewSubmitting = true
                                 showReviewCheckIn = false
                                 val reviewJob = viewModel.review(current, grade) { record ->
@@ -439,11 +439,7 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
     TijiScreen(
         bottomBar = {
             if (editing) {
-                TijiSurface(color = MaterialTheme.colorScheme.surface, tonalElevation = 1.dp) {
-                    Row(
-                        Modifier.navigationBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
+                com.tiji.mistakes.ui.design.TijiBottomActionBar {
                         TijiButton(
                             onClick = {
                                 viewModel.save(current.copy(title = normalizeAsciiPunctuation(title), questionText = normalizeAsciiPunctuation(question), userAnswer = normalizeAsciiPunctuation(userAnswer), answerText = normalizeAsciiPunctuation(answer), explanation = normalizeAsciiPunctuation(explanation), note = normalizeAsciiPunctuation(note), errorReason = normalizeAsciiPunctuation(errorReason), subject = normalizeAsciiPunctuation(subject), questionType = normalizeAsciiPunctuation(questionType), tags = normalizeAsciiPunctuation(tags), difficulty = difficulty, includeSourceImageInPdf = current.includeSourceImageInPdf, imagePath = questionImage, sourceImagePaths = org.json.JSONArray(originalQuestionImages).toString(), contentBlocks = QuestionContentBlockCodec.encode(detailContentBlocks), answerImagePath = answerImage, explanationImagePath = explanationImage))
@@ -452,7 +448,6 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                             },
                             modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("detail_edit_save_bar")
                         ) { Text("保存修改") }
-                    }
                 }
             }
         },

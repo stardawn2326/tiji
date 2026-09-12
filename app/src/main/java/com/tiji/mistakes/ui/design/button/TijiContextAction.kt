@@ -1,4 +1,4 @@
-package com.tiji.mistakes.ui.components
+package com.tiji.mistakes.ui.design
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -15,26 +15,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
 @Composable
-internal fun BatchBarAction(
+internal fun TijiContextAction(
     label: String,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     onClick: () -> Unit
 ) {
-    Box(
-        modifier = modifier
-            .height(48.dp)
-            .clip(TijiShapes.S)
-            .clickable(enabled = enabled, onClick = onClick),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            label,
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
+    TijiTextButton(onClick, modifier, enabled) {
+        Text(label, color = if (!enabled) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+            else if (label == "删除") MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.primary)
     }
 }

@@ -55,7 +55,7 @@ internal fun CaptureFields(
                 modifier = Modifier.fillMaxWidth()
             )
             FormulaPreview(title)
-            TijiTextField(
+            com.tiji.mistakes.ui.design.TijiMultilineField(
                 userAnswer,
                 onUserAnswer,
                 label = { Text("我的答案（选填）") },
@@ -63,7 +63,7 @@ internal fun CaptureFields(
                 modifier = Modifier.fillMaxWidth()
             )
             ErrorReasonPicker(errorReason, onErrorReason)
-            TijiTextField(note, onNote, label = { Text("我的总结") }, minLines = 2, modifier = Modifier.fillMaxWidth())
+            com.tiji.mistakes.ui.design.TijiMultilineField(note, onNote, label = { Text("我的总结") }, minLines = 2, modifier = Modifier.fillMaxWidth())
         }
     }
 }

@@ -639,7 +639,7 @@ internal fun AiSolveScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    TijiTextField(
+                    com.tiji.mistakes.ui.design.TijiMultilineField(
                         value = recognitionEditDraft,
                         onValueChange = { recognitionEditDraft = it },
                         label = { Text("修正后的完整题目") },
@@ -798,7 +798,7 @@ internal fun AiSolveScreen(
                     Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    TijiTextField(
+                    com.tiji.mistakes.ui.design.TijiMultilineField(
                         value = followUpDraft,
                         onValueChange = { followUpDraft = it },
                         label = { Text("输入你的追问") },
@@ -854,9 +854,9 @@ internal fun AiSolveScreen(
             )
         },
         bottomBar = {
-            if (hasSolution) TijiSurface(color = MaterialTheme.colorScheme.surface, tonalElevation = 1.dp) {
-                Column(Modifier.imePadding().padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (hasSolution) com.tiji.mistakes.ui.design.TijiBottomActionBar(
+                supportingText = { if (savedMessage.isNotBlank()) Text(savedMessage, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
+            ) {
                         TijiSecondaryButton(
                             onClick = { showFollowUpDialog = true },
                             enabled = !followUpLoading,
@@ -868,9 +868,6 @@ internal fun AiSolveScreen(
                             modifier = Modifier.weight(1.4f).heightIn(min = 50.dp)) {
                             Text(if (savedCurrent) "已保存到错题库" else if (aiMistakeSaveState.running) "正在保存…" else "保存为错题")
                         }
-                    }
-                    if (savedMessage.isNotBlank()) Text(savedMessage, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-                }
             }
         }
     ) { padding ->
@@ -980,7 +977,7 @@ internal fun AiSolveScreen(
                             }, modifier = Modifier.weight(1f)) { Icon(Icons.Outlined.CameraAlt, contentDescription = null); Spacer(Modifier.size(5.dp)); Text("拍照") }
                         }
                     }
-                    TijiTextField(questionDraft, { questionDraft = it }, label = { Text("补充或输入题目文字") }, minLines = 2, maxLines = 4, modifier = Modifier.fillMaxWidth().heightIn(max = 132.dp))
+                    com.tiji.mistakes.ui.design.TijiMultilineField(questionDraft, { questionDraft = it }, label = { Text("补充或输入题目文字") }, minLines = 2, maxLines = 4, modifier = Modifier.fillMaxWidth())
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                         TijiButton(enabled = !isLoading, onClick = { if (aiUploadConsent) runSolve() else showPrivacyDialog = true }, modifier = Modifier.weight(1f)) {
                             Icon(Icons.Outlined.AutoAwesome, contentDescription = null); Spacer(Modifier.size(6.dp))

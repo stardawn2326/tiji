@@ -81,7 +81,7 @@ import com.tiji.mistakes.ui.common.reviewDateKey
 import com.tiji.mistakes.ui.common.reviewStatusLabel
 import com.tiji.mistakes.ui.design.TijiSectionHeader
 import com.tiji.mistakes.ui.design.TijiTag
-import com.tiji.mistakes.ui.library.ConceptMistakeCard
+import com.tiji.mistakes.ui.design.TijiMistakeCard
 import com.tiji.mistakes.ui.math.MathText
 import com.tiji.mistakes.ui.MistakeViewModel
 import com.tiji.mistakes.ui.math.normalizeAsciiPunctuation
@@ -193,14 +193,14 @@ internal fun ReviewCalendarScreen(
                         Row(Modifier.fillMaxWidth()) {
                             (week + List(7 - week.size) { 0 }).forEach { day ->
                                 if (day == 0) {
-                                    Spacer(Modifier.weight(1f).height(54.dp))
+                                    Spacer(Modifier.weight(1f).heightIn(min = 54.dp))
                                 } else {
                                     val dayCalendar = (month.clone() as Calendar).apply { set(Calendar.DAY_OF_MONTH, day) }
                                     val key = reviewDateKey(dayCalendar.timeInMillis)
                                     val checked = key in checkedInDates
                                     val recorded = reviewRecords[key].orEmpty().isNotEmpty()
                                     Column(
-                                        Modifier.weight(1f).height(54.dp).clip(TijiShapes.S).clickable { selectedDate = key }.padding(4.dp),
+                                        Modifier.weight(1f).heightIn(min = 54.dp).clip(TijiShapes.S).clickable { selectedDate = key }.padding(4.dp),
                                         horizontalAlignment = Alignment.CenterHorizontally,
                                         verticalArrangement = Arrangement.spacedBy(2.dp)
                                     ) {

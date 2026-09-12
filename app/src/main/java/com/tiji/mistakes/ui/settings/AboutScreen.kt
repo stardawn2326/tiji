@@ -16,7 +16,7 @@ import com.tiji.mistakes.BuildConfig
 import com.tiji.mistakes.ui.design.TijiPageHeader
 import com.tiji.mistakes.ui.design.TijiDimens
 import com.tiji.mistakes.ui.design.TijiPaperCard
-import com.tiji.mistakes.ui.settings.components.SettingCard
+import com.tiji.mistakes.ui.design.TijiSettingGroup
 
 @Composable
 internal fun AboutScreen(onBack: () -> Unit) {
@@ -30,7 +30,7 @@ internal fun AboutScreen(onBack: () -> Unit) {
                 TijiPageHeader("题迹", "把错题留下，把复习做成真正会做。")
             }
             item {
-                SettingCard("版本", Icons.Outlined.Lightbulb) {
+                TijiSettingGroup("版本", Icons.Outlined.Lightbulb) {
                     Text("v${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.titleMedium)
                     Text(
                         "本地优先：错题、复习计划和导出数据默认保存在本机。",

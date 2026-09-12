@@ -38,7 +38,7 @@ import com.tiji.mistakes.data.AiVisualProfile
 import com.tiji.mistakes.service.AiProviderPreset
 import com.tiji.mistakes.service.AiVisionService
 import com.tiji.mistakes.service.SecureKeyStore
-import com.tiji.mistakes.ui.settings.components.SettingCard
+import com.tiji.mistakes.ui.design.TijiSettingGroup
 import java.util.UUID
 import kotlinx.coroutines.launch
 
@@ -95,7 +95,7 @@ internal fun VisualAssistConfigScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             item {
-                SettingCard("视觉服务商", Icons.Outlined.Image) {
+                TijiSettingGroup("视觉服务商", Icons.Outlined.Image) {
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(visualPresets) { value ->
                             TijiChip(

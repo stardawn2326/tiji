@@ -23,7 +23,8 @@ internal fun TijiDialog(onDismissRequest: () -> Unit, confirmButton: @Composable
     modifier: Modifier = Modifier, dismissButton: (@Composable () -> Unit)? = null,
     icon: (@Composable () -> Unit)? = null, title: (@Composable () -> Unit)? = null,
     text: (@Composable () -> Unit)? = null, properties: DialogProperties = DialogProperties()) {
-    AlertDialog(onDismissRequest, confirmButton, modifier, dismissButton, icon, title, text,
+    AlertDialog(onDismissRequest, confirmButton, modifier, dismissButton, icon, title,
+        text?.let { body -> { Column(Modifier.verticalScroll(rememberScrollState())) { body() } } },
         shape = TijiShapes.XL, containerColor = MaterialTheme.colorScheme.surface,
         titleContentColor = MaterialTheme.colorScheme.onSurface,
         textContentColor = MaterialTheme.colorScheme.onSurfaceVariant, tonalElevation = 6.dp, properties = properties)

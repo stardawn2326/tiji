@@ -5,6 +5,7 @@ package com.tiji.mistakes.ui
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.Icons
@@ -258,7 +259,7 @@ fun TijiApp() {
         ) { padding ->
             TijiNavGraph(
                 navController = navController,
-                modifier = Modifier.padding(padding),
+                modifier = Modifier.padding(padding).consumeWindowInsets(padding),
                 viewModel = viewModel,
                 preferences = preferences,
                 scope = scope,

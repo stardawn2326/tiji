@@ -605,11 +605,7 @@ internal fun NewCaptureScreen(
 
     TijiScreen(
         bottomBar = {
-            TijiSurface(color = MaterialTheme.colorScheme.surface, tonalElevation = 1.dp) {
-                Column(
-                    Modifier.imePadding().padding(horizontal = 16.dp, vertical = 10.dp),
-                    verticalArrangement = Arrangement.spacedBy(0.dp)
-                ) {
+            com.tiji.mistakes.ui.design.TijiBottomActionBar {
                     TijiButton(
                         enabled = !saving && !aiRecognitionState.running && (mode == EntryMode.MANUAL && question.isNotBlank() ||
                             (mode == EntryMode.PHOTO && photoQuestionImage != null) ||
@@ -618,7 +614,6 @@ internal fun NewCaptureScreen(
                         shape = TijiShapes.M,
                         modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
                     ) { Text(if (aiRecognitionState.running) "正在识别…" else if (saving) "正在保存…" else "保存错题") }
-                }
             }
         },
         topBar = {
@@ -651,18 +646,16 @@ internal fun NewCaptureScreen(
                 start = TijiDimens.pagePadding,
                 top = 20.dp,
                 end = TijiDimens.pagePadding,
-                bottom = 112.dp
+                bottom = 24.dp
             ),
             verticalArrangement = Arrangement.spacedBy(TijiDimens.sectionGap)
         ) {
             item {
-                TijiPaperCard {
-                    EntryModeSegmented(
-                        selected = mode,
-                        enabled = !saving && !aiRecognitionState.running,
-                        onSelected = ::requestModeSwitch
-                    )
-                }
+                EntryModeSegmented(
+                    selected = mode,
+                    enabled = !saving && !aiRecognitionState.running,
+                    onSelected = ::requestModeSwitch
+                )
             }
             if (mode != EntryMode.AI && captureMessage.isNotBlank()) {
                 item { TijiTag(captureMessage, containerColor = MaterialTheme.colorScheme.primaryContainer) }

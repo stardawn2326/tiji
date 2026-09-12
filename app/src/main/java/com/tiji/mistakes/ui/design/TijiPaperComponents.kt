@@ -39,15 +39,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.heading
-
-internal object TijiDimens {
-    val pagePadding = 16.dp
-    val sectionGap = 20.dp
-    val cardGap = 12.dp
-    val cardPadding = 16.dp
-    val controlGap = 8.dp
-    val cardRadius = 12.dp
-}
+import androidx.compose.ui.semantics.selected
 
 @Composable
 internal fun TijiPageHeader(
@@ -118,7 +110,7 @@ internal fun TijiTag(
         modifier = modifier,
         color = containerColor,
         contentColor = contentColor,
-        shape = RoundedCornerShape(999.dp)
+        shape = TijiShapes.Pill
     ) {
         Text(
             text,
@@ -139,7 +131,7 @@ internal fun TijiDropZone(
     compact: Boolean = false,
     actions: (@Composable RowScope.() -> Unit)? = null
 ) {
-    val shape = RoundedCornerShape(16.dp)
+    val shape = TijiShapes.L
     val borderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.56f)
     val contentPadding = if (compact) 12.dp else 18.dp
     val iconPadding = if (compact) 8.dp else 10.dp
@@ -170,7 +162,7 @@ internal fun TijiDropZone(
             Surface(
                 color = MaterialTheme.colorScheme.primaryContainer,
                 contentColor = MaterialTheme.colorScheme.primary,
-                shape = RoundedCornerShape(12.dp)
+                shape = TijiShapes.M
             ) {
                 Icon(icon, contentDescription = null, modifier = Modifier.padding(iconPadding).size(iconSize))
             }
@@ -203,7 +195,7 @@ internal fun TijiPaperCard(
 ) {
     val borderColor = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
     val borderWidth = if (selected) 1.5.dp else 1.dp
-    val cardModifier = modifier.fillMaxWidth()
+    val cardModifier = modifier.fillMaxWidth().semantics { this.selected = selected }
     val cardContent: @Composable ColumnScope.() -> Unit = {
         Column(
             modifier = Modifier
@@ -219,7 +211,7 @@ internal fun TijiPaperCard(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             border = BorderStroke(borderWidth, borderColor),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-            shape = RoundedCornerShape(TijiDimens.cardRadius),
+            shape = TijiShapes.M,
             modifier = cardModifier,
             content = cardContent
         )
@@ -229,7 +221,7 @@ internal fun TijiPaperCard(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             border = BorderStroke(borderWidth, borderColor),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-            shape = RoundedCornerShape(TijiDimens.cardRadius),
+            shape = TijiShapes.M,
             modifier = cardModifier,
             content = cardContent
         )
@@ -252,7 +244,7 @@ internal fun TijiStatusBadge(
         modifier = modifier,
         color = visual.color.copy(alpha = 0.12f),
         contentColor = visual.color,
-        shape = RoundedCornerShape(999.dp)
+        shape = TijiShapes.Pill
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),

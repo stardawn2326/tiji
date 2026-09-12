@@ -43,7 +43,7 @@ import com.tiji.mistakes.service.BackupPreview
 import com.tiji.mistakes.service.BackupService
 import com.tiji.mistakes.ui.design.TijiDimens
 import com.tiji.mistakes.ui.common.reviewDateKey
-import com.tiji.mistakes.ui.settings.components.SettingCard
+import com.tiji.mistakes.ui.design.TijiSettingGroup
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
@@ -216,7 +216,7 @@ internal fun DataSettingsScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item {
-                SettingCard("备份与恢复", Icons.Outlined.FolderOpen) {
+                TijiSettingGroup("备份与恢复", Icons.Outlined.FolderOpen) {
                     Text(
                         "可供各版本读取：包含错题、图片、复习计划以及每日掌握记录，不包含 API Key。",
                         style = MaterialTheme.typography.bodySmall,
@@ -262,7 +262,7 @@ internal fun DataSettingsScreen(
                 }
             }
             item {
-                SettingCard("PDF 导出", Icons.Outlined.PictureAsPdf) {
+                TijiSettingGroup("PDF 导出", Icons.Outlined.PictureAsPdf) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.fillMaxWidth()

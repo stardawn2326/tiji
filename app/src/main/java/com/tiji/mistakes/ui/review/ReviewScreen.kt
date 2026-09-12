@@ -81,7 +81,7 @@ import com.tiji.mistakes.ui.common.reviewDateKey
 import com.tiji.mistakes.ui.common.reviewStatusLabel
 import com.tiji.mistakes.ui.design.TijiSectionHeader
 import com.tiji.mistakes.ui.design.TijiTag
-import com.tiji.mistakes.ui.library.ConceptMistakeCard
+import com.tiji.mistakes.ui.design.TijiMistakeCard
 import com.tiji.mistakes.ui.math.MathText
 import com.tiji.mistakes.ui.MistakeViewModel
 import com.tiji.mistakes.ui.math.normalizeAsciiPunctuation

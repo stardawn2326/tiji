@@ -73,7 +73,7 @@ internal fun MistakeFields(
                 FormulaPreview(title)
             }
         }
-        TijiTextField(
+        com.tiji.mistakes.ui.design.TijiMultilineField(
             question,
             onQuestion,
             label = { Text("题目") },
@@ -88,7 +88,7 @@ internal fun MistakeFields(
             )
         }
         if (showOptionalFields) {
-            TijiTextField(
+            com.tiji.mistakes.ui.design.TijiMultilineField(
                 userAnswer,
                 onUserAnswer,
                 label = { Text("我的答案（选填）") },
@@ -97,7 +97,7 @@ internal fun MistakeFields(
                 modifier = Modifier.fillMaxWidth()
             )
         }
-        TijiTextField(
+        com.tiji.mistakes.ui.design.TijiMultilineField(
             answer,
             onAnswer,
             label = { Text("正确答案") },
@@ -105,7 +105,7 @@ internal fun MistakeFields(
             minLines = 2,
             modifier = Modifier.fillMaxWidth()
         )
-        TijiTextField(
+        com.tiji.mistakes.ui.design.TijiMultilineField(
             explanation,
             onExplanation,
             label = { Text("解析") },
@@ -121,7 +121,7 @@ internal fun MistakeFields(
             FormulaPreview(explanation, normalizeTerminalPeriod = true)
         }
         if (showOptionalFields) {
-            TijiTextField(
+            com.tiji.mistakes.ui.design.TijiMultilineField(
                 note,
                 onNote,
                 label = { Text("我的总结") },

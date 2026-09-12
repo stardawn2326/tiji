@@ -200,7 +200,7 @@ internal fun StandaloneImageEditor(
             processing = false
         }
     }
-    TijiScreen(topBar={TijiTopBar(title={Text("处理$title")},navigationIcon={TijiIconButton(onClick={ onDiscard(history); onCancel() }){Icon(Icons.AutoMirrored.Outlined.ArrowBack,null)}})}) { padding ->
+    TijiScreen(topBar={TijiTopBar(title={Text("处理$title")},navigationIcon={TijiIconButton(onClick={ onDiscard(history); onCancel() }){Icon(Icons.AutoMirrored.Outlined.ArrowBack,"取消图片处理")}})}) { padding ->
         Column(
             Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)
                 .navigationBarsPadding(),
@@ -219,7 +219,7 @@ internal fun StandaloneImageEditor(
                 val handleColor = MaterialTheme.colorScheme.primary
                 val latestCropSelection = rememberUpdatedState(cropSelection)
                 Box(Modifier.fillMaxSize()) {
-                    AsyncImage(path, null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+                    com.tiji.mistakes.ui.design.TijiImage(path, "正在编辑的图片", Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
                     Canvas(
                         Modifier.fillMaxSize().pointerInput(imageWidth, imageHeight) {
                             var mode = CropDragMode.MOVE
@@ -332,7 +332,7 @@ internal fun StandaloneImageEditor(
             TijiButton(enabled = !processing, onClick = ::confirmProcessedImage, modifier=Modifier.fillMaxWidth()) {
                 Text(if (processing) "正在保存…" else "确认使用")
             }
-            Spacer(Modifier.height(88.dp))
+            Spacer(Modifier.height(16.dp))
         }
     }
 }

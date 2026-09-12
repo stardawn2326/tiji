@@ -18,7 +18,7 @@ import androidx.compose.ui.unit.dp
 import com.tiji.mistakes.ui.ThemeMode
 import com.tiji.mistakes.ui.ThemePalette
 import com.tiji.mistakes.ui.design.TijiDimens
-import com.tiji.mistakes.ui.settings.components.SettingCard
+import com.tiji.mistakes.ui.design.TijiSettingGroup
 
 @Composable
 internal fun AppearanceSettingsScreen(
@@ -35,7 +35,7 @@ internal fun AppearanceSettingsScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item {
-                SettingCard("显示模式", Icons.Outlined.Style) {
+                TijiSettingGroup("显示模式", Icons.Outlined.Style) {
                     Text("选择题迹在本机上的显示方式。")
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                         items(ThemeMode.entries) { value ->
@@ -49,7 +49,7 @@ internal fun AppearanceSettingsScreen(
                 }
             }
             item {
-                SettingCard("主题色", Icons.Outlined.Style) {
+                TijiSettingGroup("主题色", Icons.Outlined.Style) {
                     Text("用于按钮、选中状态和学习提示的强调色。")
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                         items(ThemePalette.entries) { value ->

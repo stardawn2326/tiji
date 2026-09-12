@@ -45,7 +45,7 @@ import com.tiji.mistakes.service.OcrModelManager
 import com.tiji.mistakes.service.SecureKeyStore
 import com.tiji.mistakes.ui.design.TijiDimens
 import com.tiji.mistakes.ui.settings.components.CombinedOcrSettingsCard
-import com.tiji.mistakes.ui.settings.components.SettingCard
+import com.tiji.mistakes.ui.design.TijiSettingGroup
 import java.util.UUID
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
@@ -97,7 +97,7 @@ internal fun AiSettingsScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item {
-                SettingCard("AI 模型配置", Icons.Outlined.AutoAwesome) {
+                TijiSettingGroup("AI 模型配置", Icons.Outlined.AutoAwesome) {
                     Text(
                         "按需配置，未配置时核心功能完全离线。每套配置独立保存服务商、模型和本机密钥。",
                         style = MaterialTheme.typography.bodySmall,
@@ -305,7 +305,7 @@ internal fun AiSettingsScreen(
                 )
             }
             item {
-                SettingCard("视觉输入说明", Icons.Outlined.Image) {
+                TijiSettingGroup("视觉输入说明", Icons.Outlined.Image) {
                     Text(
                         "视觉辅助配置独立绑定到当前文本 Profile，可在此进入管理；图片输入测试和 OCR 模型状态也不会改变文本模型设置。",
                         style = MaterialTheme.typography.bodySmall,

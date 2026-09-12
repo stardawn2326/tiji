@@ -32,15 +32,27 @@ internal fun TijiScreen(modifier: Modifier = Modifier, topBar: @Composable () ->
 internal fun TijiTopBar(title: @Composable () -> Unit, modifier: Modifier = Modifier,
     navigationIcon: @Composable () -> Unit = {}, actions: @Composable RowScope.() -> Unit = {},
     colors: TopAppBarColors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)) {
-    TopAppBar(title = { ProvideTextStyle(MaterialTheme.typography.headlineMedium, title) },
-        modifier = modifier, navigationIcon = navigationIcon, actions = actions, colors = colors)
+    Surface(color = colors.containerColor) {
+        Row(modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.statusBars)
+            .heightIn(min = 64.dp).padding(horizontal = 4.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            navigationIcon()
+            Box(Modifier.weight(1f).padding(horizontal = 12.dp).semantics { heading() }) {
+                ProvideTextStyle(MaterialTheme.typography.headlineMedium, title)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, content = actions)
+        }
+    }
 }
 @Composable
-internal fun TijiBottomActionBar(modifier: Modifier = Modifier, content: @Composable RowScope.() -> Unit) {
+internal fun TijiBottomActionBar(modifier: Modifier = Modifier, supportingText: @Composable () -> Unit = {}, content: @Composable RowScope.() -> Unit) {
     Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
-        Row(modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(12.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically,
-            content = content)
+        Column(modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically, content = content)
+            supportingText()
+        }
     }
 }

@@ -1,4 +1,4 @@
-package com.tiji.mistakes.ui.settings.components
+package com.tiji.mistakes.ui.design
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.HorizontalDivider
@@ -19,7 +19,7 @@ import com.tiji.mistakes.ui.design.TijiPaperCard
 import com.tiji.mistakes.ui.math.normalizeAsciiPunctuation
 
 @Composable
-internal fun SettingCard(
+internal fun TijiSettingGroup(
     title: String,
     icon: ImageVector,
     headerIcon: (@Composable () -> Unit)? = null,
