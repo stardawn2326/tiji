@@ -9,7 +9,7 @@
 - 本轮只处理验收方案列出的复习提交竞态、详情页重复打卡、AI 检查状态语义和 PDF 字段语义。
 - 未重新安装 Android 系统，未创建新的 AVD，也未修改现有模拟器配置。
 - 只提交源码、测试和本变更详情文档；Gradle 生成的 APK、报告和缓存不提交到 GitHub。
-- 真实 AI provider smoke test、长图 PDF 的人工视觉验收和 connected instrumentation test 需要外部凭据或在线设备，本轮不伪造结果。
+- 真实 AI provider smoke test 已使用用户在模拟器中保存的 DeepSeek 配置执行并记录；长图 PDF 的人工视觉验收仍需专用长图样本，connected instrumentation 仍以 CI 结果为准。
 
 ## 具体改动
 
@@ -66,6 +66,17 @@
 - 复习自动流转、重建恢复、详情页打卡、PDF 练习/答案边界等现有测试与 v1.4G 交互保持一致。
 - 本文件记录本轮 RC 的实现边界和真实验证结果；v1.4G 的完整改动仍见 [`Tiji_最终验收后收口改动详情-2026-09-12.md`](Tiji_最终验收后收口改动详情-2026-09-12.md)。
 
+### 6. 最终验收补充：真实 Provider 与模拟器链路
+
+本节记录 2026-09-12 在现有 `Tiji_API_35` 模拟器上的实际验收，不包含 API Key 或其他敏感配置值。
+
+- 模拟器：`Tiji_API_35`，设备序列号 `emulator-5554`，API 35；安装并启动 `app/build/outputs/apk/debug/tiji-v1.0.0-debug.apk`。
+- 五个底部导航入口均作为一级页面可达：`首页`、`错题`、`AI解题`、`复习`、`设置`。
+- 离线链路通过：开启飞行模式并关闭 Wi-Fi/移动数据后，应用仍可启动；手动录入、保存到错题库、列表、详情、复习打卡和今日复习均可完成。
+- PDF 链路通过：在离线状态生成练习版 PDF，预览、Android 文件保存和系统打印预览均可打开；随后删除本轮生成的临时 PDF。
+- 真实 AI Provider Smoke Test 通过：默认配置显示模型 `deepseek-v4-flash-vision-exp`，以无图片文本题执行一次解题请求；日志记录 `provider=DEEPSEEK`、`images=0`、响应成功，界面显示“解题完成”和“一致性检查通过”。本次测试请求未保存为错题，临时验收错题已删除，错题库恢复为 0 道。
+- 恢复网络后再次确认模拟器在线；未重装 Android 系统，也未创建第二个 AVD。
+
 ## 验证记录
 
 执行环境：项目指定 JDK 17（`D:\android\jdk17`）、Gradle 8.9、项目 SDK（`D:\android\sdk`）。
@@ -78,9 +89,11 @@
 | `:app:assembleDebug` | 通过；本地 APK 为 `app/build/outputs/apk/debug/tiji-v1.0.0-debug.apk`，未提交 |
 | `:app:lintDebug` | 通过；0 个错误、5 个既有警告 |
 | `:app:testDebugUnitTest` | 未通过；34 个测试均在初始化阶段报 `ClassNotFoundException`，报告未出现本轮新增断言失败 |
-| `adb devices -l` | 未执行 connected test；项目 SDK 的 adb 返回设备列表为空 |
-| 真实 AI provider smoke test | 未执行；未提供真实 API 凭据 |
-| 长图 PDF 人工视觉验收 | 未执行；需要在线设备或可视化验收环境 |
+| `adb devices -l` | 通过；`emulator-5554`（`Tiji_API_35`）在线 |
+| 模拟器手工 UI smoke test | 通过；五个一级页面、离线录入/复习/列表/详情链路通过 |
+| PDF 预览、保存与系统打印预览 | 通过；完成 1 页练习版 PDF 的实际链路并清理临时文件 |
+| 真实 AI provider smoke test | 通过；DeepSeek `deepseek-v4-flash-vision-exp` 文本请求成功返回并展示结果 |
+| 长图 PDF 人工视觉验收 | 未完成；本轮验证了 1 页 PDF 链路，尚未覆盖方案要求的长图尺寸、跨页几何一致性和手写内容样本 |
 
 ## GitHub 交付
 
