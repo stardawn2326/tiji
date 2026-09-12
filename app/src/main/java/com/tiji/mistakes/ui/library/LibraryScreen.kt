@@ -27,7 +27,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AddAPhoto
-import androidx.compose.material.icons.outlined.Print
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
@@ -426,50 +426,73 @@ internal fun LibraryScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             if (selectionMode) TopAppBar(
+                navigationIcon = {
+                    IconButton(
+                        onClick = { selectionMode = false; selectedIds = emptySet() },
+                        modifier = Modifier.testTag("library_exit_selection")
+                    ) {
+                        Icon(Icons.Outlined.Close, contentDescription = "退出批量选择")
+                    }
+                },
                 title = {
+                    Text(
+                        "已选择 ${selectedIds.size} 道",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1
+                    )
+                },
+                actions = {
+                    TextButton(
+                        onClick = {
+                            selectedIds = if (selectedIds.size == visibleMistakes.size) {
+                                emptySet()
+                            } else {
+                                visibleMistakes.map { it.id }.toSet()
+                            }
+                        },
+                        enabled = visibleMistakes.isNotEmpty(),
+                        modifier = Modifier.heightIn(min = 48.dp).testTag("library_select_all"),
+                        contentPadding = PaddingValues(horizontal = 12.dp)
+                    ) { Text("全选") }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+            )
+        },
+        bottomBar = {
+            if (selectionMode) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth().testTag("library_selection_action_bar"),
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 3.dp,
+                    shadowElevation = 2.dp
+                ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(end = 8.dp),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            "已选${selectedIds.size}道",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            modifier = Modifier.weight(0.85f)
-                        )
-                        BatchBarAction(
-                            label = "全选",
-                            modifier = Modifier.weight(0.65f),
-                            onClick = { selectedIds = if (selectedIds.size == visibleMistakes.size) emptySet() else visibleMistakes.map { it.id }.toSet() }
-                        )
                         BatchBarAction(
                             label = "开始复习",
                             enabled = selectedIds.isNotEmpty(),
-                            modifier = Modifier.weight(0.9f).testTag("library_start_selected_review"),
+                            modifier = Modifier.weight(1f).testTag("library_start_selected_review"),
                             onClick = ::startSelectedReview
                         )
                         BatchBarAction(
-                            label = "打印 / PDF",
+                            label = "打印",
                             enabled = selectedIds.isNotEmpty(),
-                            modifier = Modifier.weight(0.9f),
+                            modifier = Modifier.weight(1f).testTag("library_print_selected"),
                             onClick = { openPdfOptions(selectedIds.toList()) }
                         )
                         BatchBarAction(
                             label = "删除",
                             enabled = selectedIds.isNotEmpty(),
-                            modifier = Modifier.weight(0.65f),
+                            modifier = Modifier.weight(1f).testTag("library_delete_selected"),
                             onClick = { showBatchDeleteDialog = true }
                         )
-                        BatchBarAction(
-                            label = "完成",
-                            modifier = Modifier.weight(0.65f),
-                            onClick = { selectionMode = false; selectedIds = emptySet() }
-                        )
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-            )
+                }
+            }
         },
     ) { padding ->
         Column(Modifier.padding(padding).padding(horizontal = TijiDimens.pagePadding, vertical = 20.dp).fillMaxSize()) {
@@ -617,18 +640,6 @@ internal fun LibraryScreen(
                     Text("${visibleMistakes.size} 道错题", style = MaterialTheme.typography.titleSmall)
                     if (selectedSubject != null) {
                         Text("当前：$selectedSubject", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-                if (!selectionMode) {
-                    OutlinedButton(
-                        onClick = { openPdfOptions(visibleMistakes.map { it.id }) },
-                        enabled = visibleMistakes.isNotEmpty(),
-                        modifier = Modifier.heightIn(min = 44.dp).testTag("library_print_filtered"),
-                        contentPadding = PaddingValues(horizontal = 10.dp)
-                    ) {
-                        Icon(Icons.Outlined.Print, contentDescription = null)
-                        Spacer(Modifier.size(6.dp))
-                        Text("打印 / PDF")
                     }
                 }
             }
