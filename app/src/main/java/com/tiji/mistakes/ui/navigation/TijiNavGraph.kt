@@ -128,7 +128,11 @@ internal fun TijiNavGraph(
                         reviewTotal = state.reviewPlanSnapshots[state.todayDate].orEmpty().size.takeIf { it > 0 } ?: state.dueCount,
                         reviewCompleted = state.reviewMastery[state.todayDate].orEmpty().keys.count { id -> id in state.reviewPlanSnapshots[state.todayDate].orEmpty() },
                         resetScrollToken = state.homeVisitToken,
-                        onNavigate = navController::navigate
+                        onNavigate = navController::navigate,
+                        onSubject = { subject ->
+                            onLibrarySubject(subject)
+                            navController.navigate(TijiRoutes.LIBRARY)
+                        }
                     )
                 }
                 composable(TijiRoutes.LIBRARY) {

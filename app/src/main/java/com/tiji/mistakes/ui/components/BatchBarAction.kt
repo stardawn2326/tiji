@@ -3,7 +3,7 @@ package com.tiji.mistakes.ui.components
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.tiji.mistakes.ui.design.TijiShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -24,7 +24,7 @@ internal fun BatchBarAction(
     Box(
         modifier = modifier
             .height(48.dp)
-            .clip(RoundedCornerShape(10.dp))
+            .clip(TijiShapes.S)
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
