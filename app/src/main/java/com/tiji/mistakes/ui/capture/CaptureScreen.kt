@@ -895,4 +895,3 @@ internal fun NewCaptureScreen(
         }
     }
 }
-

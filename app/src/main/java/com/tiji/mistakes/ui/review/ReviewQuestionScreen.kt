@@ -678,4 +678,3 @@ private fun reviewReasonFor(
     }
     return reasons.joinToString(" · ").takeIf(String::isNotBlank)
 }
-

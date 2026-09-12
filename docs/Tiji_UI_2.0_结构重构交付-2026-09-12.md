@@ -29,7 +29,7 @@
 
 ## 验证边界
 
-- 最终源码执行离线 Kotlin 编译、Android 测试源码编译、Lint 和 Debug APK 构建；结果见项目内 `outputs/ui2-final-build.log`。
+- 最终功能源码离线 Kotlin 编译、Android 测试源码编译、Lint 和 Debug APK 构建均成功；Lint 为 0 errors、5 warnings。结果见项目内 `outputs/ui2-final-build.log`。构建后仅清理行尾空白并补充此说明。
 - 用户补充要求前，中间版本在本地 API 30 模拟器运行了 10 个既有回归测试，结果 `OK (10 tests)`，覆盖导航、旋转、大字体入口、筛选、多选、详情和复习手势。日志为 `outputs/ui2/core-instrumentation.log`。这不是最终结构调整后的视觉验收结果。
 - 测试前保存的模拟器应用文件已恢复，25 个文件逐一核对 SHA-256，原系统字体及旋转设置已恢复。
 - 按用户要求停止视觉检查；最终版本未做截图验收，也未执行远程 API 35 验证。

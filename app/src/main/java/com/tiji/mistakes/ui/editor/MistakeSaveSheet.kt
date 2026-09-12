@@ -63,7 +63,7 @@ internal fun MistakeSaveSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                
+
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = TijiDimens.pagePadding, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)

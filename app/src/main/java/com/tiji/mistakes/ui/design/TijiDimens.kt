@@ -9,4 +9,3 @@ internal object TijiDimens {
     val controlGap = 8.dp
     val cardRadius = 12.dp
 }
-

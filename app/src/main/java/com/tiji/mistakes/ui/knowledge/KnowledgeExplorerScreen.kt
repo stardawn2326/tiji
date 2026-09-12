@@ -260,4 +260,3 @@ private fun KnowledgePointCard(insight: KnowledgePointInsight, onClick: () -> Un
         }
     }
 }
-
