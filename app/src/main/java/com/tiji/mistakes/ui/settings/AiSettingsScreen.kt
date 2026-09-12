@@ -17,13 +17,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Image
-import androidx.compose.material3.Button
-import androidx.compose.material3.FilterChip
+import com.tiji.mistakes.ui.design.TijiButton
+import com.tiji.mistakes.ui.design.TijiChip
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
+import com.tiji.mistakes.ui.design.TijiSecondaryButton
+import com.tiji.mistakes.ui.design.TijiTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.tiji.mistakes.ui.design.TijiTextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,7 +43,7 @@ import com.tiji.mistakes.service.AiVisionService
 import com.tiji.mistakes.service.OcrModelDownloadService
 import com.tiji.mistakes.service.OcrModelManager
 import com.tiji.mistakes.service.SecureKeyStore
-import com.tiji.mistakes.ui.TijiDimens
+import com.tiji.mistakes.ui.design.TijiDimens
 import com.tiji.mistakes.ui.settings.components.CombinedOcrSettingsCard
 import com.tiji.mistakes.ui.settings.components.SettingCard
 import java.util.UUID
@@ -97,9 +97,9 @@ internal fun AiSettingsScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item {
-                SettingCard("AI Profiles", Icons.Outlined.AutoAwesome) {
+                SettingCard("AI 模型配置", Icons.Outlined.AutoAwesome) {
                     Text(
-                        "按需配置，未配置时核心功能完全离线。每个 Profile 独立保存服务商、模型和本机密钥。",
+                        "按需配置，未配置时核心功能完全离线。每套配置独立保存服务商、模型和本机密钥。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -109,7 +109,7 @@ internal fun AiSettingsScreen(
                         modifier = Modifier.testTag("ai_profile_list")
                     ) {
                         items(aiProfiles, key = { it.id }) { profile ->
-                            FilterChip(
+                            TijiChip(
                                 selected = selectedProfileId == profile.id,
                                 onClick = {
                                     selectedProfileId = profile.id
@@ -119,7 +119,7 @@ internal fun AiSettingsScreen(
                             )
                         }
                         item {
-                            OutlinedButton(onClick = {
+                            TijiSecondaryButton(onClick = {
                                 val fresh = AiProfile(
                                     UUID.randomUUID().toString(),
                                     "新 AI 配置",
@@ -139,7 +139,7 @@ internal fun AiSettingsScreen(
                     Text("服务商预设", style = MaterialTheme.typography.labelLarge)
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(AiProviderPreset.entries) { value ->
-                            FilterChip(
+                            TijiChip(
                                 selected = preset == value,
                                 onClick = {
                                     preset = value
@@ -157,21 +157,21 @@ internal fun AiSettingsScreen(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    OutlinedTextField(
+                    TijiTextField(
                         value = profileName,
                         onValueChange = { profileName = it },
                         label = { Text("配置名称（可选）") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth().testTag("ai_profile_name")
                     )
-                    OutlinedTextField(
+                    TijiTextField(
                         value = endpoint,
                         onValueChange = { endpoint = it; preset = AiProviderPreset.CUSTOM },
                         label = { Text("服务地址") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth().testTag("ai_endpoint")
                     )
-                    OutlinedTextField(
+                    TijiTextField(
                         value = model,
                         onValueChange = { model = it; preset = AiProviderPreset.CUSTOM },
                         label = { Text("模型 ID") },
@@ -188,7 +188,7 @@ internal fun AiSettingsScreen(
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             items(preset.modelOptions) { option ->
                                 Column {
-                                    FilterChip(
+                                    TijiChip(
                                         selected = model.equals(option, ignoreCase = true),
                                         onClick = { model = option },
                                         label = { Text(option, maxLines = 1) }
@@ -202,11 +202,10 @@ internal fun AiSettingsScreen(
                             }
                         }
                     }
-                    OutlinedTextField(
+                    com.tiji.mistakes.ui.design.TijiSecretField(
                         value = apiKey,
                         onValueChange = { apiKey = it },
                         label = { Text("API Key（本机加密保存）") },
-                        visualTransformation = PasswordVisualTransformation(),
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth().testTag("ai_api_key")
                     )
@@ -225,7 +224,7 @@ internal fun AiSettingsScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                            Button(
+                            TijiButton(
                                 onClick = {
                                     val profile = AiProfile(
                                         selectedProfileId,
@@ -246,7 +245,7 @@ internal fun AiSettingsScreen(
                                 },
                                 modifier = Modifier.weight(1f).testTag("ai_save_config")
                             ) { Text("保存配置") }
-                            OutlinedButton(
+                            TijiSecondaryButton(
                                 onClick = {
                                     connectionMessage = "正在测试…"
                                     scope.launch {
@@ -261,7 +260,7 @@ internal fun AiSettingsScreen(
                             ) { Text("测试连接") }
                         }
                         Row(modifier = Modifier.fillMaxWidth()) {
-                            TextButton(
+                            TijiTextButton(
                                 onClick = { onOpenVisualAssistConfig(selectedProfileId) },
                                 contentPadding = PaddingValues(0.dp),
                                 enabled = selectedProfileId.isNotBlank()
@@ -269,7 +268,7 @@ internal fun AiSettingsScreen(
                                 Text(if (selectedVisualProfile == null) "添加视觉辅助配置" else "查看视觉辅助配置")
                             }
                             Spacer(Modifier.weight(1f))
-                            TextButton(
+                            TijiTextButton(
                                 onClick = {
                                     val fallback = aiProfiles.filterNot { it.id == selectedProfileId }.firstOrNull()
                                         ?: AiProfile(

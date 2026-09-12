@@ -33,10 +33,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.tiji.mistakes.data.AiProfile
-import com.tiji.mistakes.ui.ConceptPageHeader
+import com.tiji.mistakes.ui.design.TijiPageHeader
 import com.tiji.mistakes.ui.ThemeMode
 import com.tiji.mistakes.ui.ThemePalette
-import com.tiji.mistakes.ui.TijiDimens
+import com.tiji.mistakes.ui.design.TijiDimens
 
 @Composable
 internal fun SettingsHomeScreen(
@@ -63,7 +63,7 @@ internal fun SettingsHomeScreen(
         verticalArrangement = Arrangement.spacedBy(0.dp)
     ) {
         item {
-            ConceptPageHeader("设置", "管理 AI、复习、数据和外观；学习内容仍在对应一级页面完成。")
+            TijiPageHeader("设置", "让题迹适合你的学习习惯")
         }
         item {
             Spacer(Modifier.height(12.dp))
@@ -105,7 +105,7 @@ internal fun SettingsHomeScreen(
             SettingsHomeDivider()
             SettingsHomeRow(
                 title = "关于题迹",
-                subtitle = "版本、说明和使用边界",
+                subtitle = "版本与使用说明",
                 icon = Icons.Outlined.Lightbulb,
                 onClick = onOpenAbout
             )

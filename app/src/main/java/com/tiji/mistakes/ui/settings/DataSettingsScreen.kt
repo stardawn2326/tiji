@@ -20,15 +20,15 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.PictureAsPdf
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
+import com.tiji.mistakes.ui.design.TijiDialog
+import com.tiji.mistakes.ui.design.TijiButton
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Switch
+import com.tiji.mistakes.ui.design.TijiSecondaryButton
+import com.tiji.mistakes.ui.design.TijiSwitch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.tiji.mistakes.ui.design.TijiTextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -41,7 +41,7 @@ import androidx.compose.ui.unit.dp
 import com.tiji.mistakes.service.BackupImportMode
 import com.tiji.mistakes.service.BackupPreview
 import com.tiji.mistakes.service.BackupService
-import com.tiji.mistakes.ui.TijiDimens
+import com.tiji.mistakes.ui.design.TijiDimens
 import com.tiji.mistakes.ui.common.reviewDateKey
 import com.tiji.mistakes.ui.settings.components.SettingCard
 import kotlinx.coroutines.CoroutineScope
@@ -120,30 +120,30 @@ internal fun DataSettingsScreen(
     }
 
     if (showResetWarning) {
-        AlertDialog(
+        TijiDialog(
             onDismissRequest = { showResetWarning = false },
             title = { Text("重置本机数据？") },
             text = {
                 Text("将删除本机保存的全部错题、图片、复习计划和每日掌握记录。AI 配置和 API Key 不会删除，建议先导出数据。")
             },
             confirmButton = {
-                Button(onClick = {
+                TijiButton(onClick = {
                     showResetWarning = false
                     showResetConfirmation = true
                 }) { Text("继续") }
             },
             dismissButton = {
-                TextButton(onClick = { showResetWarning = false }) { Text("取消") }
+                TijiTextButton(onClick = { showResetWarning = false }) { Text("取消") }
             }
         )
     }
     if (showResetConfirmation) {
-        AlertDialog(
+        TijiDialog(
             onDismissRequest = { if (!resettingData) showResetConfirmation = false },
             title = { Text("确认永久重置？") },
             text = { Text("第二次确认：数据删除后无法从本机恢复。确定要删除全部错题和图片吗？") },
             confirmButton = {
-                Button(
+                TijiButton(
                     enabled = !resettingData,
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
                     onClick = {
@@ -157,7 +157,7 @@ internal fun DataSettingsScreen(
                 ) { Text(if (resettingData) "正在重置…" else "确认重置") }
             },
             dismissButton = {
-                TextButton(
+                TijiTextButton(
                     enabled = !resettingData,
                     onClick = { showResetConfirmation = false }
                 ) { Text("取消") }
@@ -165,7 +165,7 @@ internal fun DataSettingsScreen(
         )
     }
     importPreview?.let { preview ->
-        AlertDialog(
+        TijiDialog(
             onDismissRequest = {
                 if (!importingBackup) {
                     importPreview = null
@@ -188,20 +188,20 @@ internal fun DataSettingsScreen(
                         "推荐合并导入：按稳定编号和内容去重，并保留较新的记录。",
                         style = MaterialTheme.typography.bodySmall
                     )
-                    TextButton(
+                    TijiTextButton(
                         enabled = !importingBackup,
                         onClick = { restoreBackup(BackupImportMode.REPLACE) }
                     ) { Text("清空现有数据后恢复") }
                 }
             },
             confirmButton = {
-                Button(
+                TijiButton(
                     enabled = !importingBackup,
                     onClick = { restoreBackup(BackupImportMode.MERGE) }
                 ) { Text(if (importingBackup) "正在恢复…" else "合并导入") }
             },
             dismissButton = {
-                TextButton(
+                TijiTextButton(
                     enabled = !importingBackup,
                     onClick = { importPreview = null; importUri = null }
                 ) { Text("取消") }
@@ -222,7 +222,7 @@ internal fun DataSettingsScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    OutlinedButton(
+                    TijiSecondaryButton(
                         onClick = { backupLauncher.launch("题迹数据-${reviewDateKey()}.tiji") },
                         modifier = Modifier.fillMaxWidth()
                     ) {
@@ -230,7 +230,7 @@ internal fun DataSettingsScreen(
                         Spacer(Modifier.size(8.dp))
                         Text("导出题迹数据 (.tiji)")
                     }
-                    OutlinedButton(
+                    TijiSecondaryButton(
                         enabled = !importingBackup,
                         onClick = { importLauncher.launch(arrayOf("application/octet-stream", "application/zip")) },
                         modifier = Modifier.fillMaxWidth()
@@ -239,7 +239,7 @@ internal fun DataSettingsScreen(
                         Spacer(Modifier.size(8.dp))
                         Text(if (importingBackup) "正在恢复…" else "导入并迁移数据")
                     }
-                    OutlinedButton(
+                    TijiSecondaryButton(
                         enabled = !importingBackup && !resettingData,
                         onClick = { showResetWarning = true },
                         modifier = Modifier.fillMaxWidth()
@@ -275,7 +275,7 @@ internal fun DataSettingsScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        Switch(
+                        TijiSwitch(
                             checked = !aiExcludeSourceImageByDefault,
                             onCheckedChange = { exportOriginal ->
                                 onAiExcludeSourceImageByDefault(!exportOriginal)

@@ -12,9 +12,9 @@ import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.StopCircle
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
+import com.tiji.mistakes.ui.design.TijiProgress
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import com.tiji.mistakes.ui.design.TijiSecondaryButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -48,11 +48,11 @@ internal fun CombinedOcrSettingsCard(
             }
             when {
                 status.downloading -> {
-                    LinearProgressIndicator(progress = { status.progress.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+                    TijiProgress(progress = { status.progress.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
                     Text("正在下载 ${status.downloadedBytes / 1_000_000} / ${(status.totalBytes + 500_000) / 1_000_000} MB", style = MaterialTheme.typography.bodySmall)
                 }
                 status.resumable -> {
-                    LinearProgressIndicator(progress = { status.progress.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+                    TijiProgress(progress = { status.progress.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
                     Text(
                         if (status.downloadedBytes > 0L) {
                             "已保留 ${status.downloadedBytes / 1_000_000} / ${(status.totalBytes + 500_000) / 1_000_000} MB，可继续下载"
@@ -69,7 +69,7 @@ internal fun CombinedOcrSettingsCard(
                 Text(error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                OutlinedButton(
+                TijiSecondaryButton(
                     enabled = !status.downloading,
                     onClick = if (status.installed) onUpdate else onEnable,
                     modifier = Modifier.weight(1f)
@@ -78,7 +78,7 @@ internal fun CombinedOcrSettingsCard(
                     Spacer(Modifier.size(6.dp))
                     Text(if (status.resumable) "继续" else "下载")
                 }
-                OutlinedButton(
+                TijiSecondaryButton(
                     enabled = status.downloading || status.installed || status.resumable,
                     onClick = if (status.downloading) onStop else onClear,
                     modifier = Modifier.weight(1f)

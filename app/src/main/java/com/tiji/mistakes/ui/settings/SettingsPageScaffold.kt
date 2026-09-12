@@ -8,11 +8,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import com.tiji.mistakes.ui.design.TijiIconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
+import com.tiji.mistakes.ui.design.TijiScreen
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
+import com.tiji.mistakes.ui.design.TijiTopBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -25,12 +25,12 @@ internal fun SettingsPageScaffold(
     onBack: () -> Unit,
     content: @Composable (PaddingValues) -> Unit
 ) {
-    Scaffold(
+    TijiScreen(
         topBar = {
-            TopAppBar(
+            TijiTopBar(
                 title = { Text(title) },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    TijiIconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回设置")
                     }
                 },
