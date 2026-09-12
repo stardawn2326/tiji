@@ -13,11 +13,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Button
-import androidx.compose.material3.FilterChip
+import com.tiji.mistakes.ui.design.TijiButton
+import com.tiji.mistakes.ui.design.TijiChip
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
+import com.tiji.mistakes.ui.design.TijiBottomSheet
+import com.tiji.mistakes.ui.design.TijiTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -28,7 +28,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.tiji.mistakes.ui.TijiDimens
+import com.tiji.mistakes.ui.design.TijiDimens
 
 /** The only metadata surface shared by solve, recognition, photo, and manual capture. */
 internal data class MistakeSaveMetadata(
@@ -56,15 +56,14 @@ internal fun MistakeSaveSheet(
     var inReviewPlan by remember(initial.inReviewPlan) { mutableStateOf(initial.inReviewPlan) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    ModalBottomSheet(
+    TijiBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .imePadding()
-                .navigationBarsPadding()
+                
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = TijiDimens.pagePadding, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -75,7 +74,7 @@ internal fun MistakeSaveSheet(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            OutlinedTextField(
+            TijiTextField(
                 value = subject,
                 onValueChange = { subject = it },
                 label = { Text("科目") },
@@ -87,7 +86,7 @@ internal fun MistakeSaveSheet(
                 values = suggestedSubjects,
                 onSelected = { subject = it }
             )
-            OutlinedTextField(
+            TijiTextField(
                 value = tags,
                 onValueChange = { tags = it },
                 label = { Text("知识点 / 标签") },
@@ -107,7 +106,7 @@ internal fun MistakeSaveSheet(
                         .joinToString(", ")
                 }
             )
-            OutlinedTextField(
+            TijiTextField(
                 value = questionType,
                 onValueChange = { questionType = it },
                 label = { Text("题型") },
@@ -123,13 +122,13 @@ internal fun MistakeSaveSheet(
                 Text("难度", style = MaterialTheme.typography.labelLarge)
                 DifficultyPicker(difficulty = difficulty, onDifficulty = { difficulty = it })
             }
-            FilterChip(
+            TijiChip(
                 selected = inReviewPlan,
                 onClick = { inReviewPlan = !inReviewPlan },
                 label = { Text(if (inReviewPlan) "加入复习计划" else "暂不加入复习计划") },
                 modifier = Modifier.heightIn(min = 48.dp)
             )
-            Button(
+            TijiButton(
                 onClick = {
                     onSave(
                         MistakeSaveMetadata(
@@ -142,6 +141,7 @@ internal fun MistakeSaveSheet(
                     )
                 },
                 enabled = !saving,
+                loading = saving,
                 modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
                 contentPadding = PaddingValues(vertical = 14.dp)
             ) {
@@ -165,7 +165,7 @@ private fun SuggestionChips(
             contentPadding = PaddingValues(end = 8.dp)
         ) {
             items(values.take(8)) { value ->
-                FilterChip(
+                TijiChip(
                     selected = false,
                     onClick = { onSelected(value) },
                     label = { Text(value, maxLines = 1) },

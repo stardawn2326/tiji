@@ -34,7 +34,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.tiji.mistakes.ui.design.TijiShapes
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.Icons
@@ -42,19 +42,19 @@ import androidx.compose.material.icons.outlined.AddAPhoto
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.CameraAlt
 import androidx.compose.material.icons.outlined.Image
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.FilterChip
+import com.tiji.mistakes.ui.design.TijiDialog
+import com.tiji.mistakes.ui.design.TijiButton
+import com.tiji.mistakes.ui.design.TijiChip
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
+import com.tiji.mistakes.ui.design.TijiIconButton
+import com.tiji.mistakes.ui.design.TijiProgress
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
+import com.tiji.mistakes.ui.design.TijiSecondaryButton
+import com.tiji.mistakes.ui.design.TijiScreen
+import com.tiji.mistakes.ui.design.TijiSurface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
+import com.tiji.mistakes.ui.design.TijiTextButton
+import com.tiji.mistakes.ui.design.TijiTopBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -103,8 +103,8 @@ import com.tiji.mistakes.ui.common.cameraUri
 import com.tiji.mistakes.ui.common.CropDragMode
 import com.tiji.mistakes.ui.common.CropSelection
 import com.tiji.mistakes.ui.common.initialCropSelection
-import com.tiji.mistakes.ui.ConceptDashedDropZone
-import com.tiji.mistakes.ui.ConceptTag
+import com.tiji.mistakes.ui.design.TijiDropZone
+import com.tiji.mistakes.ui.design.TijiTag
 import com.tiji.mistakes.ui.editor.MistakeSaveMetadata
 import com.tiji.mistakes.ui.editor.MistakeSaveSheet
 import com.tiji.mistakes.ui.image.ImagePreview
@@ -117,8 +117,8 @@ import com.tiji.mistakes.ui.math.removeStandaloneMarkdownSeparators
 import com.tiji.mistakes.ui.solve.ContentBlockImages
 import com.tiji.mistakes.ui.solve.removeContentBlockPath
 import com.tiji.mistakes.ui.math.stripQuestionCommentary
-import com.tiji.mistakes.ui.TijiDimens
-import com.tiji.mistakes.ui.TijiSurfaceCard
+import com.tiji.mistakes.ui.design.TijiDimens
+import com.tiji.mistakes.ui.design.TijiPaperCard
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -126,38 +126,8 @@ import kotlinx.coroutines.withContext
 internal enum class EntryMode(val label: String) { PHOTO("拍照录题"), AI("AI 识题"), MANUAL("手动录入") }
 
 @Composable
-internal fun EntryModeSegmented(
-    selected: EntryMode,
-    enabled: Boolean,
-    onSelected: (EntryMode) -> Unit
-) {
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        shape = RoundedCornerShape(12.dp),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Row(Modifier.padding(4.dp)) {
-            EntryMode.entries.forEach { mode ->
-                val isSelected = selected == mode
-                Surface(
-                    color = if (isSelected) MaterialTheme.colorScheme.surface else Color.Transparent,
-                    contentColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    shape = RoundedCornerShape(9.dp),
-                    shadowElevation = if (isSelected) 1.dp else 0.dp,
-                    modifier = Modifier
-                        .weight(1f)
-                        .heightIn(min = 48.dp)
-                        .clip(RoundedCornerShape(9.dp))
-                        .clickable(enabled = enabled) { onSelected(mode) }
-                        .semantics { contentDescription = mode.label }
-                ) {
-                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                        Text(mode.label, style = MaterialTheme.typography.labelLarge, maxLines = 1)
-                    }
-                }
-            }
-        }
-    }
+internal fun EntryModeSegmented(selected: EntryMode, enabled: Boolean, onSelected: (EntryMode) -> Unit) {
+    com.tiji.mistakes.ui.design.TijiSegmentedControl(EntryMode.entries, selected, onSelected, { it.label }, enabled = enabled)
 }
 
 internal val stringListSaver = listSaver<List<String>, String>(save = { it }, restore = { it })
@@ -169,33 +139,9 @@ internal enum class AiInputMode(val label: String) {
 }
 
 @Composable
-internal fun AiInputModeSelector(
-    selected: AiInputMode,
-    onSelected: (AiInputMode) -> Unit,
-    title: String
-) {
+internal fun AiInputModeSelector(selected: AiInputMode, onSelected: (AiInputMode) -> Unit, title: String) {
     if (title.isNotBlank()) Text(title, style = MaterialTheme.typography.labelLarge)
-    LazyRow(
-        modifier = Modifier.fillMaxWidth(),
-        state = rememberLazyListState(),
-        contentPadding = PaddingValues(end = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        items(AiInputMode.entries) { inputMode ->
-            FilterChip(
-                selected = selected == inputMode,
-                onClick = { onSelected(inputMode) },
-                label = {
-                    Text(
-                        inputMode.label,
-                        style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 1,
-                        softWrap = false
-                    )
-                }
-            )
-        }
-    }
+    com.tiji.mistakes.ui.design.TijiSegmentedControl(AiInputMode.entries, selected, onSelected, { it.label })
 }
 @Composable
 internal fun NewCaptureScreen(
@@ -530,18 +476,18 @@ internal fun NewCaptureScreen(
     }
 
     if (showAiConsentDialog) {
-        AlertDialog(
+        TijiDialog(
             onDismissRequest = { showAiConsentDialog = false },
             title = { Text("上传前确认") },
             text = { Text("题目图片会发送到当前配置的 AI 服务进行识别。请确认图片中不含姓名、学号等敏感信息。") },
             confirmButton = {
-                Button(onClick = {
+                TijiButton(onClick = {
                     showAiConsentDialog = false
                     onAiUploadConsent(true)
                     recognizeQuestionWithAi()
                 }) { Text("同意并识别") }
             },
-            dismissButton = { TextButton(onClick = { showAiConsentDialog = false }) { Text("取消") } }
+            dismissButton = { TijiTextButton(onClick = { showAiConsentDialog = false }) { Text("取消") } }
         )
     }
 
@@ -563,7 +509,7 @@ internal fun NewCaptureScreen(
         val cleanedExplanation = remember(result.explanation) {
             normalizeVisualLayout(AiDrawingRenderer.stripMarkers(removeStandaloneMarkdownSeparators(result.explanation)))
         }
-        AlertDialog(
+        TijiDialog(
             onDismissRequest = { pendingRecognition = null; viewModel.clearAiRecognition() },
             title = { Text("确认 AI 识别结果") },
             text = {
@@ -609,7 +555,7 @@ internal fun NewCaptureScreen(
                 }
             },
             confirmButton = {
-                Button(onClick = {
+                TijiButton(onClick = {
                     title = result.title
                     question = cleanedQuestion
                     answer = cleanedAnswer
@@ -634,7 +580,7 @@ internal fun NewCaptureScreen(
                 }) { Text("确认填入") }
             },
             dismissButton = {
-                TextButton(onClick = {
+                TijiTextButton(onClick = {
                     pendingRecognition = null
                     viewModel.clearAiRecognition()
                     captureMessage = "已取消填入，可手动编辑"
@@ -644,41 +590,41 @@ internal fun NewCaptureScreen(
     }
 
     EntryMode.entries.firstOrNull { it.name == pendingModeName }?.let { nextMode ->
-        AlertDialog(
+        TijiDialog(
             onDismissRequest = { pendingModeName = "" },
             title = { Text("切换录入方式？") },
             text = { Text("切换后将清空当前未保存内容。") },
             confirmButton = {
-                Button(onClick = { applyModeSwitch(nextMode) }) { Text("继续切换") }
+                TijiButton(onClick = { applyModeSwitch(nextMode) }) { Text("继续切换") }
             },
             dismissButton = {
-                TextButton(onClick = { pendingModeName = "" }) { Text("取消") }
+                TijiTextButton(onClick = { pendingModeName = "" }) { Text("取消") }
             }
         )
     }
 
-    Scaffold(
+    TijiScreen(
         bottomBar = {
-            Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 1.dp) {
+            TijiSurface(color = MaterialTheme.colorScheme.surface, tonalElevation = 1.dp) {
                 Column(
                     Modifier.imePadding().padding(horizontal = 16.dp, vertical = 10.dp),
                     verticalArrangement = Arrangement.spacedBy(0.dp)
                 ) {
-                    Button(
+                    TijiButton(
                         enabled = !saving && !aiRecognitionState.running && (mode == EntryMode.MANUAL && question.isNotBlank() ||
                             (mode == EntryMode.PHOTO && photoQuestionImage != null) ||
                             (mode == EntryMode.AI && aiRecognitionImages.isNotEmpty() && aiFilled)),
                         onClick = { showSaveSheet = true },
-                        shape = RoundedCornerShape(14.dp),
+                        shape = TijiShapes.M,
                         modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
                     ) { Text(if (aiRecognitionState.running) "正在识别…" else if (saving) "正在保存…" else "保存错题") }
                 }
             }
         },
         topBar = {
-            TopAppBar(
+            TijiTopBar(
                 title = { Text("录入错题") },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回") } },
+                navigationIcon = { TijiIconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回") } },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
         }
@@ -710,7 +656,7 @@ internal fun NewCaptureScreen(
             verticalArrangement = Arrangement.spacedBy(TijiDimens.sectionGap)
         ) {
             item {
-                TijiSurfaceCard {
+                TijiPaperCard {
                     EntryModeSegmented(
                         selected = mode,
                         enabled = !saving && !aiRecognitionState.running,
@@ -719,13 +665,13 @@ internal fun NewCaptureScreen(
                 }
             }
             if (mode != EntryMode.AI && captureMessage.isNotBlank()) {
-                item { ConceptTag(captureMessage, containerColor = MaterialTheme.colorScheme.primaryContainer) }
+                item { TijiTag(captureMessage, containerColor = MaterialTheme.colorScheme.primaryContainer) }
             }
             if (mode == EntryMode.PHOTO) {
                 item {
-                    TijiSurfaceCard {
+                    TijiPaperCard {
                         if (photoQuestionImage == null) {
-                            ConceptDashedDropZone(
+                            TijiDropZone(
                                 title = "拍照或选择图片",
                                 subtitle = "支持拍照或从相册选择",
                                 icon = Icons.Outlined.AddAPhoto,
@@ -733,7 +679,7 @@ internal fun NewCaptureScreen(
                                 minHeight = 160.dp,
                                 compact = true,
                                 actions = {
-                                    OutlinedButton(
+                                    TijiSecondaryButton(
                                         onClick = { selectedRole = PhotoRole.QUESTION; galleryLauncher.launch("image/*") },
                                         modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                                         contentPadding = PaddingValues(horizontal = 8.dp)
@@ -742,7 +688,7 @@ internal fun NewCaptureScreen(
                                         Spacer(Modifier.size(5.dp))
                                         Text("相册")
                                     }
-                                    Button(
+                                    TijiButton(
                                         onClick = { requestCamera(PhotoRole.QUESTION) },
                                         modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                                         contentPadding = PaddingValues(horizontal = 8.dp)
@@ -756,10 +702,10 @@ internal fun NewCaptureScreen(
                         } else {
                             ImagePreview(photoQuestionImage!!)
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                                OutlinedButton(onClick = { selectedRole = PhotoRole.QUESTION; galleryLauncher.launch("image/*") }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 8.dp)) {
+                                TijiSecondaryButton(onClick = { selectedRole = PhotoRole.QUESTION; galleryLauncher.launch("image/*") }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 8.dp)) {
                                     Icon(Icons.Outlined.Image, contentDescription = null); Spacer(Modifier.size(5.dp)); Text("相册")
                                 }
-                                Button(onClick = { requestCamera(PhotoRole.QUESTION) }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 8.dp)) {
+                                TijiButton(onClick = { requestCamera(PhotoRole.QUESTION) }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 8.dp)) {
                                     Icon(Icons.Outlined.CameraAlt, contentDescription = null); Spacer(Modifier.size(5.dp)); Text("拍照")
                                 }
                             }
@@ -767,7 +713,7 @@ internal fun NewCaptureScreen(
                     }
                 }
                 item {
-                    TijiSurfaceCard {
+                    TijiPaperCard {
                         Text("照片内容", style = MaterialTheme.typography.titleMedium)
                         Text(
                             "题目照片必填；答案和解析照片可选。保存前可在分类面板中补充信息。",
@@ -777,13 +723,13 @@ internal fun NewCaptureScreen(
                     }
                 }
                 item {
-                    TijiSurfaceCard {
+                    TijiPaperCard {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                 Text("补充图片", style = MaterialTheme.typography.titleMedium)
                                 Text("答案和解析图片为选填项", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            TextButton(onClick = { showSupplementImages = !showSupplementImages }) { Text(if (showSupplementImages) "收起" else "添加") }
+                            TijiTextButton(onClick = { showSupplementImages = !showSupplementImages }) { Text(if (showSupplementImages) "收起" else "添加") }
                         }
                         if (showSupplementImages) {
                             PhotoRole.entries.filter { it != PhotoRole.QUESTION }.forEach { role ->
@@ -791,7 +737,7 @@ internal fun NewCaptureScreen(
                                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Text(role.label, style = MaterialTheme.typography.titleSmall)
                                     if (path == null) {
-                                        ConceptDashedDropZone(
+                                        TijiDropZone(
                                             title = "添加${role.label}",
                                             subtitle = "拍照或从相册选择",
                                             icon = Icons.Outlined.Image,
@@ -800,8 +746,8 @@ internal fun NewCaptureScreen(
                                         )
                                     } else ImagePreview(path)
                                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                                        OutlinedButton(onClick = { selectedRole = role; galleryLauncher.launch("image/*") }, modifier = Modifier.weight(1f)) { Text("相册") }
-                                        OutlinedButton(onClick = { requestCamera(role) }, modifier = Modifier.weight(1f)) { Text("拍照") }
+                                        TijiSecondaryButton(onClick = { selectedRole = role; galleryLauncher.launch("image/*") }, modifier = Modifier.weight(1f)) { Text("相册") }
+                                        TijiSecondaryButton(onClick = { requestCamera(role) }, modifier = Modifier.weight(1f)) { Text("拍照") }
                                     }
                                 }
                             }
@@ -810,9 +756,9 @@ internal fun NewCaptureScreen(
                 }
             } else if (mode == EntryMode.AI) {
                 item {
-                    TijiSurfaceCard {
+                    TijiPaperCard {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                            Surface(color = MaterialTheme.colorScheme.tertiaryContainer, shape = RoundedCornerShape(12.dp)) {
+                            TijiSurface(color = MaterialTheme.colorScheme.tertiaryContainer, shape = TijiShapes.M) {
                                 Icon(Icons.Outlined.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.padding(10.dp).size(23.dp))
                             }
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -820,20 +766,20 @@ internal fun NewCaptureScreen(
                                 Text("识别题目、答案和解析，科目随后自动归类", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
-                        TextButton(onClick = { showCaptureConfiguration = !showCaptureConfiguration }) {
+                        TijiTextButton(onClick = { showCaptureConfiguration = !showCaptureConfiguration }) {
                             Text(if (showCaptureConfiguration) "收起设置" else "设置：${aiProfiles.firstOrNull { it.id == activeAiProfileId }?.name ?: aiModel}")
                         }
                         if (showCaptureConfiguration) {
                             Text("当前 AI 配置", style = MaterialTheme.typography.labelLarge)
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 items(aiProfiles, key = { it.id }) { profile ->
-                                    FilterChip(selected = profile.id == activeAiProfileId, onClick = { onActiveAiProfile(profile.id) }, label = { Text(profile.name) })
+                                    TijiChip(selected = profile.id == activeAiProfileId, onClick = { onActiveAiProfile(profile.id) }, label = { Text(profile.name) })
                                 }
                             }
                             AiInputModeSelector(selected = aiInputMode, onSelected = { aiInputModeName = it.name; onAiInputMode(it) }, title = "识别方式")
                         }
                         if (aiRecognitionImages.isEmpty()) {
-                            ConceptDashedDropZone(
+                            TijiDropZone(
                                 title = "拍照或选择图片",
                                 subtitle = "支持多张图片，AI 会按顺序合并识别",
                                 icon = Icons.Outlined.AddAPhoto,
@@ -853,14 +799,14 @@ internal fun NewCaptureScreen(
                             }
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                            OutlinedButton(onClick = { selectedRole = PhotoRole.QUESTION; galleryLauncher.launch("image/*") }, modifier = Modifier.weight(1f)) { Icon(Icons.Outlined.Image, contentDescription = null); Spacer(Modifier.size(5.dp)); Text("相册") }
-                            OutlinedButton(onClick = { requestCamera(PhotoRole.QUESTION) }, modifier = Modifier.weight(1f)) { Icon(Icons.Outlined.CameraAlt, contentDescription = null); Spacer(Modifier.size(5.dp)); Text("拍照") }
+                            TijiSecondaryButton(onClick = { selectedRole = PhotoRole.QUESTION; galleryLauncher.launch("image/*") }, modifier = Modifier.weight(1f)) { Icon(Icons.Outlined.Image, contentDescription = null); Spacer(Modifier.size(5.dp)); Text("相册") }
+                            TijiSecondaryButton(onClick = { requestCamera(PhotoRole.QUESTION) }, modifier = Modifier.weight(1f)) { Icon(Icons.Outlined.CameraAlt, contentDescription = null); Spacer(Modifier.size(5.dp)); Text("拍照") }
                         }
-                        Button(onClick = { if (aiUploadConsent) recognizeQuestionWithAi() else showAiConsentDialog = true }, enabled = aiRecognitionImages.isNotEmpty() && !aiRecognitionState.running, modifier = Modifier.fillMaxWidth()) {
+                        TijiButton(onClick = { if (aiUploadConsent) recognizeQuestionWithAi() else showAiConsentDialog = true }, enabled = aiRecognitionImages.isNotEmpty() && !aiRecognitionState.running, modifier = Modifier.fillMaxWidth()) {
                             Icon(Icons.Outlined.AutoAwesome, contentDescription = null); Spacer(Modifier.size(6.dp)); Text("AI 识别并填入")
                         }
                         if (visualAssistBindingMissing) {
-                            ConceptTag("此模型尚未配置视觉辅助", containerColor = MaterialTheme.colorScheme.primaryContainer)
+                            TijiTag("此模型尚未配置视觉辅助", containerColor = MaterialTheme.colorScheme.primaryContainer)
                         }
                     }
                 }
@@ -868,19 +814,19 @@ internal fun NewCaptureScreen(
                     item {
                         val recognitionProgress = if (aiRecognitionState.progress > 0f) aiRecognitionState.progress.coerceIn(0f, 1f) else if (aiRecognitionState.totalCount > 0) (aiRecognitionState.completedCount.toFloat() / aiRecognitionState.totalCount).coerceIn(0f, 1f) else 0f
                         val statusText = if (aiRecognitionState.running) "AI 正在后台识别 ${aiRecognitionState.completedCount}/${aiRecognitionState.totalCount} 张图片" else captureMessage
-                        TijiSurfaceCard {
+                        TijiPaperCard {
                             Text("识别状态", style = MaterialTheme.typography.titleSmall)
-                            if (aiRecognitionState.running) LinearProgressIndicator(progress = { recognitionProgress }, modifier = Modifier.fillMaxWidth())
+                            if (aiRecognitionState.running) TijiProgress(progress = { recognitionProgress }, modifier = Modifier.fillMaxWidth())
                             Text(statusText, style = MaterialTheme.typography.bodySmall, color = if (statusText.startsWith("AI 识别失败")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
-                            if (aiRecognitionState.running) OutlinedButton(onClick = viewModel::stopAiRecognition, modifier = Modifier.fillMaxWidth()) { Text("停止识别") }
-                            else if (statusText.startsWith("AI 识别失败")) TextButton(onClick = onOpenSettings) { Text("打开设置") }
+                            if (aiRecognitionState.running) TijiSecondaryButton(onClick = viewModel::stopAiRecognition, modifier = Modifier.fillMaxWidth()) { Text("停止识别") }
+                            else if (statusText.startsWith("AI 识别失败")) TijiTextButton(onClick = onOpenSettings) { Text("打开设置") }
                         }
                     }
                 }
                 if (aiFilled) {
                     item {
                         val aiContentBlocks = remember(contentBlocksJson) { QuestionContentBlockCodec.decode(contentBlocksJson) }
-                        TijiSurfaceCard {
+                        TijiPaperCard {
                             Text("识别结果", style = MaterialTheme.typography.titleMedium)
                             Text("确认内容后点击底部保存；分类会在保存面板中确认。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             MistakeFields(
@@ -921,7 +867,7 @@ internal fun NewCaptureScreen(
                 }
             } else {
                 item {
-                    TijiSurfaceCard {
+                    TijiPaperCard {
                         Text("题目内容", style = MaterialTheme.typography.titleMedium)
                         Text("题目、答案和解析会在本机保存；分类可在保存面板中补充。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         MistakeFields(
@@ -957,216 +903,3 @@ internal fun NewCaptureScreen(
     }
 }
 
-@Composable
-internal fun StandaloneImageEditor(
-    initialPath: String,
-    title: String,
-    onCancel: () -> Unit,
-    onDiscard: (Collection<String>) -> Unit = {},
-    onConfirm: (String) -> Unit
-) {
-    val context = LocalContext.current; val scope = rememberCoroutineScope()
-    var path by remember(initialPath) { mutableStateOf(initialPath) }; var history by remember(initialPath) { mutableStateOf(listOf(initialPath)) }
-    var message by remember { mutableStateOf("") }
-    var cropSelection by remember(initialPath) { mutableStateOf(initialCropSelection()) }
-    var processing by remember { mutableStateOf(false) }
-    var imageAspect by remember(initialPath) { mutableFloatStateOf(1f) }
-    val configuration = LocalConfiguration.current
-    LaunchedEffect(path) {
-        imageAspect = withContext(Dispatchers.IO) {
-            runCatching {
-                BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                    .let { options ->
-                        BitmapFactory.decodeFile(path, options)
-                        if (options.outWidth > 0 && options.outHeight > 0) options.outWidth.toFloat() / options.outHeight else 1f
-                    }
-            }.getOrDefault(1f)
-        }
-    }
-    fun apply(operation: ImageOperation) {
-        scope.launch {
-            processing = true
-            message="正在${operation.label}…"
-            ImageProcessor.process(context,path,operation)
-                .onSuccess { path=it; history=history+it; message="${operation.label}完成" }
-                .onFailure { message="处理失败：${it.message ?: "未知错误"}" }
-            processing = false
-        }
-    }
-    fun resetOriginal() {
-        onDiscard(history.drop(1))
-        path = initialPath
-        history = listOf(initialPath)
-        cropSelection = initialCropSelection()
-        message = "已恢复原图"
-    }
-    fun confirmProcessedImage() {
-        if (processing) return
-        val selection = cropSelection
-        val isFullImage = selection.left <= 0.002f && selection.top <= 0.002f &&
-            selection.right >= 0.998f && selection.bottom >= 0.998f
-        if (isFullImage) {
-            onDiscard(history.filterNot { it == path })
-            onConfirm(path)
-            return
-        }
-        scope.launch {
-            processing = true
-            message = "正在应用裁剪…"
-            val result = withContext(Dispatchers.IO) {
-                ImageProcessor.cropNormalized(
-                    context,
-                    path,
-                    selection.left,
-                    selection.top,
-                    selection.right,
-                    selection.bottom
-                )
-            }
-            result.onSuccess { cropped ->
-                path = cropped
-                history = history + cropped
-                cropSelection = CropSelection(0f, 0f, 1f, 1f)
-                message = "图片处理完成"
-                onDiscard((history + cropped).filterNot { it == cropped })
-                onConfirm(cropped)
-            }.onFailure { message = "裁剪失败：${it.message ?: "未知错误"}" }
-            processing = false
-        }
-    }
-    Scaffold(topBar={TopAppBar(title={Text("处理$title")},navigationIcon={IconButton(onClick={ onDiscard(history); onCancel() }){Icon(Icons.AutoMirrored.Outlined.ArrowBack,null)}})}) { padding ->
-        Column(
-            Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)
-                .navigationBarsPadding(),
-            verticalArrangement=Arrangement.spacedBy(12.dp)
-        ) {
-            val editorHeight = ((configuration.screenWidthDp.dp - 32.dp) / imageAspect.coerceAtLeast(0.2f))
-                .coerceIn(180.dp, configuration.screenHeightDp.dp * 0.44f)
-            BoxWithConstraints(Modifier.height(editorHeight).fillMaxWidth().clip(RoundedCornerShape(16.dp))) {
-                val widthPx = constraints.maxWidth.toFloat().coerceAtLeast(1f)
-                val heightPx = constraints.maxHeight.toFloat().coerceAtLeast(1f)
-                val containerAspect = widthPx / heightPx
-                val imageWidth = if (imageAspect >= containerAspect) widthPx else heightPx * imageAspect
-                val imageHeight = if (imageAspect >= containerAspect) widthPx / imageAspect else heightPx
-                val imageLeft = (widthPx - imageWidth) / 2f
-                val imageTop = (heightPx - imageHeight) / 2f
-                val handleColor = MaterialTheme.colorScheme.primary
-                val latestCropSelection = rememberUpdatedState(cropSelection)
-                Box(Modifier.fillMaxSize()) {
-                    AsyncImage(path, null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
-                    Canvas(
-                        Modifier.fillMaxSize().pointerInput(imageWidth, imageHeight) {
-                            var mode = CropDragMode.MOVE
-                            var current = cropSelection
-                            detectDragGestures(
-                                onDragStart = { start ->
-                                    current = latestCropSelection.value
-                                    val x = ((start.x - imageLeft) / imageWidth).coerceIn(0f, 1f)
-                                    val y = ((start.y - imageTop) / imageHeight).coerceIn(0f, 1f)
-                                    val threshold = 0.065f
-                                    val centerThreshold = 0.18f
-                                    val centerX = (current.left + current.right) / 2f
-                                    val centerY = (current.top + current.bottom) / 2f
-                                    mode = when {
-                                        kotlin.math.abs(x - current.left) < threshold && kotlin.math.abs(y - current.top) < threshold -> CropDragMode.LEFT_TOP
-                                        kotlin.math.abs(x - current.right) < threshold && kotlin.math.abs(y - current.top) < threshold -> CropDragMode.RIGHT_TOP
-                                        kotlin.math.abs(x - current.left) < threshold && kotlin.math.abs(y - current.bottom) < threshold -> CropDragMode.LEFT_BOTTOM
-                                        kotlin.math.abs(x - current.right) < threshold && kotlin.math.abs(y - current.bottom) < threshold -> CropDragMode.RIGHT_BOTTOM
-                                        kotlin.math.abs(x - current.left) < threshold && kotlin.math.abs(y - centerY) < centerThreshold -> CropDragMode.LEFT
-                                        kotlin.math.abs(x - current.right) < threshold && kotlin.math.abs(y - centerY) < centerThreshold -> CropDragMode.RIGHT
-                                        kotlin.math.abs(y - current.top) < threshold && kotlin.math.abs(x - centerX) < centerThreshold -> CropDragMode.TOP
-                                        kotlin.math.abs(y - current.bottom) < threshold && kotlin.math.abs(x - centerX) < centerThreshold -> CropDragMode.BOTTOM
-                                        else -> CropDragMode.MOVE
-                                    }
-                                },
-                                onDrag = { change, dragAmount ->
-                                    val dx = dragAmount.x / imageWidth
-                                    val dy = dragAmount.y / imageHeight
-                                    val minSize = 0.08f
-                                    current = when (mode) {
-                                        CropDragMode.MOVE -> {
-                                            val w = current.right - current.left
-                                            val h = current.bottom - current.top
-                                            val left = (current.left + dx).coerceIn(0f, 1f - w)
-                                            val top = (current.top + dy).coerceIn(0f, 1f - h)
-                                            CropSelection(left, top, left + w, top + h)
-                                        }
-                                        CropDragMode.LEFT -> current.copy(
-                                            left = (current.left + dx).coerceIn(0f, current.right - minSize)
-                                        )
-                                        CropDragMode.TOP -> current.copy(
-                                            top = (current.top + dy).coerceIn(0f, current.bottom - minSize)
-                                        )
-                                        CropDragMode.RIGHT -> current.copy(
-                                            right = (current.right + dx).coerceIn(current.left + minSize, 1f)
-                                        )
-                                        CropDragMode.BOTTOM -> current.copy(
-                                            bottom = (current.bottom + dy).coerceIn(current.top + minSize, 1f)
-                                        )
-                                        CropDragMode.LEFT_TOP -> current.copy(
-                                            left = (current.left + dx).coerceIn(0f, current.right - minSize),
-                                            top = (current.top + dy).coerceIn(0f, current.bottom - minSize)
-                                        )
-                                        CropDragMode.RIGHT_TOP -> current.copy(
-                                            right = (current.right + dx).coerceIn(current.left + minSize, 1f),
-                                            top = (current.top + dy).coerceIn(0f, current.bottom - minSize)
-                                        )
-                                        CropDragMode.LEFT_BOTTOM -> current.copy(
-                                            left = (current.left + dx).coerceIn(0f, current.right - minSize),
-                                            bottom = (current.bottom + dy).coerceIn(current.top + minSize, 1f)
-                                        )
-                                        CropDragMode.RIGHT_BOTTOM -> current.copy(
-                                            right = (current.right + dx).coerceIn(current.left + minSize, 1f),
-                                            bottom = (current.bottom + dy).coerceIn(current.top + minSize, 1f)
-                                        )
-                                    }
-                                    cropSelection = current
-                                }
-                            )
-                        }
-                    ) {
-                        val left = imageLeft + imageWidth * cropSelection.left
-                        val top = imageTop + imageHeight * cropSelection.top
-                        val right = imageLeft + imageWidth * cropSelection.right
-                        val bottom = imageTop + imageHeight * cropSelection.bottom
-                        val dim = Color.Black.copy(alpha = 0.46f)
-                        drawRect(dim, Offset.Zero, Size(size.width, imageTop))
-                        drawRect(dim, Offset(0f, imageTop + imageHeight), Size(size.width, size.height - imageTop - imageHeight))
-                        drawRect(dim, Offset(0f, imageTop), Size(imageLeft, imageHeight))
-                        drawRect(dim, Offset(imageLeft + imageWidth, imageTop), Size(size.width - imageLeft - imageWidth, imageHeight))
-                        drawRect(dim, Offset(imageLeft, imageTop), Size(imageWidth, top - imageTop))
-                        drawRect(dim, Offset(imageLeft, bottom), Size(imageWidth, imageTop + imageHeight - bottom))
-                        drawRect(dim, Offset(imageLeft, top), Size(left - imageLeft, bottom - top))
-                        drawRect(dim, Offset(right, top), Size(imageLeft + imageWidth - right, bottom - top))
-                        drawRect(Color.White, Offset(left, top), Size(right - left, bottom - top), style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3f))
-                        val handle = 18f
-                        listOf(Offset(left, top), Offset(right, top), Offset(left, bottom), Offset(right, bottom)).forEach { point ->
-                            drawCircle(Color.White, handle / 2f, point)
-                            drawCircle(handleColor, handle / 2f - 3f, point)
-                        }
-                        val edgeHandleLength = 52f
-                        val edgeHandleWidth = 9f
-                        val centerX = (left + right) / 2f
-                        val centerY = (top + bottom) / 2f
-                        drawLine(handleColor, Offset(centerX - edgeHandleLength / 2f, top), Offset(centerX + edgeHandleLength / 2f, top), edgeHandleWidth)
-                        drawLine(handleColor, Offset(centerX - edgeHandleLength / 2f, bottom), Offset(centerX + edgeHandleLength / 2f, bottom), edgeHandleWidth)
-                        drawLine(handleColor, Offset(left, centerY - edgeHandleLength / 2f), Offset(left, centerY + edgeHandleLength / 2f), edgeHandleWidth)
-                        drawLine(handleColor, Offset(right, centerY - edgeHandleLength / 2f), Offset(right, centerY + edgeHandleLength / 2f), edgeHandleWidth)
-                    }
-                }
-            }
-            Text("拖动框内区域移动；拖动四角或四边中间的粗线调整裁剪范围", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            LazyRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                item { OutlinedButton(enabled = !processing, onClick={scope.launch { processing=true; ImageProcessor.cropNormalized(context, path, cropSelection.left, cropSelection.top, cropSelection.right, cropSelection.bottom).onSuccess { path=it; history=history+it; cropSelection=CropSelection(0f,0f,1f,1f); message="裁剪完成" }.onFailure { message="裁剪失败：${it.message ?: "未知错误"}" }; processing=false }}) { Text("裁剪") } }
-                items(listOf(ImageOperation.ROTATE, ImageOperation.ENHANCE, ImageOperation.GRAYSCALE, ImageOperation.BINARY)) { op -> OutlinedButton(enabled = !processing, onClick={apply(op)}) { Text(op.label) } }
-                item { OutlinedButton(enabled = !processing, onClick=::resetOriginal) { Text("原图") } }
-                item { OutlinedButton(enabled=history.size>1 && !processing,onClick={onDiscard(listOf(history.last()));history=history.dropLast(1);path=history.last()}) { Text("撤销") } }
-            }
-            if(message.isNotBlank()) Text(message,color=MaterialTheme.colorScheme.primary)
-            Button(enabled = !processing, onClick = ::confirmProcessedImage, modifier=Modifier.fillMaxWidth()) {
-                Text(if (processing) "正在保存…" else "确认使用")
-            }
-            Spacer(Modifier.height(88.dp))
-        }
-    }
-}
