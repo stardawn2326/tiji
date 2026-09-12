@@ -30,20 +30,22 @@ internal fun HomeScreen(
     LazyColumn(state = listState, modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(horizontal = TijiDimens.pagePadding, vertical = 20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        item { TijiPageHeader("题迹", "记录错题，看见自己的成长") }
+        item { TijiPageHeader("题迹") }
         item {
             Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 TijiQuickActionCard("AI 解题", Icons.Outlined.AutoAwesome, Modifier.weight(1f).fillMaxHeight(),
-                    subtitle = "把疑问想明白", emphasized = true, onClick = { onNavigate(TijiRoutes.SOLVE) })
+                    emphasized = true, onClick = { onNavigate(TijiRoutes.SOLVE) })
                 TijiQuickActionCard("录入错题", Icons.Outlined.AddAPhoto, Modifier.weight(1f).fillMaxHeight(),
-                    subtitle = "把经验留下来", onClick = { onNavigate(TijiRoutes.CAPTURE) })
+                    onClick = { onNavigate(TijiRoutes.CAPTURE) })
             }
         }
         item {
             TijiPaperCard {
                 TijiSectionHeader("今日复习", if (reviewTotal > 0) "已完成 $reviewCompleted / $reviewTotal 题" else "暂无待复习题")
-                Text(if (remaining > 0) "还有 $remaining 道题" else if (reviewTotal > 0) "今天已完成" else "从一道错题开始积累",
-                    style = MaterialTheme.typography.headlineMedium)
+                if (reviewTotal > 0) {
+                    Text(if (remaining > 0) "还有 $remaining 道题" else "今天已完成",
+                        style = MaterialTheme.typography.headlineMedium)
+                }
                 TijiProgress(progress = { if (reviewTotal > 0) (reviewCompleted.toFloat()/reviewTotal).coerceIn(0f,1f) else 0f },
                     modifier = Modifier.fillMaxWidth().height(6.dp))
                 TijiButton(onClick = { onNavigate(TijiRoutes.REVIEW) }, modifier = Modifier.fillMaxWidth()) {

@@ -27,7 +27,7 @@ internal fun AboutScreen(onBack: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item {
-                TijiPageHeader("题迹", "把错题留下，把复习做成真正会做。")
+                TijiPageHeader("题迹")
             }
             item {
                 TijiSettingGroup("版本", Icons.Outlined.Lightbulb) {

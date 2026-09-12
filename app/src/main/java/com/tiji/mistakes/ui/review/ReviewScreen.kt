@@ -363,7 +363,7 @@ internal fun ReviewScreen(
                         Spacer(Modifier.weight(1f))
                         Text("第 1 / ${planned.size} 题", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    Text(first.title.ifBlank { "先独立回想，再查看答案" }, style = MaterialTheme.typography.titleLarge)
+                            Text(first.title.ifBlank { "未命名错题" }, style = MaterialTheme.typography.titleLarge)
                     MathText(
                         first.questionText.ifBlank { "（图片题，请打开查看题目图片）" },
                         maxLines = 5,
@@ -386,7 +386,7 @@ internal fun ReviewScreen(
             }
             if (planned.size > 1) {
                 item {
-                    TijiSectionHeader("接下来", "按系统安排的顺序继续")
+                    TijiSectionHeader("接下来")
                 }
                 items(planned.drop(1), key = { it.id }) { mistake ->
                     TijiPaperCard(contentPadding = 12.dp) {
@@ -426,7 +426,7 @@ internal fun ReviewScreen(
             if (showMoreTools) {
                 item {
                     TijiPaperCard(modifier = Modifier.testTag("review_future_load")) {
-                        TijiSectionHeader("未来 7 天", "按设备本地日期计算")
+                        TijiSectionHeader("未来 7 天")
                         futureLoad.forEachIndexed { index, day ->
                             Row(
                                 modifier = Modifier.fillMaxWidth().padding(top = if (index == 0) 8.dp else 5.dp),

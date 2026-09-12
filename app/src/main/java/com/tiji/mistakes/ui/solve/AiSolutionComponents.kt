@@ -148,13 +148,13 @@ internal fun AiSolutionSection(
 ) {
     if (content.isBlank()) return
     TijiSurface(
-        color = if (label == "最终答案") MaterialTheme.colorScheme.tertiaryContainer else MaterialTheme.colorScheme.surface,
+        color = if (label == "最终答案") MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
         shape = TijiShapes.M,
-        border = BorderStroke(1.dp, if (label == "最终答案") MaterialTheme.colorScheme.tertiary.copy(alpha = 0.32f) else MaterialTheme.colorScheme.outlineVariant),
+        border = BorderStroke(1.dp, if (label == "最终答案") MaterialTheme.colorScheme.primary.copy(alpha = 0.32f) else MaterialTheme.colorScheme.outlineVariant),
         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
     ) {
     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(label, fontWeight = FontWeight.Bold, color = if (label == "最终答案") MaterialTheme.colorScheme.onTertiaryContainer else MaterialTheme.colorScheme.primary)
+        Text(label, fontWeight = FontWeight.Bold, color = if (label == "最终答案") MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.primary)
         MathText(
             content,
             normalizeTerminalPeriod = label == "最终答案",
@@ -211,13 +211,13 @@ internal fun AiAnswerDiagnosisCard(
     val result = state.result
     val containerColor = when (result?.verdict) {
         AiAnswerVerdict.CORRECT -> MaterialTheme.colorScheme.primaryContainer
-        AiAnswerVerdict.PARTIALLY_CORRECT -> MaterialTheme.colorScheme.tertiaryContainer
+        AiAnswerVerdict.PARTIALLY_CORRECT -> MaterialTheme.colorScheme.primaryContainer
         AiAnswerVerdict.INCORRECT -> MaterialTheme.colorScheme.errorContainer
         AiAnswerVerdict.UNCERTAIN, null -> MaterialTheme.colorScheme.surfaceVariant
     }
     val contentColor = when (result?.verdict) {
         AiAnswerVerdict.CORRECT -> MaterialTheme.colorScheme.onPrimaryContainer
-        AiAnswerVerdict.PARTIALLY_CORRECT -> MaterialTheme.colorScheme.onTertiaryContainer
+        AiAnswerVerdict.PARTIALLY_CORRECT -> MaterialTheme.colorScheme.onPrimaryContainer
         AiAnswerVerdict.INCORRECT -> MaterialTheme.colorScheme.onErrorContainer
         AiAnswerVerdict.UNCERTAIN, null -> MaterialTheme.colorScheme.onSurfaceVariant
     }

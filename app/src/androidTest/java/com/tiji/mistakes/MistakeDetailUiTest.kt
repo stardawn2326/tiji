@@ -48,10 +48,13 @@ class MistakeDetailUiTest {
         composeRule.onNodeWithTag("mistake_card_$fixtureId").performClick()
         val detailContent = composeRule.onNodeWithTag("detail_content")
 
-        detailContent.performScrollToNode(hasText("更多信息"))
-        composeRule.onNodeWithText("我的答案").assertDoesNotExist()
-        composeRule.onNodeWithTag("detail_more_info_toggle").performClick()
-        listOf("我的答案", "正确答案", "错因标签", "我的总结").forEach { label ->
+        detailContent.performScrollToNode(hasText("我的答案"))
+        composeRule.onNodeWithText("我的答案").assertExists()
+        listOf("更多信息", "错因标签", "我的总结").forEach { label ->
+            composeRule.onNodeWithText(label).assertDoesNotExist()
+        }
+        composeRule.onNodeWithTag("detail_more_info_toggle").assertDoesNotExist()
+        listOf("正确答案").forEach { label ->
             detailContent.performScrollToNode(hasText(label))
             composeRule.onNodeWithText(label).assertExists()
         }

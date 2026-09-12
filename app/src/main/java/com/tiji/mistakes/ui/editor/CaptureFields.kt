@@ -41,10 +41,9 @@ internal fun CaptureFields(
             TijiTextField(subject, onSubject, label = { Text("科目") }, singleLine = true, modifier = Modifier.weight(1f))
             TijiTextField(questionType, onQuestionType, label = { Text("题目类型") }, singleLine = true, modifier = Modifier.weight(1f))
         }
-        TijiTextField(tags, onTags, label = { Text("分类 / 知识点标签") }, singleLine = true, modifier = Modifier.fillMaxWidth())
         DifficultyPicker(difficulty, onDifficulty)
         TijiTextButton(onClick = { showDetails = !showDetails }) {
-            Text(if (showDetails) "收起补充信息" else "补充作答与总结（选填）")
+            Text(if (showDetails) "收起补充信息" else "补充信息（选填）")
         }
         if (showDetails) {
             TijiTextField(
@@ -62,8 +61,6 @@ internal fun CaptureFields(
                 minLines = 2,
                 modifier = Modifier.fillMaxWidth()
             )
-            ErrorReasonPicker(errorReason, onErrorReason)
-            com.tiji.mistakes.ui.design.TijiMultilineField(note, onNote, label = { Text("我的总结") }, minLines = 2, modifier = Modifier.fillMaxWidth())
         }
     }
 }

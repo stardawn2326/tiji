@@ -15,7 +15,7 @@ import androidx.compose.ui.unit.dp
 
 @Composable
 internal fun TijiQuickActionCard(label: String, icon: ImageVector, modifier: Modifier = Modifier,
-    subtitle: String = "", emphasized: Boolean = false, onClick: () -> Unit) {
+    emphasized: Boolean = false, onClick: () -> Unit) {
     TijiCard(onClick, modifier, colors = CardDefaults.cardColors(
         containerColor = if (emphasized) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
         contentColor = if (emphasized) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface),
@@ -23,7 +23,6 @@ internal fun TijiQuickActionCard(label: String, icon: ImageVector, modifier: Mod
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Icon(icon, null, Modifier.size(24.dp), tint = if (emphasized) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary)
             Text(label, style = MaterialTheme.typography.titleMedium)
-            if (subtitle.isNotBlank()) Text(subtitle, style = MaterialTheme.typography.bodySmall)
         }
     }
 }

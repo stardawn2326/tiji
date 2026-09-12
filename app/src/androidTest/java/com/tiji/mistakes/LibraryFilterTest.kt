@@ -118,7 +118,7 @@ class LibraryFilterTest {
         composeRule.onNodeWithTag("mistake_card_${fixtureIds[1]}").assertDoesNotExist()
 
         composeRule.onNodeWithTag("library_difficulty_filter").performClick()
-        composeRule.onNodeWithText("简单").assertExists().performClick()
+        composeRule.onNodeWithTag("library_difficulty_option_1").performClick()
         composeRule.onNodeWithText("完成").performClick()
         scrollToFixture(fixtureIds[0])
         composeRule.onNodeWithTag("mistake_card_${fixtureIds[0]}").assertExists()

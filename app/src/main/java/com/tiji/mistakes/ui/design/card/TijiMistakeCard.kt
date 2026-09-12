@@ -21,6 +21,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.tiji.mistakes.data.MistakeEntity
 import com.tiji.mistakes.ui.common.formatLocalDate
+import com.tiji.mistakes.ui.common.difficultyLabel
 import com.tiji.mistakes.ui.design.TijiTag
 import com.tiji.mistakes.ui.math.MathText
 import com.tiji.mistakes.ui.normalizedSubject
@@ -33,7 +34,6 @@ internal fun TijiMistakeCard(
     selected: Boolean = false,
     selectionMode: Boolean = false,
     onSelected: () -> Unit = {},
-    knowledgeLabels: List<String> = emptyList(),
     onClick: () -> Unit
 ) {
     TijiPaperCard(
@@ -62,20 +62,14 @@ internal fun TijiMistakeCard(
                     if (mistake.questionType.isNotBlank() && mistake.questionType != "未分类") {
                         TijiTag(
                             mistake.questionType,
-                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
                         )
                     }
                     TijiStatusBadge(mistake.mastery)
                 }
-                if (knowledgeLabels.isNotEmpty() || mistake.tags.isNotBlank() || mistake.difficulty > 0) {
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        (knowledgeLabels.ifEmpty { com.tiji.mistakes.ui.common.parseTagValues(mistake.tags) }).take(3).forEach {
-                            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        if (mistake.difficulty > 0) Text("难度 ${mistake.difficulty}/5", style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TijiTag(difficultyLabel(mistake.difficulty))
                 }
                 MathText(
                     mistake.title.ifBlank { "未命名错题" },

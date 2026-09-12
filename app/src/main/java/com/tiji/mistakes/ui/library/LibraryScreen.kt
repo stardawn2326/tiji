@@ -74,6 +74,8 @@ import com.tiji.mistakes.service.PdfExportOptions
 import com.tiji.mistakes.service.PdfTemplate
 import com.tiji.mistakes.ui.design.TijiContextAction
 import com.tiji.mistakes.ui.common.difficultyFilterLabel
+import com.tiji.mistakes.ui.common.difficultyMatchesFilter
+import com.tiji.mistakes.ui.common.difficultyOptions
 import com.tiji.mistakes.ui.common.discardPdfPreview
 import com.tiji.mistakes.ui.common.launchDurablePdfExport
 import com.tiji.mistakes.ui.common.masteryLabel
@@ -214,11 +216,7 @@ internal fun LibraryScreen(
                 (selectedKnowledgePointMistakeIds == null || it.id in selectedKnowledgePointMistakeIds) &&
                 (masteryFilter == null || it.mastery == masteryFilter) &&
                 (tagFilter?.let { filter -> filter in parseTagValues(it.tags) } ?: true) &&
-                (difficultyFilter == null || when (difficultyFilter) {
-                    1 -> it.difficulty in 1..2
-                    2 -> it.difficulty == 3
-                    else -> it.difficulty in 4..5
-                })
+                difficultyMatchesFilter(it.difficulty, difficultyFilter)
         }
         when(order) { MistakeOrder.NEWEST -> filtered.sortedByDescending { it.uploadedAt }; MistakeOrder.OLDEST -> filtered.sortedBy { it.uploadedAt }; MistakeOrder.UPDATED -> filtered.sortedByDescending { it.updatedAt } }
     }
@@ -411,8 +409,13 @@ internal fun LibraryScreen(
                         item {
                             TijiChip(selected = difficultyFilter == null, onClick = { difficultyFilter = null }, label = { Text("全部") })
                         }
-                        items(listOf(1 to "简单", 2 to "中等", 3 to "困难")) { (value, label) ->
-                            TijiChip(selected = difficultyFilter == value, onClick = { difficultyFilter = value }, label = { Text(label) })
+                        items(difficultyOptions) { (value, label) ->
+                            TijiChip(
+                                selected = difficultyFilter == value,
+                                onClick = { difficultyFilter = value },
+                                modifier = Modifier.testTag("library_difficulty_option_$value"),
+                                label = { Text(label) }
+                            )
                         }
                     }
                 }
@@ -487,44 +490,45 @@ internal fun LibraryScreen(
             }
         },
     ) { padding ->
+        Column(Modifier.padding(padding).fillMaxSize()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = TijiDimens.pagePadding, top = 20.dp, end = TijiDimens.pagePadding, bottom = 10.dp)
+            ) {
+                TijiPageHeader(title = "错题库") {
+                    if (!selectionMode) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            TijiIconButton(onClick = onCreate) {
+                                Icon(Icons.Outlined.AddAPhoto, contentDescription = "录入错题")
+                            }
+                            TijiTextButton(
+                                onClick = { selectionMode = true },
+                                modifier = Modifier.heightIn(min = 48.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp)
+                            ) { Text("批量选择") }
+                        }
+                    }
+                }
+                TijiTextField(
+                    value = query,
+                    onValueChange = viewModel::setQuery,
+                    leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
+                    placeholder = { Text("搜索错题") },
+                    singleLine = true,
+                    shape = TijiShapes.M,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("library_search")
+                )
+            }
         LazyColumn(
             state = mistakeListState,
-            modifier = Modifier.padding(padding).fillMaxSize().testTag("library_mistakes_list"),
-            contentPadding = PaddingValues(horizontal = TijiDimens.pagePadding, vertical = 20.dp),
+            modifier = Modifier.fillMaxWidth().weight(1f).testTag("library_mistakes_list"),
+            contentPadding = PaddingValues(horizontal = TijiDimens.pagePadding, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
           item {
            Column(Modifier.fillMaxWidth()) {
-            TijiPageHeader(
-                title = "错题库",
-                subtitle = "按科目、状态和难度，找到下一道要解决的题。"
-            ) {
-                if (!selectionMode) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        TijiIconButton(onClick = onCreate) {
-                            Icon(Icons.Outlined.AddAPhoto, contentDescription = "录入错题")
-                        }
-                        TijiTextButton(
-                            onClick = { selectionMode = true },
-                            modifier = Modifier.heightIn(min = 48.dp),
-                            contentPadding = PaddingValues(horizontal = 8.dp)
-                        ) { Text("批量选择") }
-                    }
-                }
-            }
-            if (!selectionMode) {
-                Spacer(Modifier.height(12.dp))
-            }
-            TijiTextField(
-                value = query,
-                onValueChange = viewModel::setQuery,
-                leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
-                placeholder = { Text("搜索题目、答案、解析、标签或 OCR 文本") },
-                singleLine = true,
-                shape = TijiShapes.M,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("library_search")
-            )
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(2.dp))
             LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.testTag("library_subject_filters")
@@ -690,7 +694,6 @@ internal fun LibraryScreen(
             } else {
                 items(displayedMistakes, key = { it.id }) { mistake ->
                     TijiMistakeCard(mistake,
-                        knowledgeLabels = knowledgePoints.filter { point -> knowledgePointLinks.any { it.mistakeId == mistake.id && it.knowledgePointId == point.id } }.map { it.name },
                         selected = mistake.id in selectedIds, selectionMode = selectionMode, onSelected = {
                         selectedIds = if (mistake.id in selectedIds) selectedIds - mistake.id else selectedIds + mistake.id
                     }) { if (selectionMode) { selectedIds = if (mistake.id in selectedIds) selectedIds - mistake.id else selectedIds + mistake.id } else onOpen(mistake.id) }
@@ -704,6 +707,7 @@ internal fun LibraryScreen(
                     }
                 }
             }
+        }
         }
     }
 }

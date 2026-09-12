@@ -513,7 +513,7 @@ internal fun ReviewQuestionScreen(
                             TijiStatusBadge(current.mastery)
                         }
                         Text("题目", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                        Text(current.title.ifBlank { "先独立回想，再查看答案" }, style = MaterialTheme.typography.titleLarge)
+                        Text(current.title.ifBlank { "未命名错题" }, style = MaterialTheme.typography.titleLarge)
                         MathText(
                             current.questionText.ifBlank { "（图片题，请查看题目图片）" },
                             preserveSourceExactly = true,
@@ -548,7 +548,7 @@ internal fun ReviewQuestionScreen(
                     }
                     item {
                         TijiPaperCard {
-                            TijiSectionHeader("参考答案", "对照检查自己的思路")
+                            TijiSectionHeader("参考答案")
                             MathText(current.answerText.ifBlank { "未填写答案" })
                         }
                     }
@@ -562,14 +562,14 @@ internal fun ReviewQuestionScreen(
                     }
                     item {
                         TijiPaperCard {
-                            TijiSectionHeader("解析", "把错误归纳成下一次的提醒")
+                            TijiSectionHeader("解析")
                             MathText(current.explanation.ifBlank { "未填写解析" }, normalizeTerminalPeriod = true)
                         }
                     }
                     item {
                         val semanticColors = LocalTijiSemanticColors.current
                         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            TijiSectionHeader("复习反馈", "选择你对这道题的真实掌握程度")
+                            TijiSectionHeader("复习反馈")
                             androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp), maxItemsInEachRow = 2, modifier = Modifier.fillMaxWidth()) {
                                 ReviewGrade.values().forEach { grade ->
                                     val selected = selectedGrade == grade

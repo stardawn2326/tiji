@@ -168,11 +168,7 @@ internal fun ReviewSessionSummaryScreen(
                 TijiPageHeader(
                     eyebrow = "复习完成",
                     title = "这一轮有了新的反馈",
-                    subtitle = if (stats.completed == 0) {
-                        "本次还没有写入复习记录，可以返回知识点继续练习。"
-                    } else {
-                        "所有数字都来自本次真实 ReviewRecord。"
-                    }
+                    subtitle = if (stats.completed == 0) "暂无复习记录" else null
                 )
             }
             item {
@@ -216,7 +212,7 @@ internal fun ReviewSessionSummaryScreen(
             }
             item {
                 TijiPaperCard {
-                    TijiSectionHeader("下一步", "可以回到原入口继续巩固")
+                    TijiSectionHeader("下一步")
                     TijiTag(context.knowledgePointName?.takeIf { !it.isNullOrBlank() } ?: context.source.label)
                     Text(
                         "复习反馈已写入学习记录，下一次打开时会重新计算薄弱度。",

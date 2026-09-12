@@ -26,6 +26,10 @@ import com.tiji.mistakes.ui.math.FormulaPreview
 import com.tiji.mistakes.ui.math.MathText
 import com.tiji.mistakes.ui.design.TijiPaperCard
 import com.tiji.mistakes.ui.solve.ContentBlockImages
+import com.tiji.mistakes.ui.common.difficultyLabel
+import com.tiji.mistakes.ui.common.difficultyOptions
+import com.tiji.mistakes.ui.common.difficultyPickerValue
+import com.tiji.mistakes.ui.design.TijiSegmentedControl
 
 @Composable
 internal fun MistakeFields(
@@ -120,16 +124,6 @@ internal fun MistakeFields(
             FormulaPreview(answer)
             FormulaPreview(explanation, normalizeTerminalPeriod = true)
         }
-        if (showOptionalFields) {
-            com.tiji.mistakes.ui.design.TijiMultilineField(
-                note,
-                onNote,
-                label = { Text("我的总结") },
-                minLines = 2,
-                modifier = Modifier.fillMaxWidth()
-            )
-            ErrorReasonPicker(errorReason, onErrorReason)
-        }
         if (showClassification) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                 TijiTextField(
@@ -147,13 +141,6 @@ internal fun MistakeFields(
                     modifier = Modifier.weight(1f)
                 )
             }
-            TijiTextField(
-                tags,
-                onTags,
-                label = { Text("分类 / 知识点标签") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
             DifficultyPicker(difficulty, onDifficulty)
         }
     }
@@ -207,22 +194,13 @@ internal fun RenderedMistakeContentCard(
 
 @Composable
 internal fun DifficultyPicker(difficulty: Int, onDifficulty: (Int) -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(0.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        (1..5).forEach { value ->
-            TijiIconButton(
-                onClick = { onDifficulty(value) },
-                modifier = Modifier.semantics { contentDescription = "星级 $value" }
-            ) {
-                Text(
-                    text = if (value <= difficulty) "★" else "☆",
-                    color = if (value <= difficulty) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.titleLarge
-                )
-            }
-        }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+        Text("难度", style = MaterialTheme.typography.labelLarge)
+        TijiSegmentedControl(
+            options = difficultyOptions.map { it.first },
+            selected = difficultyPickerValue(difficulty).takeIf { it in 1..4 },
+            onSelected = onDifficulty,
+            label = ::difficultyLabel
+        )
     }
 }

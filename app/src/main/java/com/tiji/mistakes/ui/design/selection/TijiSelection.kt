@@ -35,7 +35,7 @@ internal fun TijiRadio(selected: Boolean, onClick: (() -> Unit)?, modifier: Modi
 
 /** Intrinsic height lets translated and enlarged labels wrap without clipping. */
 @Composable
-internal fun <T> TijiSegmentedControl(options: List<T>, selected: T, onSelected: (T) -> Unit,
+internal fun <T> TijiSegmentedControl(options: List<T>, selected: T?, onSelected: (T) -> Unit,
     label: (T) -> String, modifier: Modifier = Modifier, enabled: Boolean = true) {
     Row(modifier.fillMaxWidth().selectableGroup().background(MaterialTheme.colorScheme.surfaceVariant, TijiShapes.M)
         .padding(4.dp).height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(4.dp)) {

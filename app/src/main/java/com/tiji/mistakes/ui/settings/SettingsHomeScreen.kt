@@ -63,7 +63,7 @@ internal fun SettingsHomeScreen(
         verticalArrangement = Arrangement.spacedBy(0.dp)
     ) {
         item {
-            TijiPageHeader("设置", "让题迹适合你的学习习惯")
+            TijiPageHeader("设置")
         }
         item {
             Spacer(Modifier.height(12.dp))

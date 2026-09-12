@@ -1,7 +1,5 @@
 package com.tiji.mistakes.ui.design
 
-import com.tiji.mistakes.ui.LocalTijiSemanticColors
-
 import androidx.compose.ui.unit.dp
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
@@ -233,12 +231,11 @@ internal fun TijiStatusBadge(
     mastery: Int,
     modifier: Modifier = Modifier
 ) {
-    val semanticColors = LocalTijiSemanticColors.current
     val visual = when (mastery) {
-        0 -> StatusVisual("未掌握", MaterialTheme.colorScheme.error)
-        1 -> StatusVisual("复习中", semanticColors.reviewInProgress)
-        2 -> StatusVisual("基本掌握", semanticColors.reviewEasy)
-        else -> StatusVisual("已掌握", semanticColors.reviewMastered)
+        0 -> StatusVisual("未掌握", MaterialTheme.colorScheme.primary)
+        1 -> StatusVisual("复习中", MaterialTheme.colorScheme.primary)
+        2 -> StatusVisual("基本掌握", MaterialTheme.colorScheme.primary)
+        else -> StatusVisual("已掌握", MaterialTheme.colorScheme.primary)
     }
     Surface(
         modifier = modifier,

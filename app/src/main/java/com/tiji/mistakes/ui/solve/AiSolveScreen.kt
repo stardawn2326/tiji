@@ -232,15 +232,6 @@ internal fun AiSolveScreen(
             .take(8)
             .toList()
     }
-    val suggestedTags = remember(allMistakes) {
-        allMistakes.asSequence()
-            .flatMap { mistake -> mistake.tags.split(',', '，', ';', '；').asSequence() }
-            .map(String::trim)
-            .filter(String::isNotBlank)
-            .distinct()
-            .take(8)
-            .toList()
-    }
     val suggestedQuestionTypes = remember(allMistakes) {
         allMistakes.asSequence()
             .map { it.questionType.trim() }
@@ -714,7 +705,6 @@ internal fun AiSolveScreen(
             onSave = ::persistSolvedMistake,
             saving = aiMistakeSaveState.running,
             suggestedSubjects = suggestedSubjects,
-            suggestedTags = suggestedTags,
             suggestedQuestionTypes = suggestedQuestionTypes
         )
     }
@@ -880,7 +870,6 @@ internal fun AiSolveScreen(
                 TijiPaperCard {
                     TijiSectionHeader(
                         "本次解题",
-                        "原题输入已折叠，继续追问或重新开始",
                         action = { TijiTextButton(onClick = { showSolveInputs = !showSolveInputs }) { Text(if (showSolveInputs) "收起" else "查看原题") } }
                     )
                 }
@@ -889,7 +878,6 @@ internal fun AiSolveScreen(
                 TijiPaperCard(contentPadding = 12.dp) {
                     TijiSectionHeader(
                         "输入题目",
-                        "拍照、选择图片，或直接输入题目文字",
                         action = { TijiTextButton(onClick = { showSolveConfiguration = !showSolveConfiguration }) { Text(if (showSolveConfiguration) "收起" else "更多设置") } }
                     )
                     if (imagePaths.isNotEmpty()) {
@@ -1032,7 +1020,7 @@ internal fun AiSolveScreen(
                 (uncertainItems.isNotEmpty() || aiSolveState.recognitionWarning.isNotBlank())
             ) item {
                 TijiCard(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1047,7 +1035,7 @@ internal fun AiSolveScreen(
                             Text(
                                 uncertainItems.joinToString("；"),
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onTertiaryContainer
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
                             )
                         }
                         if (showRecognitionDetails) {
@@ -1099,10 +1087,10 @@ internal fun AiSolveScreen(
                 } else {
                     val verificationContainer = if (verification.status == AiVerificationStatus.FAILED) {
                         MaterialTheme.colorScheme.errorContainer
-                    } else MaterialTheme.colorScheme.tertiaryContainer
+                    } else MaterialTheme.colorScheme.primaryContainer
                     val verificationContent = if (verification.status == AiVerificationStatus.FAILED) {
                         MaterialTheme.colorScheme.onErrorContainer
-                    } else MaterialTheme.colorScheme.onTertiaryContainer
+                    } else MaterialTheme.colorScheme.onPrimaryContainer
                     TijiCard(
                         colors = CardDefaults.cardColors(containerColor = verificationContainer),
                         modifier = Modifier.fillMaxWidth()
@@ -1130,7 +1118,6 @@ internal fun AiSolveScreen(
                 TijiPaperCard {
                     TijiSectionHeader(
                         "答案与解析",
-                        "先看结果，需要时再展开完整内容",
                         action = { TijiTextButton(onClick = { aiSolutionExpanded = !aiSolutionExpanded }) { Text(if (aiSolutionExpanded) "收起" else "展开") } }
                     )
                     if (aiSolutionExpanded) {
@@ -1198,7 +1185,6 @@ internal fun AiSolveScreen(
                     TijiPaperCard {
                         TijiSectionHeader(
                             "最新对话",
-                            "围绕当前题目继续追问",
                             action = {
                                 if (latestChat != null && !followUpLoading) {
                                     TijiTextButton(onClick = { latestChatExpanded = !latestChatExpanded }) { Text(if (latestChatExpanded) "收起" else "展开") }

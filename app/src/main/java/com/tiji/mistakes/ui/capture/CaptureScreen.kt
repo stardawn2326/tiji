@@ -201,15 +201,6 @@ internal fun NewCaptureScreen(
             .take(8)
             .toList()
     }
-    val suggestedTags = remember(allMistakes) {
-        allMistakes.asSequence()
-            .flatMap { mistake -> mistake.tags.split(',', '，', ';', '；').asSequence() }
-            .map(String::trim)
-            .filter(String::isNotBlank)
-            .distinct()
-            .take(8)
-            .toList()
-    }
     val suggestedQuestionTypes = remember(allMistakes) {
         allMistakes.asSequence()
             .map { it.questionType.trim() }
@@ -636,7 +627,6 @@ internal fun NewCaptureScreen(
                 onSave = ::persistCapture,
                 saving = saving,
                 suggestedSubjects = suggestedSubjects,
-                suggestedTags = suggestedTags,
                 suggestedQuestionTypes = suggestedQuestionTypes
             )
         }
@@ -709,7 +699,7 @@ internal fun NewCaptureScreen(
                     TijiPaperCard {
                         Text("照片内容", style = MaterialTheme.typography.titleMedium)
                         Text(
-                            "题目照片必填；答案和解析照片可选。保存前可在分类面板中补充信息。",
+                            "题目图片必填；答案和解析图片可选。",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -751,12 +741,11 @@ internal fun NewCaptureScreen(
                 item {
                     TijiPaperCard {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                            TijiSurface(color = MaterialTheme.colorScheme.tertiaryContainer, shape = TijiShapes.M) {
-                                Icon(Icons.Outlined.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary, modifier = Modifier.padding(10.dp).size(23.dp))
+                            TijiSurface(color = MaterialTheme.colorScheme.primaryContainer, shape = TijiShapes.M) {
+                                Icon(Icons.Outlined.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(10.dp).size(23.dp))
                             }
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                 Text("AI 识题", style = MaterialTheme.typography.titleMedium)
-                                Text("识别题目、答案和解析，科目随后自动归类", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                         TijiTextButton(onClick = { showCaptureConfiguration = !showCaptureConfiguration }) {
@@ -821,7 +810,6 @@ internal fun NewCaptureScreen(
                         val aiContentBlocks = remember(contentBlocksJson) { QuestionContentBlockCodec.decode(contentBlocksJson) }
                         TijiPaperCard {
                             Text("识别结果", style = MaterialTheme.typography.titleMedium)
-                            Text("确认内容后点击底部保存；分类会在保存面板中确认。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             MistakeFields(
                                 title = title,
                                 question = question,
@@ -862,7 +850,6 @@ internal fun NewCaptureScreen(
                 item {
                     TijiPaperCard {
                         Text("题目内容", style = MaterialTheme.typography.titleMedium)
-                        Text("题目、答案和解析会在本机保存；分类可在保存面板中补充。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         MistakeFields(
                             title = title,
                             question = question,

@@ -46,7 +46,6 @@ internal fun MistakeSaveSheet(
     onSave: (MistakeSaveMetadata) -> Unit,
     saving: Boolean = false,
     suggestedSubjects: List<String> = emptyList(),
-    suggestedTags: List<String> = emptyList(),
     suggestedQuestionTypes: List<String> = emptyList()
 ) {
     var subject by remember(initial.subject) { mutableStateOf(initial.subject) }
@@ -65,15 +64,10 @@ internal fun MistakeSaveSheet(
                 .fillMaxWidth()
 
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = TijiDimens.pagePadding, vertical = 8.dp),
+            .padding(horizontal = TijiDimens.pagePadding, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text("保存错题", style = MaterialTheme.typography.headlineSmall)
-            Text(
-                "先确认分类和复习计划，保存后以这里的最终值为准。",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
             TijiTextField(
                 value = subject,
                 onValueChange = { subject = it },
@@ -85,26 +79,6 @@ internal fun MistakeSaveSheet(
                 title = "常用科目",
                 values = suggestedSubjects,
                 onSelected = { subject = it }
-            )
-            TijiTextField(
-                value = tags,
-                onValueChange = { tags = it },
-                label = { Text("知识点 / 标签") },
-                supportingText = { Text("多个内容用逗号分隔") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-            SuggestionChips(
-                title = "本地知识点",
-                values = suggestedTags,
-                onSelected = { selected ->
-                    tags = tags.split(',', '，')
-                        .map(String::trim)
-                        .filter(String::isNotBlank)
-                        .plus(selected)
-                        .distinct()
-                        .joinToString(", ")
-                }
             )
             TijiTextField(
                 value = questionType,

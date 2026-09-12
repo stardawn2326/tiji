@@ -324,16 +324,11 @@ internal fun KnowledgeDetailScreen(
                         Spacer(Modifier.size(6.dp))
                         Text(if (relatedMistakes.isEmpty()) "暂无可打印错题" else "打印纸质练习")
                     }
-                    Text(
-                        "按到期、掌握度和最近“忘记”优先安排题目",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
                 }
             }
             item {
                 TijiPaperCard {
-                    TijiSectionHeader("学习概览", "只统计当前知识点关联的错题和真实复习记录")
+                    TijiSectionHeader("学习概览")
                     Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         KnowledgeMetric("关联错题", relatedMistakes.size.toString(), Modifier.weight(1f))
                         KnowledgeMetric(
@@ -348,7 +343,7 @@ internal fun KnowledgeDetailScreen(
             }
             item {
                 TijiPaperCard {
-                    TijiSectionHeader("主要原因", "把薄弱度变成下一步可以行动的提示")
+                    TijiSectionHeader("主要原因")
                     reasons.forEach { reason ->
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(top = 7.dp),
@@ -358,7 +353,7 @@ internal fun KnowledgeDetailScreen(
                             Icon(
                                 if (reason.startsWith("最近没有")) Icons.Outlined.CheckCircle else Icons.Outlined.Info,
                                 contentDescription = null,
-                                tint = if (reason.startsWith("最近没有")) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.primary,
+                                tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(18.dp)
                             )
                             Text(reason, style = MaterialTheme.typography.bodyMedium)
@@ -387,7 +382,7 @@ internal fun KnowledgeDetailScreen(
                 }
             }
             item {
-                TijiSectionHeader("相关错题", "从这里回到具体题目继续练习")
+                TijiSectionHeader("相关错题")
             }
             if (relatedMistakes.isEmpty()) {
                 item {
