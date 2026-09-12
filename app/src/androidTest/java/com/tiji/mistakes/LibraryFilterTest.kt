@@ -3,7 +3,6 @@ package com.tiji.mistakes
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.performClick
@@ -112,7 +111,7 @@ class LibraryFilterTest {
         composeRule.onNodeWithTag("library_mastery_filter").performClick()
         composeRule.onNodeWithText("结构化知识点").assertDoesNotExist()
         composeRule.onNodeWithText("旧标签兼容").assertDoesNotExist()
-        composeRule.onAllNodesWithText("未掌握")[1].assertExists().performClick()
+        composeRule.onNodeWithTag("library_mastery_option_0").performClick()
         composeRule.onNodeWithText("完成").performClick()
         scrollToFixture(fixtureIds[0])
         composeRule.onNodeWithTag("mistake_card_${fixtureIds[0]}").assertExists()

@@ -339,7 +339,12 @@ internal fun LibraryScreen(
                             TijiChip(selected = masteryFilter == null, onClick = { masteryFilter = null }, label = { Text("全部") })
                         }
                         items(listOf(0 to "未掌握", 1 to "复习中", 2 to "基本掌握", 3 to "已掌握")) { (value, label) ->
-                            TijiChip(selected = masteryFilter == value, onClick = { masteryFilter = value }, label = { Text(label) })
+                            TijiChip(
+                                selected = masteryFilter == value,
+                                onClick = { masteryFilter = value },
+                                modifier = Modifier.testTag("library_mastery_option_$value"),
+                                label = { Text(label) }
+                            )
                         }
                     }
                     Text("难度", style = MaterialTheme.typography.titleSmall)

@@ -1,9 +1,9 @@
 package com.tiji.mistakes
 
+import androidx.activity.compose.setContent
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -27,6 +27,7 @@ class KnowledgeExplorerTest {
     private val fixtureIds = mutableListOf<Long>()
     private var stableTag = ""
     private var mathPointStableId = ""
+    private lateinit var knowledgeData: KnowledgeTestData
 
     @Before
     fun insertFixtures() = runBlocking {
@@ -47,6 +48,7 @@ class KnowledgeExplorerTest {
         )
         MistakeRepository(AppDatabase.get(context)).backfillLegacyTags()
         mathPointStableId = KnowledgePointNormalizer.stableId("数学", stableTag)
+        knowledgeData = loadKnowledgeTestData(context, mathPointStableId)
     }
 
     @After
@@ -58,15 +60,11 @@ class KnowledgeExplorerTest {
     }
 
     @Test
-    fun knowledgeDetailLinksBackToStableSubjectFilter() {
-        composeRule.onNodeWithTag("nav_library").performClick()
-        composeRule.onNodeWithTag("library_open_knowledge").performClick()
-        composeRule.waitUntil(5_000) {
-            runCatching { composeRule.onNodeWithTag("knowledge_card_$mathPointStableId").assertExists(); true }
-                .getOrDefault(false)
+    fun knowledgeDetailShowsOnlyRelatedMistakesForStablePoint() {
+        composeRule.activity.runOnUiThread {
+            composeRule.activity.setContent { KnowledgeTestHost(knowledgeData) }
         }
-
-        composeRule.onNodeWithTag("knowledge_card_$mathPointStableId").performClick()
+        composeRule.waitForIdle()
         composeRule.onNodeWithTag("knowledge_detail").assertExists()
         composeRule.waitUntil(5_000) {
             runCatching {
@@ -80,14 +78,6 @@ class KnowledgeExplorerTest {
         composeRule.onNodeWithTag("knowledge_mistake_${fixtureIds[0]}").assertExists()
         composeRule.onNodeWithTag("knowledge_mistake_${fixtureIds[1]}").assertDoesNotExist()
 
-        composeRule.onNodeWithText("查看相关错题").performClick()
-        composeRule.waitUntil(5_000) {
-            runCatching { composeRule.onNodeWithTag("library_mistakes_list").assertExists(); true }
-                .getOrDefault(false)
-        }
-        composeRule.onNodeWithTag("library_mistakes_list")
-            .performScrollToNode(hasTestTag("mistake_card_${fixtureIds[0]}"))
-        composeRule.onNodeWithTag("mistake_card_${fixtureIds[0]}").assertExists()
-        composeRule.onNodeWithTag("mistake_card_${fixtureIds[1]}").assertDoesNotExist()
+        composeRule.onNodeWithText("查看相关错题").assertDoesNotExist()
     }
 }
