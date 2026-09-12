@@ -201,13 +201,17 @@ internal fun ReviewQuestionScreen(
     val selectedGrade = focusedGrade ?: dailySelectedGrade
 
     LaunchedEffect(currentId) {
-        questionListState.scrollToItem(0)
         mistake = null
         loadError = null
         if (currentId <= 0L) {
             loadError = "错题编号无效"
         } else {
             viewModel.find(currentId, onLoaded = { mistake = it }, onError = { loadError = it.message ?: "无法读取错题" })
+        }
+    }
+    LaunchedEffect(currentId, mistake != null) {
+        if (mistake != null) {
+            questionListState.scrollToItem(0)
         }
     }
 
