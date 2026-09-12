@@ -8,12 +8,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.FilterChip
+import com.tiji.mistakes.ui.design.TijiDialog
+import com.tiji.mistakes.ui.design.TijiChip
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Switch
+import com.tiji.mistakes.ui.design.TijiSwitch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.tiji.mistakes.ui.design.TijiTextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -36,7 +36,7 @@ internal fun PdfExportOptionsDialog(
     var template by remember(initial) { mutableStateOf(initial.template) }
     var includeSourceImages by remember(initial) { mutableStateOf(initial.includeSourceImages) }
 
-    AlertDialog(
+    TijiDialog(
         onDismissRequest = onDismiss,
         modifier = Modifier.testTag("pdf_export_options"),
         title = { Text("打印错题") },
@@ -53,7 +53,7 @@ internal fun PdfExportOptionsDialog(
                 Text("模板", style = MaterialTheme.typography.labelLarge)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     PdfTemplate.entries.forEach { option ->
-                        FilterChip(
+                        TijiChip(
                             selected = template == option,
                             onClick = { template = option },
                             label = { Text(option.label) },
@@ -73,7 +73,7 @@ internal fun PdfExportOptionsDialog(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    Switch(
+                    TijiSwitch(
                         checked = includeSourceImages,
                         onCheckedChange = { includeSourceImages = it },
                         modifier = Modifier.testTag("pdf_include_source_images")
@@ -95,7 +95,7 @@ internal fun PdfExportOptionsDialog(
             }
         },
         confirmButton = {
-            TextButton(
+            TijiTextButton(
                 onClick = {
                     onConfirm(
                         initial.copy(
@@ -109,6 +109,6 @@ internal fun PdfExportOptionsDialog(
                 modifier = Modifier.testTag("pdf_export_options_confirm")
             ) { Text("生成预览") }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
+        dismissButton = { TijiTextButton(onClick = onDismiss) { Text("取消") } }
     )
 }
