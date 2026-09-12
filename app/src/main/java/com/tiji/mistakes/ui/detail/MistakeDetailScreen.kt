@@ -19,8 +19,6 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -30,7 +28,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Print
-import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material3.Button
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
@@ -441,43 +438,20 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
     }
     Scaffold(
         bottomBar = {
-            Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 1.dp) {
-                Row(
-                    Modifier.navigationBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    if (editing) {
+            if (editing) {
+                Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 1.dp) {
+                    Row(
+                        Modifier.navigationBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         Button(
                             onClick = {
                                 viewModel.save(current.copy(title = normalizeAsciiPunctuation(title), questionText = normalizeAsciiPunctuation(question), userAnswer = normalizeAsciiPunctuation(userAnswer), answerText = normalizeAsciiPunctuation(answer), explanation = normalizeAsciiPunctuation(explanation), note = normalizeAsciiPunctuation(note), errorReason = normalizeAsciiPunctuation(errorReason), subject = normalizeAsciiPunctuation(subject), questionType = normalizeAsciiPunctuation(questionType), tags = normalizeAsciiPunctuation(tags), difficulty = difficulty, includeSourceImageInPdf = current.includeSourceImageInPdf, imagePath = questionImage, sourceImagePaths = org.json.JSONArray(originalQuestionImages).toString(), contentBlocks = QuestionContentBlockCodec.encode(detailContentBlocks), answerImagePath = answerImage, explanationImagePath = explanationImage))
                                 editing = false
                                 saveMessage = "已保存修改"
                             },
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("detail_edit_save_bar")
                         ) { Text("保存修改") }
-                    } else {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            OutlinedButton(
-                                onClick = { showReviewCheckIn = true },
-                                enabled = !reviewSubmitting,
-                                modifier = Modifier.weight(0.9f).heightIn(min = 52.dp).testTag("detail_mastery_action"),
-                                contentPadding = PaddingValues(horizontal = 8.dp)
-                            ) {
-                                Text("复习打卡", maxLines = 1)
-                            }
-                            Button(
-                                onClick = { explanationExpanded = !explanationExpanded },
-                                modifier = Modifier.weight(1.35f).heightIn(min = 52.dp),
-                                contentPadding = PaddingValues(horizontal = 8.dp)
-                            ) {
-                                Icon(Icons.Outlined.Visibility, contentDescription = null)
-                                Spacer(Modifier.size(6.dp))
-                                Text(if (explanationExpanded) "收起完整解析" else "查看完整解析", maxLines = 1)
-                            }
-                        }
                     }
                 }
             }
@@ -487,7 +461,7 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                 title = { Text("错题详情") },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回错题库") } },
                 actions = {
-                    IconButton(onClick = { detailMenuExpanded = true }) {
+                    IconButton(onClick = { detailMenuExpanded = true }, modifier = Modifier.testTag("detail_more")) {
                         Icon(Icons.Outlined.MoreVert, contentDescription = "更多操作")
                     }
                     DropdownMenu(
@@ -532,7 +506,7 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                 start = TijiDimens.pagePadding,
                 top = 12.dp,
                 end = TijiDimens.pagePadding,
-                bottom = 104.dp
+                bottom = if (editing) 104.dp else 24.dp
             ),
             verticalArrangement = Arrangement.spacedBy(TijiDimens.cardGap),
             modifier = Modifier.padding(padding).fillMaxSize().testTag("detail_content")
@@ -653,7 +627,12 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                                 Text("解析", style = MaterialTheme.typography.titleMedium)
                                 Text("需要时再展开完整推导", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            TextButton(onClick = { explanationExpanded = !explanationExpanded }) { Text(if (explanationExpanded) "收起" else "查看") }
+                            TextButton(
+                                onClick = { explanationExpanded = !explanationExpanded },
+                                modifier = Modifier.testTag("detail_explanation_toggle")
+                            ) {
+                                Text(if (explanationExpanded) "收起" else "查看")
+                            }
                         }
                         if (explanationExpanded) {
                             MathText(explanation, normalizeTerminalPeriod = true, compactVerticalSpacing = true)
@@ -737,7 +716,7 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                 }
             }
             item {
-                TijiSurfaceCard {
+                TijiSurfaceCard(modifier = Modifier.testTag("detail_review_card")) {
                     ConceptSectionHeader("复习记录", "用间隔复习把错误变成长期记忆")
                     Row(horizontalArrangement = Arrangement.spacedBy(18.dp), modifier = Modifier.padding(top = 8.dp)) {
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -754,6 +733,15 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                     } else {
                         reviewHistory.take(5).forEach { record ->
                             DetailReviewHistoryRow(record)
+                        }
+                    }
+                    if (!editing) {
+                        OutlinedButton(
+                            onClick = { showReviewCheckIn = true },
+                            enabled = !reviewSubmitting,
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("detail_mastery_action")
+                        ) {
+                            Text("复习打卡")
                         }
                     }
                 }
