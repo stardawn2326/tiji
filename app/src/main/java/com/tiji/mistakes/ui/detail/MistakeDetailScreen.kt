@@ -32,6 +32,7 @@ import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Print
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -169,6 +170,8 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
     var difficulty by remember(current.id) { mutableIntStateOf(current.difficulty) }
     var inReviewPlan by remember(current.id) { mutableStateOf(current.inReviewPlan) }
     var editing by remember(current.id) { mutableStateOf(false) }
+    var showMoreInfo by remember(current.id) { mutableStateOf(false) }
+    var showReviewCheckIn by remember(current.id) { mutableStateOf(false) }
     var explanationExpanded by remember(current.id) { mutableStateOf(false) }
     var detailMenuExpanded by remember(current.id) { mutableStateOf(false) }
     var saveMessage by remember(current.id) { mutableStateOf("") }
@@ -252,6 +255,41 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                     result.fold({ "已交给系统打印" }, { "系统打印失败：${it.message ?: "未知错误"}" }),
                     Toast.LENGTH_LONG
                 ).show()
+            }
+        )
+    }
+    if (showReviewCheckIn) {
+        AlertDialog(
+            onDismissRequest = { showReviewCheckIn = false },
+            title = { Text("这次怎么样？") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("选择本次复习的真实掌握程度。", style = MaterialTheme.typography.bodyMedium)
+                    ReviewGrade.values().forEach { grade ->
+                        OutlinedButton(
+                            onClick = {
+                                showReviewCheckIn = false
+                                viewModel.review(current, grade) { record ->
+                                    mistake = current.copy(
+                                        mastery = record.masteryAfter,
+                                        reviewCount = current.reviewCount + 1,
+                                        lastReviewedAt = record.reviewedAt,
+                                        nextReviewAt = record.nextReviewAt
+                                    )
+                                    saveMessage = "已记录：${reviewGradeUiLabel(grade)}"
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                                .testTag("detail_grade_${grade.name.lowercase()}"),
+                        ) {
+                            Text(reviewGradeUiLabel(grade))
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showReviewCheckIn = false }) { Text("取消") }
             }
         )
     }
@@ -410,20 +448,11 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             OutlinedButton(
-                                onClick = {
-                                    if (inReviewPlan) {
-                                        viewModel.review(current, ReviewGrade.EASY) {
-                                            saveMessage = "已标记为熟练，仍保留在复习计划"
-                                        }
-                                    } else {
-                                        inReviewPlan = true
-                                        viewModel.setReviewPlan(id, true) { saveMessage = "已加入复习计划" }
-                                    }
-                                },
+                                onClick = { showReviewCheckIn = true },
                                 modifier = Modifier.weight(0.9f).heightIn(min = 52.dp).testTag("detail_mastery_action"),
                                 contentPadding = PaddingValues(horizontal = 8.dp)
                             ) {
-                                Text(if (inReviewPlan) "标记熟练" else "加入复习", maxLines = 1)
+                                Text("复习打卡", maxLines = 1)
                             }
                             Button(
                                 onClick = { explanationExpanded = !explanationExpanded },
@@ -535,6 +564,22 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                 }
                 if (!photoOnly) item {
                     TijiSurfaceCard {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text("更多信息", style = MaterialTheme.typography.titleMedium)
+                                Text("作答、错因和笔记", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            TextButton(
+                                onClick = { showMoreInfo = !showMoreInfo },
+                                modifier = Modifier.testTag("detail_more_info_toggle")
+                            ) {
+                                Text(if (showMoreInfo) "收起" else "查看")
+                            }
+                        }
+                    }
+                }
+                if (!photoOnly && showMoreInfo) item {
+                    TijiSurfaceCard {
                         ConceptSectionHeader("我的答案", "回看当时写下的思路")
                         if (userAnswer.isBlank()) {
                             Text("还没有记录你的作答", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -554,7 +599,7 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                         ContentBlockImages(detailContentBlocks.filter { it.role == ContentBlockRole.ANSWER }, onDelete = ::removeDetailContentBlock)
                     }
                 }
-                if (!photoOnly) item {
+                if (!photoOnly && showMoreInfo) item {
                     TijiSurfaceCard {
                         ConceptSectionHeader("错因标签", "用几个词标记这次为什么会错")
                         val reasons = parseErrorReasons(errorReason)
@@ -577,7 +622,7 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                         }
                     }
                 }
-                if (!photoOnly) item {
+                if (!photoOnly && showMoreInfo) item {
                     TijiSurfaceCard {
                         ConceptSectionHeader("我的总结", "记录这次为什么会错")
                         if (note.isBlank()) {

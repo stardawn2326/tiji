@@ -46,14 +46,18 @@ class MistakeDetailUiTest {
         composeRule.onNodeWithTag("mistake_card_$fixtureId").performClick()
         val detailContent = composeRule.onNodeWithTag("detail_content")
 
+        detailContent.performScrollToNode(hasText("更多信息"))
+        composeRule.onNodeWithText("我的答案").assertDoesNotExist()
+        composeRule.onNodeWithTag("detail_more_info_toggle").performClick()
         listOf("我的答案", "正确答案", "错因标签", "我的总结").forEach { label ->
             detailContent.performScrollToNode(hasText(label))
             composeRule.onNodeWithText(label).assertExists()
         }
-        composeRule.onNodeWithText("标记熟练").assertExists()
+        composeRule.onNodeWithText("复习打卡").assertExists()
         composeRule.onNodeWithTag("detail_mastery_action").assertExists()
 
         composeRule.onNodeWithTag("detail_mastery_action").performClick()
+        composeRule.onNodeWithTag("detail_grade_easy").performClick()
         composeRule.waitUntil(5_000) {
             runBlocking {
                 AppDatabase.get(context).mistakeDao().findById(fixtureId)?.let {
@@ -63,7 +67,7 @@ class MistakeDetailUiTest {
                 } == true
             }
         }
-        composeRule.onNodeWithText("标记熟练").assertExists()
+        composeRule.onNodeWithText("复习打卡").assertExists()
 
         composeRule.runOnUiThread {
             composeRule.activity.onBackPressedDispatcher.onBackPressed()
@@ -78,6 +82,6 @@ class MistakeDetailUiTest {
         composeRule.waitUntil(5_000) {
             composeRule.onAllNodesWithTag("detail_mastery_action").fetchSemanticsNodes().isNotEmpty()
         }
-        composeRule.onNodeWithText("标记熟练").assertExists()
+        composeRule.onNodeWithText("复习打卡").assertExists()
     }
 }

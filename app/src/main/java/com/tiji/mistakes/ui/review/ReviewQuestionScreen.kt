@@ -6,6 +6,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -46,6 +47,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -77,6 +79,8 @@ import com.tiji.mistakes.ui.TijiStatusBadge
 import com.tiji.mistakes.ui.TijiSurfaceCard
 import java.time.ZoneId
 import java.time.temporal.ChronoUnit
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
 internal fun ReviewQuestionScreen(
@@ -126,6 +130,9 @@ internal fun ReviewQuestionScreen(
     var showAnswer by remember(currentId) { mutableStateOf(false) }
     var showExplanation by remember(currentId) { mutableStateOf(false) }
     var reviewMenuExpanded by remember(currentId) { mutableStateOf(false) }
+    var reviewReasonExpanded by remember(currentId) { mutableStateOf(false) }
+    var autoAdvancePending by remember(currentId) { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
     val currentSavedStatus = if (isUnifiedSession) null else reviewStatuses[currentId]
     val focusedGrade = focusedSession?.gradesByMistake?.get(currentId)?.let {
         runCatching { ReviewGrade.valueOf(it) }.getOrNull()
@@ -175,6 +182,20 @@ internal fun ReviewQuestionScreen(
     val exitSession = {
         if (isUnifiedSession) viewModel.clearReviewSession(resolvedSessionKey)
         onBack()
+    }
+    fun advanceAfterRecorded() {
+        if (autoAdvancePending) return
+        autoAdvancePending = true
+        val isLastQuestion = effectiveReviewIds.isEmpty() || currentIndex == effectiveReviewIds.lastIndex
+        scope.launch {
+            delay(520)
+            autoAdvancePending = false
+            if (isLastQuestion) {
+                if (isUnifiedSession) completeFocusedSession() else exitSession()
+            } else {
+                moveBy(1)
+            }
+        }
     }
     val showSummary = isUnifiedSession && focusedSession?.summaryVisible == true
     if (showSummary && summaryState.sessionKey == resolvedSessionKey && summaryState.isLoaded) {
@@ -264,21 +285,33 @@ internal fun ReviewQuestionScreen(
                 if (reviewReason != null) {
                     item {
                         TijiSurfaceCard(contentPadding = 12.dp) {
-                            Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().clickable {
+                                    reviewReasonExpanded = !reviewReasonExpanded
+                                },
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
                                 Icon(
                                     Icons.Outlined.Info,
-                                    contentDescription = null,
+                                    contentDescription = "查看复习原因",
                                     tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(20.dp)
                                 )
                                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                    Text("为什么今天复习", style = MaterialTheme.typography.labelLarge)
-                                    Text(
-                                        reviewReason,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Text("到期复习", style = MaterialTheme.typography.labelLarge)
+                                        Icon(Icons.Outlined.Info, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    }
+                                    if (reviewReasonExpanded) {
+                                        Text(
+                                            reviewReason,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
                                 }
+                                Text(if (reviewReasonExpanded) "收起" else "详情", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                             }
                         }
                     }
@@ -367,11 +400,17 @@ internal fun ReviewQuestionScreen(
                                                             mistake = current,
                                                             grade = grade,
                                                             sessionKey = resolvedSessionKey,
-                                                            onRecorded = { onReviewed(current.id, grade) }
+                                                            onRecorded = {
+                                                                onReviewed(current.id, grade)
+                                                                advanceAfterRecorded()
+                                                            }
                                                         )
                                                     } else {
                                                         dailySelectedGrade = grade
-                                                        viewModel.review(current, grade) { onReviewed(current.id, grade) }
+                                                        viewModel.review(current, grade) {
+                                                            onReviewed(current.id, grade)
+                                                            advanceAfterRecorded()
+                                                        }
                                                     }
                                                 }
                                             },

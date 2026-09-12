@@ -145,9 +145,6 @@ class LibraryFilterTest {
         composeRule.onNodeWithTag("review_question_content")
             .performScrollToNode(hasTestTag("review_grade_good"))
         composeRule.onNodeWithTag("review_grade_good").performClick()
-        composeRule.onNodeWithTag("review_question_content")
-            .performScrollToNode(hasText("查看总结"))
-        composeRule.onNodeWithText("查看总结").performClick()
 
         composeRule.waitUntil(5_000) {
             runCatching {

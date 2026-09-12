@@ -65,6 +65,17 @@ object HtmlPdfExportService {
     private const val PAGE_HEIGHT_PX = 1123
     private const val A4_WIDTH_PT = 595
     private const val A4_HEIGHT_PT = 842
+
+    /**
+     * Exposes the same template source used by the exporter to instrumentation tests.
+     * Keeping this boundary here makes the PDF option contract testable without
+     * duplicating the HTML builder in the test source set.
+     */
+    internal fun buildHtmlForTest(
+        mistakes: List<MistakeEntity>,
+        documentTitle: String = "题迹错题练习册",
+        options: PdfExportOptions = PdfExportOptions()
+    ): String = buildHtml(mistakes, documentTitle, options.normalized())
     suspend fun writeQuestionPdf(
         context: Context,
         uri: Uri,
@@ -739,7 +750,7 @@ object HtmlPdfExportService {
             .map(String::trim)
             .filter(String::isNotBlank)
             .joinToString(" · ")
-        if (options.originalImagesOnly) {
+        if (options.originalImagesOnly && options.includeSourceImages) {
             val images = sourceImagePaths(mistake)
             return buildString {
                 append("<article class=\"question original-images-only\">")
@@ -766,7 +777,7 @@ object HtmlPdfExportService {
         if (metadata.isNotBlank()) body.append("<div class=\"question-meta\">${escapeHtml(metadata)}</div>")
         body.append("</div>")
 
-        if (options.includeSourceImages && mistake.includeSourceImageInPdf) {
+        if (options.includeSourceImages) {
             val sourceImages = sourceImagePaths(mistake)
             sourceImages.forEachIndexed { sourceIndex, path ->
                 appendImageSection(
@@ -1051,7 +1062,7 @@ object HtmlPdfExportService {
         val formulaWeight = Regex("""\\(?:frac|dfrac|tfrac|int|sum|prod|sqrt|lim)""")
             .findAll(mistake.questionText)
             .count()
-        val imageWeight = if (options.includeSourceImages && mistake.includeSourceImageInPdf && sourceImagePaths(mistake).any { File(it).isFile }) {
+        val imageWeight = if (options.includeSourceImages && sourceImagePaths(mistake).any { File(it).isFile }) {
             4 + sourceImagePaths(mistake).size.coerceAtMost(3)
         } else 0
         return (options.answerSpaceMm + (visualLines - 1).coerceAtLeast(0) * 2 + formulaWeight * 2 + imageWeight)

@@ -120,9 +120,6 @@ class FocusedReviewUiTest {
         composeRule.onAllNodesWithText("· 专项复习", substring = true).assertCountEquals(2)
         composeRule.onNodeWithText("2 / 2").assertDoesNotExist()
         gradeCurrentQuestion()
-        composeRule.onNodeWithTag("review_question_content")
-            .performScrollToNode(hasText("下一题"))
-        composeRule.onNodeWithText("下一题").performClick()
 
         composeRule.waitUntil(5_000) {
             runCatching {
@@ -131,9 +128,6 @@ class FocusedReviewUiTest {
             }.getOrDefault(false)
         }
         gradeCurrentQuestion()
-        composeRule.onNodeWithTag("review_question_content")
-            .performScrollToNode(hasText("查看总结"))
-        composeRule.onNodeWithText("查看总结").performClick()
 
         composeRule.waitUntil(5_000) {
             runCatching {

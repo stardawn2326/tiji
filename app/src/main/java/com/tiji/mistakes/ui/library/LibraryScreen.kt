@@ -490,18 +490,8 @@ internal fun LibraryScreen(
                 }
             }
             if (!selectionMode) {
-                OutlinedButton(
-                    onClick = { openPdfOptions(visibleMistakes.map { it.id }) },
-                    enabled = visibleMistakes.isNotEmpty(),
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("library_print_filtered"),
-                    contentPadding = PaddingValues(horizontal = 12.dp)
-                ) {
-                    Icon(Icons.Outlined.Print, contentDescription = null)
-                    Spacer(Modifier.size(6.dp))
-                    Text(if (visibleMistakes.isEmpty()) "暂无可打印错题" else "打印当前 ${visibleMistakes.size} 道错题")
-                }
+                Spacer(Modifier.height(12.dp))
             }
-            Spacer(Modifier.height(12.dp))
             OutlinedTextField(
                 value = query,
                 onValueChange = viewModel::setQuery,
@@ -617,9 +607,24 @@ internal fun LibraryScreen(
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp, bottom = 8.dp)) {
-                Text("${visibleMistakes.size} 道错题", style = MaterialTheme.typography.titleSmall)
-                Spacer(Modifier.weight(1f))
-                if (selectedSubject != null) Text("当前：$selectedSubject", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("${visibleMistakes.size} 道错题", style = MaterialTheme.typography.titleSmall)
+                    if (selectedSubject != null) {
+                        Text("当前：$selectedSubject", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                if (!selectionMode) {
+                    OutlinedButton(
+                        onClick = { openPdfOptions(visibleMistakes.map { it.id }) },
+                        enabled = visibleMistakes.isNotEmpty(),
+                        modifier = Modifier.heightIn(min = 44.dp).testTag("library_print_filtered"),
+                        contentPadding = PaddingValues(horizontal = 10.dp)
+                    ) {
+                        Icon(Icons.Outlined.Print, contentDescription = null)
+                        Spacer(Modifier.size(6.dp))
+                        Text("打印 / PDF")
+                    }
+                }
             }
             if (visibleMistakes.isEmpty()) {
                 val hasFilter = query.isNotBlank() || selectedSubject != null || selectedKnowledgePointStableId != null || masteryFilter != null || difficultyFilter != null || tagFilter != null

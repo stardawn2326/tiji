@@ -188,7 +188,6 @@ internal fun TijiNavGraph(
                         aiExcludeSourceImageByDefault = state.aiExcludeSourceImageByDefault,
                         onActiveAiProfile = { id -> scope.launch { preferences.setActiveAiProfile(id, state.aiProfiles) } },
                         onOpenSettings = { navController.navigate(TijiRoutes.settingsDetail(SettingsSection.OVERVIEW)) },
-                        onOpenChatHistory = { navController.navigate(TijiRoutes.AI_CHAT_HISTORY) },
                         onOpenSolveHistory = { navController.navigate(TijiRoutes.AI_SOLVE_HISTORY) },
                         onOpenMistake = { id -> navController.navigate(TijiRoutes.detail(id)) },
                         onAiUploadConsent = { value -> scope.launch { preferences.setAiUploadConsent(value) } },

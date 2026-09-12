@@ -174,7 +174,7 @@ internal fun AiInputModeSelector(
     onSelected: (AiInputMode) -> Unit,
     title: String
 ) {
-    Text(title, style = MaterialTheme.typography.labelLarge)
+    if (title.isNotBlank()) Text(title, style = MaterialTheme.typography.labelLarge)
     LazyRow(
         modifier = Modifier.fillMaxWidth(),
         state = rememberLazyListState(),
@@ -236,6 +236,7 @@ internal fun NewCaptureScreen(
     var aiRecognitionImages by rememberSaveable(stateSaver = stringListSaver) { mutableStateOf(emptyList()) }
     var aiRecognitionEditingOriginalPath by rememberSaveable { mutableStateOf<String?>(null) }
     var aiInputModeName by rememberSaveable { mutableStateOf(initialAiInputMode) }
+    var pendingModeName by rememberSaveable { mutableStateOf("") }
     val aiInputMode = AiInputMode.entries.firstOrNull { it.name == aiInputModeName } ?: AiInputMode.VISION
     var selectedRole by rememberSaveable { mutableStateOf(PhotoRole.QUESTION) }
     var editingPath by rememberSaveable { mutableStateOf<String?>(null) }
@@ -293,8 +294,16 @@ internal fun NewCaptureScreen(
         difficulty = 0
     }
 
-    fun switchMode(next: EntryMode) {
+    fun hasUnsavedEntryDraft(): Boolean =
+        listOf(title, question, userAnswer, answer, explanation, note, errorReason, subject, questionType, tags)
+            .any(String::isNotBlank) ||
+            difficulty != 0 ||
+            photoQuestionImage != null || answerImage != null || explanationImage != null ||
+            aiRecognitionImages.isNotEmpty() || pendingRecognition != null || aiFilled || contentBlocksJson.isNotBlank()
+
+    fun applyModeSwitch(next: EntryMode) {
         if (next == mode) return
+        pendingModeName = ""
         clearTextDraft()
         aiFilled = false
         pendingRecognition = null
@@ -309,6 +318,11 @@ internal fun NewCaptureScreen(
             viewModel.clearAiRecognition()
         }
         modeName = next.name
+    }
+
+    fun requestModeSwitch(next: EntryMode) {
+        if (next == mode) return
+        if (hasUnsavedEntryDraft()) pendingModeName = next.name else applyModeSwitch(next)
     }
 
     fun acceptProcessed(path: String) {
@@ -629,6 +643,20 @@ internal fun NewCaptureScreen(
         )
     }
 
+    EntryMode.entries.firstOrNull { it.name == pendingModeName }?.let { nextMode ->
+        AlertDialog(
+            onDismissRequest = { pendingModeName = "" },
+            title = { Text("切换录入方式？") },
+            text = { Text("切换后将清空当前未保存内容。") },
+            confirmButton = {
+                Button(onClick = { applyModeSwitch(nextMode) }) { Text("继续切换") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingModeName = "" }) { Text("取消") }
+            }
+        )
+    }
+
     Scaffold(
         bottomBar = {
             Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 1.dp) {
@@ -686,7 +714,7 @@ internal fun NewCaptureScreen(
                     EntryModeSegmented(
                         selected = mode,
                         enabled = !saving && !aiRecognitionState.running,
-                        onSelected = ::switchMode
+                        onSelected = ::requestModeSwitch
                     )
                 }
             }

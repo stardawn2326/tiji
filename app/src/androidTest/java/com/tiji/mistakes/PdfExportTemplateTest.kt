@@ -11,6 +11,7 @@ import com.tiji.mistakes.service.PdfExportOptions
 import com.tiji.mistakes.service.PdfTemplate
 import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -18,6 +19,83 @@ import java.io.File
 
 @RunWith(AndroidJUnit4::class)
 class PdfExportTemplateTest {
+    @Test
+    fun explicitSourceImageChoiceOverridesSavedMistakePreference() {
+        val image = MistakeEntity(
+            id = 1L,
+            title = "图片语义题",
+            questionText = "请观察原题图片并回答。",
+            answerText = "答案内容",
+            explanation = "解析内容",
+            includeSourceImageInPdf = false,
+            imagePath = "/tmp/does-not-exist.png"
+        )
+        val withImage = HtmlPdfExportService.buildHtmlForTest(
+            listOf(image.copy(imagePath = null, sourceImagePaths = "[]")),
+            options = PdfExportOptions(includeSourceImages = true)
+        )
+        // The option contract is exercised with a real image below. This first assertion
+        // guards that a missing source never produces a phantom image element.
+        assertFalse(withImage.contains("data:image/"))
+
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val imageFile = File(context.cacheDir, "pdf-source-choice-test.png")
+        val bitmap = Bitmap.createBitmap(320, 220, Bitmap.Config.ARGB_8888).apply {
+            eraseColor(0xff00c853.toInt())
+        }
+        try {
+            imageFile.outputStream().use { output -> check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)) }
+            val storedOff = image.copy(
+                includeSourceImageInPdf = false,
+                imagePath = imageFile.absolutePath,
+                sourceImagePaths = JSONArray().put(imageFile.absolutePath).toString()
+            )
+            val storedOn = storedOff.copy(includeSourceImageInPdf = true)
+
+            val explicitOn = HtmlPdfExportService.buildHtmlForTest(
+                listOf(storedOff),
+                options = PdfExportOptions(includeSourceImages = true)
+            )
+            val explicitOff = HtmlPdfExportService.buildHtmlForTest(
+                listOf(storedOn),
+                options = PdfExportOptions(includeSourceImages = false)
+            )
+
+            assertTrue("the current export choice must include the source image", explicitOn.contains("data:image/png;base64,"))
+            assertFalse("turning the current export choice off must remove the source image", explicitOff.contains("data:image/png;base64,"))
+        } finally {
+            imageFile.delete()
+            bitmap.recycle()
+        }
+    }
+
+    @Test
+    fun practiceAndAnswerHtmlKeepContentBoundaries() {
+        val mistake = MistakeEntity(
+            id = 2L,
+            title = "边界题",
+            questionText = "题目内容",
+            answerText = "只应出现在答案版的答案",
+            explanation = "只应出现在答案版的解析",
+            includeSourceImageInPdf = true
+        )
+
+        val practice = HtmlPdfExportService.buildHtmlForTest(
+            listOf(mistake),
+            options = PdfExportOptions(template = PdfTemplate.PRACTICE)
+        )
+        val answer = HtmlPdfExportService.buildHtmlForTest(
+            listOf(mistake),
+            options = PdfExportOptions(template = PdfTemplate.ANSWER)
+        )
+
+        assertTrue(practice.contains("作答区"))
+        assertFalse(practice.contains("只应出现在答案版的答案"))
+        assertFalse(practice.contains("只应出现在答案版的解析"))
+        assertTrue(answer.contains("只应出现在答案版的答案"))
+        assertTrue(answer.contains("只应出现在答案版的解析"))
+    }
+
     @Test
     fun exportsPracticeAndAnswerTemplatesWithSourceImageAndMultiplePages() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
