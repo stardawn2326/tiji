@@ -1,5 +1,6 @@
 package com.tiji.mistakes.ui.review.components
 
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -11,16 +12,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Remove
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
+import com.tiji.mistakes.ui.design.TijiDialog
+import com.tiji.mistakes.ui.design.TijiButton
+import com.tiji.mistakes.ui.design.TijiCard
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
+import com.tiji.mistakes.ui.design.TijiSecondaryButton
+import com.tiji.mistakes.ui.design.TijiTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.tiji.mistakes.ui.design.TijiTextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -36,18 +37,18 @@ import androidx.compose.ui.unit.dp
 internal fun ReviewAllocationRow(label: String, count: Int, maxCount: Int, onCountChange: (Int) -> Unit) {
     var showCountEditor by remember(label) { mutableStateOf(false) }
     var countDraft by remember(label, count) { mutableStateOf(count.toString()) }
-    Card(
+    TijiCard(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(Modifier.padding(horizontal = 10.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 Text(label.ifBlank { "未分类" }, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Bold)
-                OutlinedButton(
+                TijiSecondaryButton(
                     onClick = { onCountChange(count - 1) },
                     enabled = count > 0,
                     contentPadding = PaddingValues(horizontal = 7.dp, vertical = 0.dp),
-                    modifier = Modifier.height(32.dp)
+                    modifier = Modifier.heightIn(min = 48.dp)
                 ) { Icon(Icons.Outlined.Remove, contentDescription = "减少") }
                 Text(
                     count.toString(),
@@ -61,21 +62,21 @@ internal fun ReviewAllocationRow(label: String, count: Int, maxCount: Int, onCou
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary
                 )
-                OutlinedButton(
+                TijiSecondaryButton(
                     onClick = { onCountChange(count + 1) },
                     enabled = count < maxCount,
                     contentPadding = PaddingValues(horizontal = 7.dp, vertical = 0.dp),
-                    modifier = Modifier.height(32.dp)
+                    modifier = Modifier.heightIn(min = 48.dp)
                 ) { Icon(Icons.Outlined.Add, contentDescription = "增加") }
             }
         }
     }
     if (showCountEditor) {
-        AlertDialog(
+        TijiDialog(
             onDismissRequest = { showCountEditor = false },
             title = { Text("修改分配数量") },
             text = {
-                OutlinedTextField(
+                TijiTextField(
                     value = countDraft,
                     onValueChange = { value -> countDraft = value.filter { it.isDigit() }.take(3) },
                     label = { Text(label.ifBlank { "科目" }) },
@@ -83,12 +84,12 @@ internal fun ReviewAllocationRow(label: String, count: Int, maxCount: Int, onCou
                 )
             },
             confirmButton = {
-                Button(onClick = {
+                TijiButton(onClick = {
                     onCountChange(countDraft.toIntOrNull()?.coerceIn(0, maxCount) ?: count)
                     showCountEditor = false
                 }) { Text("确定") }
             },
-            dismissButton = { TextButton(onClick = { showCountEditor = false }) { Text("取消") } }
+            dismissButton = { TijiTextButton(onClick = { showCountEditor = false }) { Text("取消") } }
         )
     }
 }
