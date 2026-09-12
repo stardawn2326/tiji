@@ -454,16 +454,25 @@ internal fun TijiNavGraph(
                             sessionKey = session.sessionId,
                             sessionContext = session.plan.context(pointLabel),
                             onBack = {
-                                viewModel.clearReviewSession(session.sessionId)
                                 navController.popBackStack()
                             },
                             onRemovedFromPlan = { questionId, onDone ->
                                 if (session.plan.source == ReviewSessionSource.TODAY_PLAN) {
                                     scope.launch {
                                         preferences.removeFromReviewPlanSnapshot(state.todayDate, questionId)
-                                        viewModel.setReviewPlan(questionId, false, onUpdated = onDone)
+                                        viewModel.setReviewPlan(
+                                            questionId,
+                                            false,
+                                            onUpdated = {
+                                                viewModel.clearReviewSession(session.sessionId)
+                                                onDone()
+                                            }
+                                        )
                                     }
-                                } else onDone()
+                                } else {
+                                    viewModel.clearReviewSession(session.sessionId)
+                                    onDone()
+                                }
                             },
                             onReviewed = { questionId, grade ->
                                 if (session.plan.source == ReviewSessionSource.TODAY_PLAN) {

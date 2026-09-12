@@ -116,4 +116,27 @@ class ReviewQuestionUiTest {
         check(dueCountAfter == dueCountBefore - 1)
         composeRule.onNodeWithText("已记录：掌握").assertExists()
     }
+
+    @Test
+    fun leavingQuestionKeepsTodaySessionAvailableForResume() {
+        composeRule.onNodeWithTag("nav_review").performClick()
+        composeRule.waitUntil(5_000) {
+            composeRule.onAllNodesWithText("开始复习").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithText("开始复习").performClick()
+        composeRule.waitUntil(5_000) {
+            composeRule.onAllNodesWithTag("review_question_content").fetchSemanticsNodes().isNotEmpty()
+        }
+
+        composeRule.runOnUiThread {
+            composeRule.activity.onBackPressedDispatcher.onBackPressed()
+        }
+        composeRule.waitUntil(5_000) {
+            composeRule.onAllNodesWithTag("review_continue_session").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("review_continue_session").performClick()
+        composeRule.waitUntil(5_000) {
+            composeRule.onAllNodesWithTag("review_question_content").fetchSemanticsNodes().isNotEmpty()
+        }
+    }
 }

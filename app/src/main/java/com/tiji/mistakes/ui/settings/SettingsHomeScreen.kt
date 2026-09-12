@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -21,6 +22,7 @@ import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.FileOpen
 import androidx.compose.material.icons.outlined.Lightbulb
 import androidx.compose.material.icons.outlined.Style
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -35,7 +37,6 @@ import com.tiji.mistakes.ui.ConceptPageHeader
 import com.tiji.mistakes.ui.ThemeMode
 import com.tiji.mistakes.ui.ThemePalette
 import com.tiji.mistakes.ui.TijiDimens
-import com.tiji.mistakes.ui.TijiSurfaceCard
 
 @Composable
 internal fun SettingsHomeScreen(
@@ -59,70 +60,65 @@ internal fun SettingsHomeScreen(
         state = listState,
         modifier = Modifier.fillMaxSize().testTag("my_settings_list"),
         contentPadding = PaddingValues(horizontal = TijiDimens.pagePadding, vertical = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp)
+        verticalArrangement = Arrangement.spacedBy(0.dp)
     ) {
         item {
             ConceptPageHeader("设置", "管理 AI、复习、数据和外观；学习内容仍在对应一级页面完成。")
         }
         item {
-            SettingsHomeSection("AI") {
-                SettingsHomeRow(
-                    title = "AI 模型",
-                    subtitle = "当前模型：${activeAiProfile.model}",
-                    icon = Icons.Outlined.AutoAwesome,
-                    onClick = onOpenAiSettings
-                )
-            }
+            Spacer(Modifier.height(12.dp))
+            SettingsHomeRow(
+                title = "AI 模型",
+                subtitle = "当前模型：${activeAiProfile.model}",
+                icon = Icons.Outlined.AutoAwesome,
+                onClick = onOpenAiSettings
+            )
         }
         item {
-            SettingsHomeSection("复习") {
-                SettingsHomeRow(
-                    title = "复习计划",
-                    subtitle = if (reviewPlanEnabled) "已开启 · 每日上限 $dailyReviewLimit 题" else "尚未开启，安排今天和接下来的复习节奏",
-                    icon = Icons.Outlined.CalendarMonth,
-                    onClick = onOpenReviewSettings
-                )
-            }
+            SettingsHomeDivider()
+            SettingsHomeRow(
+                title = "复习计划",
+                subtitle = if (reviewPlanEnabled) "已开启 · 每日上限 $dailyReviewLimit 题" else "尚未开启，安排今天和接下来的复习节奏",
+                icon = Icons.Outlined.CalendarMonth,
+                onClick = onOpenReviewSettings
+            )
         }
         item {
-            SettingsHomeSection("数据") {
-                SettingsHomeRow(
-                    title = "备份与恢复",
-                    subtitle = "导出、检查、合并恢复或重置本机数据",
-                    icon = Icons.Outlined.FileOpen,
-                    onClick = onOpenDataSettings
-                )
-            }
+            SettingsHomeDivider()
+            SettingsHomeRow(
+                title = "备份与恢复",
+                subtitle = "导出、检查、合并恢复或重置本机数据",
+                icon = Icons.Outlined.FileOpen,
+                onClick = onOpenDataSettings
+            )
         }
         item {
-            SettingsHomeSection("外观") {
-                SettingsHomeRow(
-                    title = "显示模式与主题",
-                    subtitle = "${themeMode.label} · ${themePalette.label}",
-                    icon = Icons.Outlined.Style,
-                    onClick = onOpenAppearanceSettings
-                )
-            }
+            SettingsHomeDivider()
+            SettingsHomeRow(
+                title = "显示模式与主题",
+                subtitle = "${themeMode.label} · ${themePalette.label}",
+                icon = Icons.Outlined.Style,
+                onClick = onOpenAppearanceSettings
+            )
         }
         item {
-            SettingsHomeSection("关于") {
-                SettingsHomeRow(
-                    title = "关于题迹",
-                    subtitle = "版本、说明和使用边界",
-                    icon = Icons.Outlined.Lightbulb,
-                    onClick = onOpenAbout
-                )
-            }
+            SettingsHomeDivider()
+            SettingsHomeRow(
+                title = "关于题迹",
+                subtitle = "版本、说明和使用边界",
+                icon = Icons.Outlined.Lightbulb,
+                onClick = onOpenAbout
+            )
         }
     }
 }
 
 @Composable
-private fun SettingsHomeSection(title: String, content: @Composable () -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
-        TijiSurfaceCard { content() }
-    }
+private fun SettingsHomeDivider() {
+    HorizontalDivider(
+        modifier = Modifier.padding(start = 40.dp),
+        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f)
+    )
 }
 
 @Composable

@@ -7,6 +7,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -50,6 +51,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.dp
@@ -79,6 +81,7 @@ import com.tiji.mistakes.ui.TijiStatusBadge
 import com.tiji.mistakes.ui.TijiSurfaceCard
 import java.time.ZoneId
 import java.time.temporal.ChronoUnit
+import kotlin.math.abs
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -189,6 +192,10 @@ internal fun ReviewQuestionScreen(
     val reviewHistoryFlow = remember(currentId) { viewModel.reviewHistory(currentId) }
     val currentReviewHistory by reviewHistoryFlow.collectAsStateWithLifecycle(emptyList())
     val reviewReason = current?.let { reviewReasonFor(it, currentReviewHistory.firstOrNull(), sessionContext) }
+    val leaveQuestion = {
+        cancelPendingAutoAdvance()
+        onBack()
+    }
     val exitSession = {
         cancelPendingAutoAdvance()
         if (isUnifiedSession) viewModel.clearReviewSession(resolvedSessionKey)
@@ -203,7 +210,7 @@ internal fun ReviewQuestionScreen(
             autoAdvanceJob = null
             autoAdvancePending = false
             if (isLastQuestion) {
-                if (isUnifiedSession) completeFocusedSession() else exitSession()
+                if (isUnifiedSession) completeFocusedSession() else leaveQuestion()
             } else {
                 moveBy(1, cancelAutoAdvance = false)
             }
@@ -266,7 +273,7 @@ internal fun ReviewQuestionScreen(
                         }
                     }
                 },
-                navigationIcon = { IconButton(onClick = exitSession) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回复习") } },
+                navigationIcon = { IconButton(onClick = leaveQuestion) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回复习") } },
                 actions = {
                     if (current != null && isUnifiedSession && sessionContext.source == com.tiji.mistakes.domain.ReviewSessionSource.TODAY_PLAN) {
                         IconButton(
@@ -301,7 +308,24 @@ internal fun ReviewQuestionScreen(
             LazyColumn(
                 contentPadding = PaddingValues(start = TijiDimens.pagePadding, top = 8.dp, end = TijiDimens.pagePadding, bottom = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
-            modifier = Modifier.padding(padding).fillMaxSize().testTag("review_question_content")
+                modifier = Modifier
+                    .padding(padding)
+                    .fillMaxSize()
+                    .pointerInput(currentId, currentIndex, reviewSubmitting, autoAdvancePending) {
+                        var horizontalDistance = 0f
+                        detectHorizontalDragGestures(
+                            onHorizontalDrag = { _, dragAmount -> horizontalDistance += dragAmount },
+                            onDragEnd = {
+                                val distance = horizontalDistance
+                                horizontalDistance = 0f
+                                if (!reviewSubmitting && !autoAdvancePending && abs(distance) >= 72.dp.toPx()) {
+                                    moveBy(if (distance < 0f) 1 else -1)
+                                }
+                            },
+                            onDragCancel = { horizontalDistance = 0f }
+                        )
+                    }
+                    .testTag("review_question_content")
         ) {
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -320,6 +344,12 @@ internal fun ReviewQuestionScreen(
                             progress = { if (effectiveReviewIds.isEmpty()) 0f else ((currentIndex + 1).toFloat() / effectiveReviewIds.size).coerceIn(0f, 1f) },
                             modifier = Modifier.fillMaxWidth().height(7.dp),
                             trackColor = MaterialTheme.colorScheme.primaryContainer
+                        )
+                        Text(
+                            "左右滑动切题，也可使用底部按钮",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.fillMaxWidth().testTag("review_swipe_hint")
                         )
                     }
                 }
@@ -465,7 +495,7 @@ internal fun ReviewQuestionScreen(
                     val summaryLoading = isUnifiedSession &&
                         summaryState.sessionKey == resolvedSessionKey && summaryState.isLoading
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                        OutlinedButton(onClick = { moveBy(-1) }, enabled = !reviewSubmitting && !autoAdvancePending && currentIndex > 0, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("上一题") }
+                        OutlinedButton(onClick = { moveBy(-1) }, enabled = !reviewSubmitting && !autoAdvancePending && currentIndex > 0, modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("review_previous")) { Text("上一题") }
                         Text(if (effectiveReviewIds.isEmpty()) "复习题" else "${currentIndex + 1} / ${effectiveReviewIds.size}", modifier = Modifier.padding(horizontal = 12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Button(
                             onClick = {
@@ -476,7 +506,7 @@ internal fun ReviewQuestionScreen(
                             enabled = !reviewSubmitting && !autoAdvancePending && if (isLastQuestion && isUnifiedSession) !summaryLoading else {
                                 isLastQuestion || currentIndex in 0 until (effectiveReviewIds.size - 1)
                             },
-                            modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                            modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("review_next")
                         ) {
                             Text(
                                 when {

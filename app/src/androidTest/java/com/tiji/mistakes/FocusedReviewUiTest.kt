@@ -10,6 +10,9 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeLeft
+import androidx.compose.ui.test.swipeRight
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -117,6 +120,20 @@ class FocusedReviewUiTest {
         composeRule.onNodeWithText(firstTitle).assertExists()
         composeRule.onAllNodesWithText("· 专项复习", substring = true).assertCountEquals(2)
         composeRule.onNodeWithText("2 / 2").assertDoesNotExist()
+        composeRule.onNodeWithTag("review_question_content").performTouchInput { swipeLeft() }
+        composeRule.waitUntil(5_000) {
+            runCatching {
+                composeRule.onNodeWithText(secondTitle).assertExists()
+                true
+            }.getOrDefault(false)
+        }
+        composeRule.onNodeWithTag("review_question_content").performTouchInput { swipeRight() }
+        composeRule.waitUntil(5_000) {
+            runCatching {
+                composeRule.onNodeWithText(firstTitle).assertExists()
+                true
+            }.getOrDefault(false)
+        }
         gradeCurrentQuestion()
 
         composeRule.waitUntil(5_000) {
