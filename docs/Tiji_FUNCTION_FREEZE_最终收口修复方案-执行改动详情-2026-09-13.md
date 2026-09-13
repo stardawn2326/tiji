@@ -86,7 +86,12 @@ PR：[#8](https://github.com/stardawn2326/tiji/pull/8)，保持 OPEN，不合并
 
 `https://github.com/stardawn2326/tiji.git`
 
-本地提交和远程 head、GitHub Actions run、PR 状态将在提交推送后回填到本节。推送只更新 `codex/ui-2.0-paper-blue`，不执行 PR 合并。
+- 本轮源码、测试和本说明提交：`d61e436a4d56e3a750577099ea6d6e58e11e9e17`。
+- 远程 `refs/heads/codex/ui-2.0-paper-blue` 已核验指向同一 SHA；推送只更新该分支，没有写入其他仓库或分支。
+- GitHub Actions run：[`34756680107`](https://github.com/stardawn2326/tiji/actions/runs/34756680107)，head 为 `d61e436a4d56e3a750577099ea6d6e58e11e9e17`。
+  - [`Compile, test, lint and package`](https://github.com/stardawn2326/tiji/actions/runs/34756680107/job/103722134760)：success。
+  - [`Android instrumentation (API 30)`](https://github.com/stardawn2326/tiji/actions/runs/34756680107/job/103722134899)：success。
+- PR [`#8`](https://github.com/stardawn2326/tiji/pull/8) 仍为 OPEN，head `codex/ui-2.0-paper-blue`，未执行合并。
 
 ## 6. 验收边界
 
