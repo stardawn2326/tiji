@@ -47,6 +47,11 @@ class AiSolveSaveKnowledgeE2ETest {
                 explanation = "备用解析",
                 userAnswer = "我写成了 3",
                 errorReason = "概念不清",
+                note = "AI 易错提醒：未约分",
+                subject = "数学",
+                questionType = "计算题",
+                tags = "极限",
+                difficulty = 2,
                 inReviewPlan = false,
                 now = 1_725_000_000_000L
             )
@@ -71,8 +76,8 @@ class AiSolveSaveKnowledgeE2ETest {
     }
 
     private fun solution(): String = """
-        [[TIJI_SOLUTION_V3_START]]
-        {"schemaVersion":3,"recognition":{"segments":[{"type":"text","text":"求极限"}],"uncertainItems":[],"warning":""},"solution":{"approach":[{"type":"text","text":"代入并化简"}],"steps":[{"segments":[{"type":"text","text":"得到 1"}],"reason":"代入定义","concepts":["极限"]}],"finalAnswer":[{"type":"text","text":"1"}]},"learning":{"subject":"数学","questionType":"计算题","knowledgePoints":["极限"],"difficulty":2,"pitfalls":["未约分"]}}
-        [[TIJI_SOLUTION_V3_END]]
+        [[TIJI_SOLUTION_V2_START]]
+        {"schemaVersion":2,"sections":[{"id":"recognition","segments":[{"type":"text","text":"求极限"}]},{"id":"approach","segments":[{"type":"text","text":"代入并化简"}]},{"id":"derivation","segments":[{"type":"text","text":"得到 1"}]},{"id":"finalAnswer","segments":[{"type":"text","text":"1"}]}]}
+        [[TIJI_SOLUTION_V2_END]]
     """.trimIndent()
 }

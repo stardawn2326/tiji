@@ -80,7 +80,11 @@ class ReviewQuestionUiTest {
             composeRule.onAllNodesWithTag("review_show_answer").fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithText("参考答案").assertDoesNotExist()
+        ReviewGrade.values().forEach { grade ->
+            check(composeRule.onAllNodesWithTag("review_grade_${grade.name.lowercase()}").fetchSemanticsNodes().isEmpty())
+        }
         composeRule.onNodeWithTag("review_show_answer").performClick()
+        composeRule.onNodeWithTag("review_question_content").performScrollToNode(hasText("参考答案"))
         composeRule.onNodeWithText("参考答案").assertExists()
         composeRule.onNodeWithTag("review_question_content").performScrollToNode(hasText("解析"))
         composeRule.onNodeWithText("解析").assertExists()
@@ -88,6 +92,7 @@ class ReviewQuestionUiTest {
         composeRule.onNodeWithTag("review_grade_good").assertExists()
         composeRule.onNodeWithText("掌握").assertExists()
         composeRule.onNodeWithText(reviewIntervalLabel(expected)).assertExists()
+        composeRule.onNodeWithText("确认熟练？").assertDoesNotExist()
 
         composeRule.onNodeWithTag("review_grade_good").performClick()
         composeRule.waitUntil(5_000) {
@@ -115,6 +120,35 @@ class ReviewQuestionUiTest {
         }
         check(dueCountAfter == dueCountBefore - 1)
         composeRule.onNodeWithText("已记录：掌握").assertExists()
+    }
+
+    @Test
+    fun easyRequiresConfirmationAndCancelDoesNotWriteRecord() {
+        composeRule.onNodeWithTag("nav_review").performClick()
+        composeRule.waitUntil(5_000) {
+            composeRule.onAllNodesWithText("开始复习").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithText("开始复习").performClick()
+        composeRule.waitUntil(5_000) {
+            composeRule.onAllNodesWithTag("review_show_answer").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("review_show_answer").performClick()
+        composeRule.onNodeWithTag("review_question_content")
+            .performScrollToNode(hasText("熟练"))
+        composeRule.onNodeWithTag("review_grade_easy").performClick()
+        composeRule.onNodeWithText("确认熟练？").assertExists()
+        composeRule.onNodeWithText("取消").performClick()
+        composeRule.waitForIdle()
+        check(runBlocking { AppDatabase.get(context).reviewRecordDao().listByMistakeId(fixtureId) }.isEmpty())
+
+        composeRule.onNodeWithTag("review_grade_easy").performClick()
+        composeRule.onNodeWithText("确认熟练").performClick()
+        composeRule.waitUntil(5_000) {
+            runBlocking {
+                AppDatabase.get(context).reviewRecordDao().listByMistakeId(fixtureId)
+                    .singleOrNull()?.grade == ReviewGrade.EASY.name
+            }
+        }
     }
 
     @Test

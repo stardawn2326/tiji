@@ -44,11 +44,39 @@ internal fun reviewGradeUiLabel(grade: String): String =
 
 internal fun parseTagValues(raw: String): List<String> = KnowledgePointNormalizer.parseTags(raw)
 
-internal fun difficultyFilterLabel(value: Int): String = when (value) {
+internal val difficultyOptions = listOf(
+    1 to "简单",
+    2 to "中等",
+    3 to "困难",
+    4 to "极难"
+)
+
+/**
+ * The persisted difficulty remains an Int for compatibility. Values written by
+ * older builds used 5 for the highest level, so the UI treats 4 and 5 alike.
+ */
+internal fun difficultyLabel(value: Int): String = when (value) {
+    0 -> "未设置"
     1 -> "简单"
     2 -> "中等"
-    else -> "困难"
+    3 -> "困难"
+    else -> "极难"
 }
+
+internal fun difficultyPickerValue(value: Int): Int = when (value) {
+    1, 2, 3 -> value
+    4, 5 -> 4
+    else -> 0
+}
+
+internal fun difficultyMatchesFilter(value: Int, filter: Int?): Boolean = when (filter) {
+    null -> true
+    1, 2, 3 -> value == filter
+    4 -> value >= 4
+    else -> false
+}
+
+internal fun difficultyFilterLabel(value: Int): String = difficultyLabel(value)
 
 internal fun masteryLabel(value: Int): String = when (value) {
     0 -> "未掌握"

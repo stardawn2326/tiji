@@ -150,7 +150,7 @@ class AiSolutionRepairer(
         }
         val prompt = """
             你是题迹的解题修正器。请基于原题、候选解答和独立检查问题，只进行一次完整修正。
-            保留正确的识题内容，但修正明确的计算、漏解、定义域或答案一致性问题。必须返回完整可展示解答，优先使用 TIJI_SOLUTION_V3 的 schemaVersion 3 结构；如果无法保证 V3 合法，则使用完整 TIJI_SOLUTION_V2 结构或普通四分区文本。不要输出思考过程、修正说明、Markdown 代码围栏或协议外文字。
+            保留正确的识题内容，但修正明确的计算、漏解、定义域或答案一致性问题。必须返回完整可展示解答，使用 TIJI_SOLUTION_V2 的 schemaVersion 2 结构；如果无法保证 V2 合法，则使用普通四分区文本。不要输出思考过程、修正说明、Markdown 代码围栏或协议外文字。
 
             【原题】
             ${question.trim().take(12_000)}
@@ -174,7 +174,6 @@ class AiSolutionRepairer(
 internal fun isUsableAiSolution(value: String): Boolean {
     val trimmed = value.trim()
     return trimmed.isNotBlank() && (
-        AiStructuredSolutionV3Codec.parse(trimmed) != null ||
             AiStructuredSolutionCodec.parse(trimmed) != null ||
             listOf("题目识别", "解题思路", "逐步推导", "最终答案").count(trimmed::contains) >= 2
         )

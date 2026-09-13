@@ -36,7 +36,13 @@ data class BackupPreview(
     val imageCount: Int,
     val reviewRecordCount: Int,
     val legacy: Boolean,
-    val knowledgePointCount: Int = 0
+    val knowledgePointCount: Int = 0,
+    /** Dry-run import plan; no database rows are changed while inspecting. */
+    val willAdd: Int = 0,
+    val willUpdate: Int = 0,
+    val willSkip: Int = 0,
+    val missingImages: Int = 0,
+    val parseErrors: List<String> = emptyList()
 )
 
 data class BackupImportResult(
@@ -176,10 +182,44 @@ object BackupService {
     }
 
     suspend fun inspectBackup(context: Context, uri: Uri): Result<BackupPreview> = withContext(Dispatchers.IO) {
-        runCatching { parsePayload(readArchive(context, uri)).preview }
+        runCatching {
+            val entries = readArchive(context, uri)
+            // Preview is deliberately lenient about missing image entries so the
+            // user can see the exact count before the strict import is offered.
+            val payload = runCatching { parsePayload(entries, strictImages = false) }.getOrElse { error ->
+                return@runCatching BackupPreview(
+                    schemaVersion = 0,
+                    appVersion = "未知",
+                    exportedAt = 0L,
+                    mistakeCount = 0,
+                    imageCount = 0,
+                    reviewRecordCount = 0,
+                    legacy = false,
+                    parseErrors = listOf(error.message ?: "备份解析失败")
+                )
+            }
+            val existing = AppDatabase.get(context).mistakeDao().listAll()
+            val byStableId = existing.filter { it.stableId.isNotBlank() }.associateBy(MistakeEntity::stableId)
+            val byFingerprint = existing.associateBy(::fingerprint)
+            var willAdd = 0
+            var willUpdate = 0
+            var willSkip = 0
+            payload.records.forEach { record ->
+                val match = byStableId[record.entity.stableId] ?: byFingerprint[fingerprint(record.entity)]
+                when {
+                    match == null -> willAdd++
+                    record.entity.updatedAt > match.updatedAt -> willUpdate++
+                    else -> willSkip++
+                }
+            }
+            payload.preview.copy(willAdd = willAdd, willUpdate = willUpdate, willSkip = willSkip)
+        }
     }
 
-    internal fun inspectEntries(entries: Map<String, ByteArray>): BackupPreview = parsePayload(entries).preview
+    internal fun inspectEntries(
+        entries: Map<String, ByteArray>,
+        strictImages: Boolean = true
+    ): BackupPreview = parsePayload(entries, strictImages).preview
 
     suspend fun importBackup(
         context: Context,
@@ -400,12 +440,20 @@ object BackupService {
         }
     }
 
-    private fun parsePayload(entries: Map<String, ByteArray>): BackupPayload {
+    private fun parsePayload(entries: Map<String, ByteArray>, strictImages: Boolean = true): BackupPayload {
         val manifest = entries["manifest.json"]?.decodeUtf8()?.let(::JSONObject)
-        return if (manifest?.optString("format") == FORMAT) parseVersioned(entries, manifest) else parseLegacy(entries)
+        return if (manifest?.optString("format") == FORMAT) {
+            parseVersioned(entries, manifest, strictImages)
+        } else {
+            parseLegacy(entries, strictImages)
+        }
     }
 
-    private fun parseVersioned(entries: Map<String, ByteArray>, manifest: JSONObject): BackupPayload {
+    private fun parseVersioned(
+        entries: Map<String, ByteArray>,
+        manifest: JSONObject,
+        strictImages: Boolean
+    ): BackupPayload {
         val schema = manifest.optInt("schemaVersion", 0)
         val minReaderSchema = manifest.optInt("minReaderSchemaVersion", schema)
         require(schema in 1..SCHEMA_VERSION && minReaderSchema in 1..schema) {
@@ -417,10 +465,14 @@ object BackupService {
         val records = (0 until array.length()).map { index ->
             parseRecord(array.getJSONObject(index), legacyBase = null, availableEntries = entries.keys)
         }
-        records.flatMap { record ->
+        val expectedImages = records.flatMap { record ->
             record.questionImageEntries + listOfNotNull(record.questionImageEntry, record.answerImageEntry, record.explanationImageEntry) +
                 record.contentBlockEntries.map(ImportedContentBlock::entry)
-        }.distinct().forEach { name -> require(name in entries) { "备份缺少图片文件：$name" } }
+        }.distinct()
+        val missingImages = expectedImages.count { it !in entries }
+        if (strictImages) {
+            expectedImages.forEach { name -> require(name in entries) { "备份缺少图片文件：$name" } }
+        }
         val preferences = entries["data/preferences.json"]?.decodeUtf8()?.let(::JSONObject)
         val reviewRecords = parseReviewRecords(entries["data/review_records.json"]?.decodeUtf8())
         val knowledgePoints = parseKnowledgePoints(entries["data/knowledge_points.json"]?.decodeUtf8())
@@ -436,12 +488,13 @@ object BackupService {
             },
             reviewRecordCount = if (entries["data/review_records.json"] != null) reviewRecords.size else countReviewRecords(preferences),
             legacy = false,
-            knowledgePointCount = knowledgePoints.size
+            knowledgePointCount = knowledgePoints.size,
+            missingImages = missingImages
         )
         return BackupPayload(preview, records, preferences, entries, reviewRecords, knowledgePoints, crossRefs)
     }
 
-    private fun parseLegacy(entries: Map<String, ByteArray>): BackupPayload {
+    private fun parseLegacy(entries: Map<String, ByteArray>, strictImages: Boolean): BackupPayload {
         val jsonEntries = entries.keys.filter { it.endsWith(".json", ignoreCase = true) }
             .filterNot { it.startsWith("data/") || it == "manifest.json" }
             .sorted()
@@ -454,12 +507,17 @@ object BackupService {
                 availableEntries = entries.keys
             )
         }
-        val imageCount = records.sumOf { record ->
-            (record.questionImageEntries + listOfNotNull(record.questionImageEntry, record.answerImageEntry, record.explanationImageEntry) +
-                record.contentBlockEntries.map(ImportedContentBlock::entry)).distinct().count { it in entries }
+        val expectedImages = records.flatMap { record ->
+            record.questionImageEntries + listOfNotNull(record.questionImageEntry, record.answerImageEntry, record.explanationImageEntry) +
+                record.contentBlockEntries.map(ImportedContentBlock::entry)
+        }.distinct()
+        val imageCount = expectedImages.count { it in entries }
+        val missingImages = expectedImages.count { it !in entries }
+        if (strictImages) {
+            expectedImages.forEach { name -> require(name in entries) { "备份缺少图片文件：$name" } }
         }
         return BackupPayload(
-            BackupPreview(0, "旧版备份", 0L, records.size, imageCount, 0, legacy = true),
+            BackupPreview(0, "旧版备份", 0L, records.size, imageCount, 0, legacy = true, missingImages = missingImages),
             records,
             preferences = null,
             entries = entries,

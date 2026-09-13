@@ -23,6 +23,10 @@ object LearningCalendar {
     fun startOfDay(timeMillis: Long, zoneId: ZoneId = ZoneId.systemDefault()): Instant =
         startOfDay(localDate(timeMillis, zoneId), zoneId)
 
+    /** Start of the next local study day used by explicit review-plan actions. */
+    fun nextStudyDayStart(timeMillis: Long, zoneId: ZoneId = ZoneId.systemDefault()): Long =
+        startOfDay(localDate(timeMillis, zoneId).plusDays(1), zoneId).toEpochMilli()
+
     /** Inclusive natural-day window containing today and the previous [days - 1] days. */
     fun startOfRecentDays(
         nowMillis: Long,

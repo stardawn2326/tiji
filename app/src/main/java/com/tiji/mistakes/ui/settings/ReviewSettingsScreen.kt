@@ -1,5 +1,6 @@
 package com.tiji.mistakes.ui.settings
 
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -13,11 +14,11 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CalendarMonth
-import androidx.compose.material3.Button
-import androidx.compose.material3.FilterChip
+import com.tiji.mistakes.ui.design.TijiButton
+import com.tiji.mistakes.ui.design.TijiChip
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
+import com.tiji.mistakes.ui.design.TijiTextField
+import com.tiji.mistakes.ui.design.TijiSwitch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -31,10 +32,10 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.tiji.mistakes.data.MistakeEntity
-import com.tiji.mistakes.ui.TijiDimens
+import com.tiji.mistakes.ui.design.TijiDimens
 import com.tiji.mistakes.ui.common.weekLabels
-import com.tiji.mistakes.ui.review.components.ReviewAllocationRow
-import com.tiji.mistakes.ui.settings.components.SettingCard
+import com.tiji.mistakes.ui.design.TijiStepper
+import com.tiji.mistakes.ui.design.TijiSettingGroup
 
 @Composable
 internal fun ReviewSettingsScreen(
@@ -81,15 +82,15 @@ internal fun ReviewSettingsScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item {
-                SettingCard("复习计划", Icons.Outlined.CalendarMonth) {
+                TijiSettingGroup("复习计划", Icons.Outlined.CalendarMonth) {
                     Text(
-                        "安排每天要复习的数量和抽取方式；调度算法保持不变。",
+                        "安排每天的复习数量和抽取方式。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                         Text("开启复习计划", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-                        Switch(checked = reviewPlanEnabled, onCheckedChange = onReviewPlanEnabled)
+                        TijiSwitch(checked = reviewPlanEnabled, onCheckedChange = onReviewPlanEnabled)
                     }
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -100,9 +101,9 @@ internal fun ReviewSettingsScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        Switch(checked = randomReview, onCheckedChange = onRandomReview)
+                        TijiSwitch(checked = randomReview, onCheckedChange = onRandomReview)
                     }
-                    OutlinedTextField(
+                    TijiTextField(
                         value = reviewLimitText,
                         onValueChange = { reviewLimitText = it.filter(Char::isDigit).take(3) },
                         label = { Text("每日复习题数") },
@@ -117,11 +118,11 @@ internal fun ReviewSettingsScreen(
                     )
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         items((1..7).toList()) { day ->
-                            FilterChip(
+                            TijiChip(
                                 selected = selectedWeekday == day,
                                 onClick = { selectedWeekday = day },
                                 label = { Text(weekLabels[day - 1], style = MaterialTheme.typography.labelMedium) },
-                                modifier = Modifier.height(34.dp)
+                                modifier = Modifier.heightIn(min = 48.dp)
                             )
                         }
                     }
@@ -139,7 +140,7 @@ internal fun ReviewSettingsScreen(
                             val storageKey = "$selectedWeekday:$key"
                             val count = quotaTexts[storageKey]?.toIntOrNull()?.coerceAtLeast(0) ?: 0
                             val rowMax = maxOf(count, dailyReviewLimit - (allocatedForDay - count))
-                            ReviewAllocationRow(
+                            TijiStepper(
                                 label = key,
                                 count = count,
                                 maxCount = rowMax,
@@ -154,7 +155,7 @@ internal fun ReviewSettingsScreen(
                             style = MaterialTheme.typography.bodySmall
                         )
                     }
-                    Button(
+                    TijiButton(
                         onClick = {
                             onDailyReviewLimit(reviewLimitText.toIntOrNull()?.coerceIn(1, 100) ?: dailyReviewLimit)
                             onReviewSubjects(

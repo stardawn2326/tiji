@@ -40,8 +40,8 @@ import kotlin.math.ceil
 import kotlin.math.roundToInt
 
 enum class PdfTemplate(val label: String, val fileSuffix: String) {
-    PRACTICE("练习版", "练习"),
-    ANSWER("答案版", "答案")
+    PRACTICE("题目 PDF", "题目"),
+    ANSWER("解析答案 PDF", "解析答案")
 }
 
 data class PdfExportOptions(
@@ -74,14 +74,14 @@ object HtmlPdfExportService {
      */
     internal fun buildHtmlForTest(
         mistakes: List<MistakeEntity>,
-        documentTitle: String = "题迹错题练习册",
+        documentTitle: String = "题迹题目 PDF",
         options: PdfExportOptions = PdfExportOptions()
     ): String = buildHtml(mistakes, documentTitle, options.normalized())
     suspend fun writeQuestionPdf(
         context: Context,
         uri: Uri,
         mistakes: List<MistakeEntity>,
-        documentTitle: String = "题迹错题练习册",
+        documentTitle: String = "题迹题目 PDF",
         exportOriginalImagesOnly: Boolean = false,
         options: PdfExportOptions = PdfExportOptions()
     ): Result<Unit> = writePdf(
@@ -96,7 +96,7 @@ object HtmlPdfExportService {
     suspend fun createQuestionPreview(
         context: Context,
         mistakes: List<MistakeEntity>,
-        documentTitle: String = "题迹错题练习册",
+        documentTitle: String = "题迹题目 PDF",
         exportOriginalImagesOnly: Boolean = false,
         options: PdfExportOptions = PdfExportOptions()
     ): Result<File> = createPreviewPdf(
@@ -299,13 +299,12 @@ object HtmlPdfExportService {
     ): String {
         val normalizedOptions = options.normalized()
         val exportedOn = SimpleDateFormat("yyyy年M月d日", Locale.getDefault()).format(Date())
-        val questions = mistakes.mapIndexed { index, mistake ->
-            buildQuestionHtml(index, mistake, normalizedOptions)
-        }.joinToString("\n")
-        val answerSection = if (normalizedOptions.template == PdfTemplate.ANSWER) {
-            buildAnswerBookHtml(mistakes)
+        val content = if (normalizedOptions.template == PdfTemplate.PRACTICE) {
+            mistakes.mapIndexed { index, mistake ->
+                buildQuestionHtml(index, mistake, normalizedOptions)
+            }.joinToString("\n")
         } else {
-            ""
+            buildAnswerBookHtml(mistakes)
         }
         val templateLabel = normalizedOptions.template.label
 
@@ -351,11 +350,11 @@ object HtmlPdfExportService {
                 .question-continuation .question-title { color: #718599; font-size: 11pt; }
                 .question-continuation .question-meta { display: none; }
                 .question:first-of-type { border-top: 0; padding-top: 0; }
-                .question-head { border-left: 1.2mm solid #3b5ecc; padding-left: 3mm; margin-bottom: .6mm; }
-                .question-title { font-size: 12pt; line-height: 1.2; font-weight: 700; color: #244668; }
+                .question-head { border-left: 1.2mm solid #3b5ecc; padding-left: 3mm; margin-bottom: .6mm; break-after: avoid; page-break-after: avoid; }
+                .question-title { font-size: 12pt; line-height: 1.2; font-weight: 700; color: #244668; break-after: avoid; page-break-after: avoid; }
                 .question-meta { margin-top: .4mm; color: #718599; font-size: 8.5pt; }
-                .section { margin-top: .45mm; }
-                .section-label, .answer-label { color: #3b5ecc; font-size: 8.8pt; margin-bottom: .12mm; }
+                .section { margin-top: .45mm; break-inside: avoid; page-break-inside: avoid; }
+                .section-label, .answer-label { color: #3b5ecc; font-size: 8.8pt; margin-bottom: .12mm; break-after: avoid; page-break-after: avoid; }
                 .math-text { color: #243f59; min-width: 0; white-space: pre-wrap; word-break: break-word; line-height: 1.28; }
                 .question-title .math-text { color: #244668; }
                 .keep-unit { display: inline-flex; align-items: baseline; width: max-content; max-width: 100%; white-space: nowrap; vertical-align: baseline; overflow: hidden; }
@@ -388,7 +387,7 @@ object HtmlPdfExportService {
                 }
                 .original-images-only .question-image { width: auto; max-width: 100%; max-height: 165mm; }
                 .answer-label { margin-top: .5mm; margin-bottom: 0; }
-                .answer-space { width: 100%; min-height: 10mm; }
+                .answer-space { width: 100%; min-height: 10mm; break-inside: avoid; page-break-inside: avoid; }
                 .original-images-only .answer-label { margin-top: 1.5mm; }
                 .original-photo-answer-space {
                   height: 50mm;
@@ -427,7 +426,7 @@ object HtmlPdfExportService {
                 <div class="book-title">${escapeHtml(documentTitle)}</div>
                 <div class="book-meta">${escapeHtml(templateLabel)} · 共 ${mistakes.size} 道题 · 导出于 ${escapeHtml(exportedOn)} · A4 纵向</div>
               </header>
-              <main>$questions$answerSection</main>
+              <main>$content</main>
               <script src="katex.min.js"></script>
               <script>
                 (() => {
@@ -805,8 +804,8 @@ object HtmlPdfExportService {
 
     private fun buildAnswerBookHtml(mistakes: List<MistakeEntity>): String = buildString {
         append("<section class=\"answer-heading\">")
-        append("<div class=\"answer-heading-title\">参考答案与解析</div>")
-        append("<div class=\"answer-heading-subtitle\">答案集中在文档后半部分，便于先独立完成练习。</div>")
+        append("<div class=\"answer-heading-title\">解析答案</div>")
+        append("<div class=\"answer-heading-subtitle\">每道题从答案和解析开始，便于逐题核对。</div>")
         append("</section>")
         mistakes.forEachIndexed { index, mistake ->
             val title = mistake.title.ifBlank { "错题" }

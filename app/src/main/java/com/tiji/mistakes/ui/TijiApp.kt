@@ -5,6 +5,7 @@ package com.tiji.mistakes.ui
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.Icons
@@ -17,8 +18,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
+import com.tiji.mistakes.ui.design.TijiScreen
+import com.tiji.mistakes.ui.design.TijiSnackbar
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -91,11 +92,13 @@ fun TijiApp() {
     val reviewPlanSnapshots by preferences.reviewPlanSnapshots.collectAsStateWithLifecycle(emptyMap())
     val mistakes by viewModel.mistakes.collectAsStateWithLifecycle()
     val allMistakes by viewModel.allMistakes.collectAsStateWithLifecycle()
+    val mistakeItems by viewModel.mistakeItems.collectAsStateWithLifecycle()
+    val allMistakeItems by viewModel.allMistakeItems.collectAsStateWithLifecycle()
+    val progressSummary by viewModel.progressSummary.collectAsStateWithLifecycle()
     val reviewNow by viewModel.reviewNow.collectAsStateWithLifecycle(System.currentTimeMillis())
     val todayDate = remember(reviewNow) { LearningCalendar.localDate(reviewNow).toString() }
     val todayWeekday = remember(reviewNow) { LearningCalendar.localDate(reviewNow).dayOfWeek.value }
     var librarySubject by rememberSaveable { mutableStateOf<String?>(null) }
-    var libraryKnowledgePointStableId by rememberSaveable { mutableStateOf<String?>(null) }
     val dueMistakes by viewModel.dueMistakes.collectAsStateWithLifecycle()
     val dueCount by viewModel.dueCount.collectAsStateWithLifecycle()
     val recentReviewRecords by viewModel.recentReviewRecords.collectAsStateWithLifecycle()
@@ -158,7 +161,7 @@ fun TijiApp() {
     val destinations = remember {
         listOf(
             BottomDestination(TijiRoutes.HOME, "首页") { Icon(Icons.Outlined.Home, null) },
-            BottomDestination(TijiRoutes.LIBRARY, "错题") { Icon(Icons.AutoMirrored.Outlined.MenuBook, null) },
+            BottomDestination(TijiRoutes.LIBRARY, "错题库") { Icon(Icons.AutoMirrored.Outlined.MenuBook, null) },
             BottomDestination(TijiRoutes.SOLVE, "AI解题") { Icon(Icons.Outlined.AutoAwesome, null) },
             BottomDestination(TijiRoutes.REVIEW, "复习") { Icon(Icons.Outlined.Replay, null) },
             BottomDestination(TijiRoutes.SETTINGS, "设置") { Icon(Icons.Outlined.Settings, null) }
@@ -168,6 +171,9 @@ fun TijiApp() {
     val navState = TijiNavGraphState(
         allMistakes = allMistakes,
         mistakes = mistakes,
+        allMistakeItems = allMistakeItems,
+        mistakeItems = mistakeItems,
+        progressSummary = progressSummary,
         reviewNow = reviewNow,
         todayDate = todayDate,
         dueMistakes = dueMistakes,
@@ -185,7 +191,6 @@ fun TijiApp() {
         reviewSubjects = reviewSubjects,
         randomReview = randomReview,
         librarySubject = librarySubject,
-        libraryKnowledgePointStableId = libraryKnowledgePointStableId,
         aiProfiles = aiProfiles,
         activeAiProfileId = activeAiProfileId,
         activeAiProfile = activeAiProfile,
@@ -207,14 +212,14 @@ fun TijiApp() {
     )
 
     TijiTheme(mode = ThemeMode.fromKey(themeModeKey), palette = ThemePalette.fromKey(themePaletteKey)) {
-        Scaffold(
-            snackbarHost = { SnackbarHost(snackbarHostState) },
+        TijiScreen(
+            snackbarHost = { TijiSnackbar(snackbarHostState) },
             bottomBar = {
                 if (route in setOf(TijiRoutes.HOME, TijiRoutes.LIBRARY, TijiRoutes.SOLVE, TijiRoutes.REVIEW, TijiRoutes.SETTINGS)) {
                     NavigationBar(
                         containerColor = MaterialTheme.colorScheme.surface,
                         tonalElevation = 0.dp,
-                        modifier = Modifier.navigationBarsPadding()
+                        modifier = Modifier
                     ) {
                         destinations.forEach { destination ->
                             NavigationBarItem(
@@ -246,7 +251,7 @@ fun TijiApp() {
                                 colors = NavigationBarItemDefaults.colors(
                                     selectedIconColor = MaterialTheme.colorScheme.primary,
                                     selectedTextColor = MaterialTheme.colorScheme.primary,
-                                    indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                                    indicatorColor = androidx.compose.ui.graphics.Color.Transparent,
                                     unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
                                     unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -258,7 +263,7 @@ fun TijiApp() {
         ) { padding ->
             TijiNavGraph(
                 navController = navController,
-                modifier = Modifier.padding(padding),
+                modifier = Modifier.padding(padding).consumeWindowInsets(padding),
                 viewModel = viewModel,
                 preferences = preferences,
                 scope = scope,
@@ -267,11 +272,6 @@ fun TijiApp() {
                 state = navState,
                 onLibrarySubject = { subject ->
                     librarySubject = subject
-                    libraryKnowledgePointStableId = null
-                },
-                onLibraryKnowledgePoint = { stableId ->
-                    libraryKnowledgePointStableId = stableId
-                    librarySubject = null
                 }
             )
         }

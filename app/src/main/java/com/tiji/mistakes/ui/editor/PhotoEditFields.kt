@@ -13,11 +13,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CameraAlt
 import androidx.compose.material.icons.outlined.Image
-import androidx.compose.material3.Card
+import com.tiji.mistakes.ui.design.TijiCard
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import com.tiji.mistakes.ui.design.TijiSecondaryButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -67,7 +67,7 @@ internal fun PhotoEditFields(
             if (answerImage != null) add(PhotoRole.ANSWER to answerImage)
             if (explanationImage != null) add(PhotoRole.EXPLANATION to explanationImage)
         }.forEach { (role, path) ->
-            Card(
+            TijiCard(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -77,7 +77,7 @@ internal fun PhotoEditFields(
                         ImagePreview(imagePath, onDelete = { onDeleteImage(role, imagePath) })
                     } ?: Text("未添加图片", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                        OutlinedButton(
+                        TijiSecondaryButton(
                             onClick = { onGallery(role) },
                             modifier = Modifier.weight(1f),
                             contentPadding = PaddingValues(horizontal = 4.dp)
@@ -86,7 +86,7 @@ internal fun PhotoEditFields(
                             Spacer(Modifier.size(4.dp))
                             Text("相册", maxLines = 1)
                         }
-                        OutlinedButton(
+                        TijiSecondaryButton(
                             onClick = { onCamera(role) },
                             modifier = Modifier.weight(1f),
                             contentPadding = PaddingValues(horizontal = 4.dp)
@@ -96,7 +96,7 @@ internal fun PhotoEditFields(
                             Text("拍照", maxLines = 1)
                         }
                         if (path != null) {
-                            OutlinedButton(
+                            TijiSecondaryButton(
                                 onClick = { onEditImage(role, path) },
                                 modifier = Modifier.weight(1f),
                                 contentPadding = PaddingValues(horizontal = 4.dp)

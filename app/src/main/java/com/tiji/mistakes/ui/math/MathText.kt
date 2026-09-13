@@ -21,6 +21,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import kotlin.math.roundToInt
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -123,12 +125,13 @@ internal fun MathText(
 
     val context = LocalContext.current
     val textColor = resolvedColor.toArgb()
-    val fontSizePx = when {
-        emphasized && compact -> 16
-        emphasized -> 19
-        compact -> 14
-        else -> 16
+    val hostTextStyle = when {
+        emphasized && compact -> MaterialTheme.typography.titleSmall
+        emphasized -> MaterialTheme.typography.titleMedium
+        compact -> MaterialTheme.typography.bodySmall
+        else -> MaterialTheme.typography.bodyLarge
     }
+    val fontSizePx = (hostTextStyle.fontSize.value * LocalDensity.current.fontScale).roundToInt().coerceAtLeast(1)
     val minimumHeight = when {
         emphasized -> 36f
         compact -> 20f

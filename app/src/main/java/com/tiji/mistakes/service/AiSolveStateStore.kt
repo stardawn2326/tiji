@@ -44,7 +44,10 @@ data class PersistedAiSolveState(
     val recognitionWarning: String = "",
     val uncertainItems: List<String> = emptyList(),
     val verification: AiVerificationResult = AiVerificationResult(),
-    val solutionProtocolVersion: Int = 0,
+    /** One-step recovery snapshot for the latest explicit correction run. */
+    val previousCompleteText: String = "",
+    val previousVerification: AiVerificationResult = AiVerificationResult(),
+    val previousUpdatedAt: Long = 0L,
     val diagnostics: AiSolveDiagnostics = AiSolveDiagnostics(),
     /** Non-null when the visible solve was restored from an existing history snapshot. */
     val historyRecordId: String? = null,
@@ -64,7 +67,8 @@ data class PersistedAiSolveState(
  * also the only source used by the result card and saved mistake record.
  */
 internal fun extractRecognizedQuestionFromSolution(value: String): String {
-    AiStructuredSolutionV3Codec.parse(value)?.questionText?.takeIf(String::isNotBlank)?.let { return it }
+    AiStructuredSolutionCodec.parse(value)?.section("recognition")?.displaySource()
+        ?.takeIf(String::isNotBlank)?.let { return it }
     var text = value.trimStart()
     if (text.startsWith("[[TIJI_META:")) {
         val metadataEnd = text.indexOf("]]" )
@@ -137,7 +141,13 @@ class AiSolveStateStore(context: Context) {
                     runCatching { JSONObject(raw) }.getOrNull()
                 }
             ),
-            solutionProtocolVersion = preferences.getInt(KEY_SOLUTION_PROTOCOL_VERSION, 0),
+            previousCompleteText = preferences.getString(KEY_PREVIOUS_COMPLETE_TEXT, "").orEmpty(),
+            previousVerification = parsePersistedVerification(
+                preferences.getString(KEY_PREVIOUS_VERIFICATION, null)?.let { raw ->
+                    runCatching { JSONObject(raw) }.getOrNull()
+                }
+            ),
+            previousUpdatedAt = preferences.getLong(KEY_PREVIOUS_UPDATED_AT, 0L),
             diagnostics = parseDiagnostics(preferences.getString(KEY_DIAGNOSTICS, null)),
             historyRecordId = preferences.getString(KEY_HISTORY_RECORD_ID, null),
             historyWriteError = preferences.getString(KEY_HISTORY_WRITE_ERROR, "").orEmpty(),
@@ -171,7 +181,9 @@ class AiSolveStateStore(context: Context) {
             .putString(KEY_RECOGNITION_WARNING, state.recognitionWarning.take(MAX_TEXT_LENGTH))
             .putString(KEY_UNCERTAIN_ITEMS, JSONArray(state.uncertainItems.filter(String::isNotBlank).distinct()).toString())
             .putString(KEY_VERIFICATION, encodeVerification(state.verification).toString())
-            .putInt(KEY_SOLUTION_PROTOCOL_VERSION, state.solutionProtocolVersion.coerceIn(0, 3))
+            .putString(KEY_PREVIOUS_COMPLETE_TEXT, state.previousCompleteText.take(MAX_TEXT_LENGTH))
+            .putString(KEY_PREVIOUS_VERIFICATION, encodeVerification(state.previousVerification).toString())
+            .putLong(KEY_PREVIOUS_UPDATED_AT, state.previousUpdatedAt)
             .putString(KEY_DIAGNOSTICS, encodeDiagnostics(state.diagnostics).toString())
             .putString(KEY_HISTORY_RECORD_ID, state.historyRecordId)
             .putString(KEY_HISTORY_WRITE_ERROR, state.historyWriteError)
@@ -241,7 +253,9 @@ class AiSolveStateStore(context: Context) {
         const val KEY_RECOGNITION_WARNING = "recognition_warning"
         const val KEY_UNCERTAIN_ITEMS = "uncertain_items"
         const val KEY_VERIFICATION = "verification"
-        const val KEY_SOLUTION_PROTOCOL_VERSION = "solution_protocol_version"
+        const val KEY_PREVIOUS_COMPLETE_TEXT = "previous_complete_text"
+        const val KEY_PREVIOUS_VERIFICATION = "previous_verification"
+        const val KEY_PREVIOUS_UPDATED_AT = "previous_updated_at"
         const val KEY_DIAGNOSTICS = "diagnostics"
         const val KEY_HISTORY_RECORD_ID = "history_record_id"
         const val KEY_HISTORY_WRITE_ERROR = "history_write_error"
@@ -257,10 +271,7 @@ class AiSolveStateStore(context: Context) {
                 solveDurationMs = json.optLong("solveDurationMs", 0L),
                 verifyDurationMs = json.optLong("verifyDurationMs", 0L),
                 repairDurationMs = json.optLong("repairDurationMs", 0L),
-                requestCount = json.optInt("requestCount", 0).coerceAtLeast(0),
-                v3Success = json.optBoolean("v3Success", false),
-                v2Fallback = json.optBoolean("v2Fallback", false),
-                legacyFallback = json.optBoolean("legacyFallback", false)
+                requestCount = json.optInt("requestCount", 0).coerceAtLeast(0)
             )
         }.getOrDefault(AiSolveDiagnostics())
 
@@ -269,8 +280,5 @@ class AiSolveStateStore(context: Context) {
             .put("verifyDurationMs", diagnostics.verifyDurationMs.coerceAtLeast(0L))
             .put("repairDurationMs", diagnostics.repairDurationMs.coerceAtLeast(0L))
             .put("requestCount", diagnostics.requestCount.coerceAtLeast(0))
-            .put("v3Success", diagnostics.v3Success)
-            .put("v2Fallback", diagnostics.v2Fallback)
-            .put("legacyFallback", diagnostics.legacyFallback)
     }
 }

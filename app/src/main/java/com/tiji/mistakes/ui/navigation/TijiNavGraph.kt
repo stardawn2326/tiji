@@ -60,8 +60,7 @@ internal fun TijiNavGraph(
     snackbarHostState: SnackbarHostState,
     ocrModelManager: OcrModelManager,
     state: TijiNavGraphState,
-    onLibrarySubject: (String?) -> Unit,
-    onLibraryKnowledgePoint: (String?) -> Unit
+    onLibrarySubject: (String?) -> Unit
 ) {
     val activeReviewSession by viewModel.reviewSession.collectAsStateWithLifecycle()
     NavHost(
@@ -72,12 +71,12 @@ internal fun TijiNavGraph(
                     if (isSecondaryRoute(initialState.destination.route) || isSecondaryRoute(targetState.destination.route)) {
                         slideIntoContainer(
                             pageSlideDirection(initialState.destination.route, targetState.destination.route, popping = false),
-                            tween(220)
+                            tween(com.tiji.mistakes.ui.design.TijiMotion.Page)
                         )
                     } else {
                         slideIntoContainer(
                             pageSlideDirection(initialState.destination.route, targetState.destination.route, popping = false),
-                            tween(260)
+                            tween(com.tiji.mistakes.ui.design.TijiMotion.PrimaryTab)
                         )
                     }
                 },
@@ -85,12 +84,12 @@ internal fun TijiNavGraph(
                     if (isSecondaryRoute(initialState.destination.route) || isSecondaryRoute(targetState.destination.route)) {
                         slideOutOfContainer(
                             pageSlideDirection(initialState.destination.route, targetState.destination.route, popping = false),
-                            tween(220)
+                            tween(com.tiji.mistakes.ui.design.TijiMotion.Page)
                         )
                     } else {
                         slideOutOfContainer(
                             pageSlideDirection(initialState.destination.route, targetState.destination.route, popping = false),
-                            tween(260)
+                            tween(com.tiji.mistakes.ui.design.TijiMotion.PrimaryTab)
                         )
                     }
                 },
@@ -98,12 +97,12 @@ internal fun TijiNavGraph(
                     if (isSecondaryRoute(initialState.destination.route) || isSecondaryRoute(targetState.destination.route)) {
                         slideIntoContainer(
                             pageSlideDirection(initialState.destination.route, targetState.destination.route, popping = true),
-                            tween(220)
+                            tween(com.tiji.mistakes.ui.design.TijiMotion.Page)
                         )
                     } else {
                         slideIntoContainer(
                             pageSlideDirection(initialState.destination.route, targetState.destination.route, popping = true),
-                            tween(260)
+                            tween(com.tiji.mistakes.ui.design.TijiMotion.PrimaryTab)
                         )
                     }
                 },
@@ -111,56 +110,47 @@ internal fun TijiNavGraph(
                     if (isSecondaryRoute(initialState.destination.route) || isSecondaryRoute(targetState.destination.route)) {
                         slideOutOfContainer(
                             pageSlideDirection(initialState.destination.route, targetState.destination.route, popping = true),
-                            tween(220)
+                            tween(com.tiji.mistakes.ui.design.TijiMotion.Page)
                         )
                     } else {
                         slideOutOfContainer(
                             pageSlideDirection(initialState.destination.route, targetState.destination.route, popping = true),
-                            tween(260)
+                            tween(com.tiji.mistakes.ui.design.TijiMotion.PrimaryTab)
                         )
                     }
                 }
             ) {
                 composable(TijiRoutes.HOME) {
                     HomeScreen(
-                        mistakes = state.allMistakes,
+                        progressSummary = state.progressSummary,
                         dueCount = state.dueCount,
                         reviewTotal = state.reviewPlanSnapshots[state.todayDate].orEmpty().size.takeIf { it > 0 } ?: state.dueCount,
                         reviewCompleted = state.reviewMastery[state.todayDate].orEmpty().keys.count { id -> id in state.reviewPlanSnapshots[state.todayDate].orEmpty() },
                         resetScrollToken = state.homeVisitToken,
-                        onNavigate = navController::navigate
+                        onNavigate = navController::navigate,
+                        onSubject = { subject ->
+                            onLibrarySubject(subject)
+                            navController.navigate(TijiRoutes.LIBRARY)
+                        }
                     )
                 }
                 composable(TijiRoutes.LIBRARY) {
                     LibraryScreen(
                         selectedSubject = state.librarySubject,
-                        selectedKnowledgePointStableId = state.libraryKnowledgePointStableId,
                         resetScrollToken = state.libraryVisitToken,
                         onSelectSubject = { subject -> onLibrarySubject(subject) },
-                        onSelectKnowledgePoint = { stableId -> onLibraryKnowledgePoint(stableId) },
                         viewModel = viewModel,
-                        mistakes = state.mistakes,
-                        knowledgePointInsights = state.weaknessInsights,
-                        knowledgePoints = state.knowledgePoints,
-                        knowledgePointLinks = state.knowledgePointLinks,
+                        mistakeItems = state.mistakeItems,
                         exportOriginalImagesOnly = !state.aiExcludeSourceImageByDefault,
                         onOpen = { navController.navigate(TijiRoutes.detail(it)) },
                         onCreate = { navController.navigate(TijiRoutes.CAPTURE) },
-                        onOpenKnowledge = { navController.navigate(TijiRoutes.KNOWLEDGE) },
-                        onStartSelectedReview = { selectedIds ->
+                        onAddSelectedToTomorrow = { selectedIds ->
                             val activeIds = state.mistakes.mapTo(mutableSetOf()) { it.id }
                             val validIds = selectedIds.filter { it in activeIds }.distinct()
                             if (validIds.isEmpty()) {
                                 scope.launch { snackbarHostState.showSnackbar("所选错题已不可用，请重新选择") }
                             } else {
-                                val plan = ReviewSessionPlan(
-                                    sessionKey = viewModel.newReviewSessionId(),
-                                    source = ReviewSessionSource.LIBRARY_SELECTION,
-                                    reviewIds = validIds,
-                                    returnDestination = TijiRoutes.LIBRARY
-                                )
-                                viewModel.startReviewSession(plan)
-                                navController.navigate(TijiRoutes.reviewSession(plan.sessionId))
+                                viewModel.addMistakesToTomorrow(validIds)
                             }
                         }
                     )
@@ -254,13 +244,10 @@ internal fun TijiNavGraph(
                         insight = state.weaknessInsights.firstOrNull { it.point.stableId == stableId },
                         relatedMistakes = relatedMistakes,
                         reviewRecords = reviewHistory,
+                        latestReviewGrades = state.allMistakeItems.associate { it.mistake.id to it.latestReviewGrade },
                         exportOriginalImagesOnly = !state.aiExcludeSourceImageByDefault,
                         onBack = { navController.popBackStack() },
                         onOpenMistake = { id -> navController.navigate(TijiRoutes.detail(id)) },
-                        onOpenLibrary = { selectedId ->
-                            onLibraryKnowledgePoint(selectedId)
-                            navController.navigate(TijiRoutes.LIBRARY)
-                        },
                         onStartFocusedReview = { selectedId, pointName ->
                             scope.launch {
                                 val queue = viewModel.focusedReviewQueue(selectedId)
@@ -429,7 +416,8 @@ internal fun TijiNavGraph(
                         onAiUploadConsent = { value -> scope.launch { preferences.setAiUploadConsent(value) } },
                         onActiveAiProfile = { id -> scope.launch { preferences.setActiveAiProfile(id, state.aiProfiles) } },
                          onAiInputMode = { value -> scope.launch { preferences.setAiCaptureInputMode(value.name) } },
-                        onOpenSettings = { navController.navigate(TijiRoutes.SETTINGS) }
+                        onOpenSettings = { navController.navigate(TijiRoutes.SETTINGS) },
+                        onOpenMistake = { id -> navController.navigate(TijiRoutes.detail(id)) }
                     )
                 }
                 composable(TijiRoutes.DETAIL_PATTERN) { entry ->
@@ -496,7 +484,7 @@ internal fun TijiNavGraph(
                                 if (session.plan.source == ReviewSessionSource.TODAY_PLAN) {
                                     scope.launch { preferences.recordReviewStatus(state.todayDate, questionId, grade.name) }
                                 }
-                            }
+                            },
                         )
                     }
                 }

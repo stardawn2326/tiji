@@ -92,7 +92,6 @@ data class AiSolveHistoryRecord(
     val recognitionWarning: String = "",
     val uncertainItems: List<String> = emptyList(),
     val verification: AiVerificationResult = AiVerificationResult(),
-    val solutionProtocolVersion: Int = 0,
     val diagnostics: AiSolveDiagnostics = AiSolveDiagnostics(),
     val chatMessages: List<AiChatMessage> = emptyList()
 ) {
@@ -220,7 +219,6 @@ class AiSolveHistoryStore(context: Context) {
                 recognitionWarning = state.recognitionWarning,
                 uncertainItems = state.uncertainItems,
                 verification = state.verification,
-                solutionProtocolVersion = state.solutionProtocolVersion,
                 diagnostics = state.diagnostics,
                 chatMessages = chatMessages.takeLast(MAX_CHAT_MESSAGES)
             )
@@ -292,15 +290,11 @@ class AiSolveHistoryStore(context: Context) {
         .put("recognitionWarning", record.recognitionWarning)
         .put("uncertainItems", JSONArray(record.uncertainItems.filter(String::isNotBlank).distinct()))
         .put("verification", encodeVerification(record.verification))
-        .put("solutionProtocolVersion", record.solutionProtocolVersion.coerceIn(0, 3))
         .put("diagnostics", JSONObject()
             .put("solveDurationMs", record.diagnostics.solveDurationMs)
             .put("verifyDurationMs", record.diagnostics.verifyDurationMs)
             .put("repairDurationMs", record.diagnostics.repairDurationMs)
-            .put("requestCount", record.diagnostics.requestCount)
-            .put("v3Success", record.diagnostics.v3Success)
-            .put("v2Fallback", record.diagnostics.v2Fallback)
-            .put("legacyFallback", record.diagnostics.legacyFallback))
+            .put("requestCount", record.diagnostics.requestCount))
         .put("chatMessages", JSONArray(record.chatMessages.map { message ->
             JSONObject()
                 .put("prompt", message.prompt.take(MAX_CHAT_PROMPT_LENGTH))
@@ -345,7 +339,6 @@ class AiSolveHistoryStore(context: Context) {
                         recognitionWarning = item.optString("recognitionWarning"),
                         uncertainItems = readStringList(item.optJSONArray("uncertainItems")),
                         verification = parsePersistedVerification(item.optJSONObject("verification")),
-                        solutionProtocolVersion = item.optInt("solutionProtocolVersion", 0).coerceIn(0, 3),
                         diagnostics = parseDiagnostics(item.optJSONObject("diagnostics")),
                         chatMessages = readChatMessages(item.optJSONArray("chatMessages"))
                     )
@@ -386,10 +379,7 @@ class AiSolveHistoryStore(context: Context) {
             solveDurationMs = it.optLong("solveDurationMs", 0L),
             verifyDurationMs = it.optLong("verifyDurationMs", 0L),
             repairDurationMs = it.optLong("repairDurationMs", 0L),
-            requestCount = it.optInt("requestCount", 0).coerceAtLeast(0),
-            v3Success = it.optBoolean("v3Success", false),
-            v2Fallback = it.optBoolean("v2Fallback", false),
-            legacyFallback = it.optBoolean("legacyFallback", false)
+            requestCount = it.optInt("requestCount", 0).coerceAtLeast(0)
         )
     } ?: AiSolveDiagnostics()
 

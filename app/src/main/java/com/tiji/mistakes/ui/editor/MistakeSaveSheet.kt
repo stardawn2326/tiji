@@ -13,11 +13,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Button
-import androidx.compose.material3.FilterChip
+import com.tiji.mistakes.ui.design.TijiButton
+import com.tiji.mistakes.ui.design.TijiChip
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedTextField
+import com.tiji.mistakes.ui.design.TijiBottomSheet
+import com.tiji.mistakes.ui.design.TijiTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -28,7 +28,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.tiji.mistakes.ui.TijiDimens
+import com.tiji.mistakes.service.mergeTagText
+import com.tiji.mistakes.ui.design.TijiDimens
 
 /** The only metadata surface shared by solve, recognition, photo, and manual capture. */
 internal data class MistakeSaveMetadata(
@@ -39,15 +40,24 @@ internal data class MistakeSaveMetadata(
     val inReviewPlan: Boolean = true
 )
 
+internal enum class MistakeSaveField {
+    SUBJECT,
+    TAGS,
+    QUESTION_TYPE,
+    DIFFICULTY
+}
+
 @Composable
 internal fun MistakeSaveSheet(
     initial: MistakeSaveMetadata,
     onDismiss: () -> Unit,
     onSave: (MistakeSaveMetadata) -> Unit,
     saving: Boolean = false,
+    metadataLoading: Boolean = false,
     suggestedSubjects: List<String> = emptyList(),
+    suggestedQuestionTypes: List<String> = emptyList(),
     suggestedTags: List<String> = emptyList(),
-    suggestedQuestionTypes: List<String> = emptyList()
+    onFieldEdited: (MistakeSaveField) -> Unit = {}
 ) {
     var subject by remember(initial.subject) { mutableStateOf(initial.subject) }
     var questionType by remember(initial.questionType) { mutableStateOf(initial.questionType) }
@@ -56,28 +66,25 @@ internal fun MistakeSaveSheet(
     var inReviewPlan by remember(initial.inReviewPlan) { mutableStateOf(initial.inReviewPlan) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    ModalBottomSheet(
+    TijiBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .imePadding()
-                .navigationBarsPadding()
+
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = TijiDimens.pagePadding, vertical = 8.dp),
+            .padding(horizontal = TijiDimens.pagePadding, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text("保存错题", style = MaterialTheme.typography.headlineSmall)
-            Text(
-                "先确认分类和复习计划，保存后以这里的最终值为准。",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            OutlinedTextField(
+            TijiTextField(
                 value = subject,
-                onValueChange = { subject = it },
+                onValueChange = {
+                    subject = it
+                    onFieldEdited(MistakeSaveField.SUBJECT)
+                },
                 label = { Text("科目") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
@@ -85,31 +92,36 @@ internal fun MistakeSaveSheet(
             SuggestionChips(
                 title = "常用科目",
                 values = suggestedSubjects,
-                onSelected = { subject = it }
+                onSelected = {
+                    subject = it
+                    onFieldEdited(MistakeSaveField.SUBJECT)
+                }
             )
-            OutlinedTextField(
+            TijiTextField(
                 value = tags,
-                onValueChange = { tags = it },
+                onValueChange = {
+                    tags = it
+                    onFieldEdited(MistakeSaveField.TAGS)
+                },
                 label = { Text("知识点 / 标签") },
-                supportingText = { Text("多个内容用逗号分隔") },
+                placeholder = { Text("多个标签用逗号分隔") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
             SuggestionChips(
-                title = "本地知识点",
+                title = "常用知识点 / 标签",
                 values = suggestedTags,
-                onSelected = { selected ->
-                    tags = tags.split(',', '，')
-                        .map(String::trim)
-                        .filter(String::isNotBlank)
-                        .plus(selected)
-                        .distinct()
-                        .joinToString(", ")
+                onSelected = {
+                    tags = mergeTagText(tags, listOf(it))
+                    onFieldEdited(MistakeSaveField.TAGS)
                 }
             )
-            OutlinedTextField(
+            TijiTextField(
                 value = questionType,
-                onValueChange = { questionType = it },
+                onValueChange = {
+                    questionType = it
+                    onFieldEdited(MistakeSaveField.QUESTION_TYPE)
+                },
                 label = { Text("题型") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
@@ -117,19 +129,32 @@ internal fun MistakeSaveSheet(
             SuggestionChips(
                 title = "常用题型",
                 values = suggestedQuestionTypes,
-                onSelected = { questionType = it }
+                onSelected = {
+                    questionType = it
+                    onFieldEdited(MistakeSaveField.QUESTION_TYPE)
+                }
             )
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("难度", style = MaterialTheme.typography.labelLarge)
-                DifficultyPicker(difficulty = difficulty, onDifficulty = { difficulty = it })
+            DifficultyPicker(
+                difficulty = difficulty,
+                onDifficulty = {
+                    difficulty = it
+                    onFieldEdited(MistakeSaveField.DIFFICULTY)
+                }
+            )
+            if (metadataLoading) {
+                Text(
+                    "正在根据当前解题内容补充分类；你可以继续编辑或直接保存。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
-            FilterChip(
+            TijiChip(
                 selected = inReviewPlan,
                 onClick = { inReviewPlan = !inReviewPlan },
                 label = { Text(if (inReviewPlan) "加入复习计划" else "暂不加入复习计划") },
                 modifier = Modifier.heightIn(min = 48.dp)
             )
-            Button(
+            TijiButton(
                 onClick = {
                     onSave(
                         MistakeSaveMetadata(
@@ -142,11 +167,17 @@ internal fun MistakeSaveSheet(
                     )
                 },
                 enabled = !saving,
+                loading = saving,
                 modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
                 contentPadding = PaddingValues(vertical = 14.dp)
-            ) {
-                Text(if (saving) "正在保存…" else "保存到错题库")
-            }
+                ) {
+                    Text(
+                        when {
+                            saving -> "正在保存…"
+                            else -> "保存到错题库"
+                        }
+                    )
+                }
         }
     }
 }
@@ -165,7 +196,7 @@ private fun SuggestionChips(
             contentPadding = PaddingValues(end = 8.dp)
         ) {
             items(values.take(8)) { value ->
-                FilterChip(
+                TijiChip(
                     selected = false,
                     onClick = { onSelected(value) },
                     label = { Text(value, maxLines = 1) },

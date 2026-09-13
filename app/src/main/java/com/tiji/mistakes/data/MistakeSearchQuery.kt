@@ -11,12 +11,8 @@ internal object MistakeSearchQuery {
         "userAnswer",
         "answerText",
         "explanation",
-        "note",
         "subject",
-        "questionType",
-        "tags",
-        "errorReason",
-        "ocrText"
+        "questionType"
     )
 
     internal data class Spec(val sql: String, val bindArgs: List<String>)

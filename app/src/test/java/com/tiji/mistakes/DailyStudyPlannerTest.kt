@@ -83,7 +83,7 @@ class DailyStudyPlannerTest {
 
         assertEquals(listOf(8L), plan.weakBoost)
         assertTrue(plan.reasons.getValue(8L).contains("函数"))
-        assertTrue(plan.reasons.getValue(8L).contains("上次选择困难"))
+        assertTrue(plan.reasons.getValue(8L).contains("上次选择生疏"))
         assertTrue(plan.reasons.getValue(8L).contains("距离上次复习 3 天"))
     }
 
@@ -102,6 +102,18 @@ class DailyStudyPlannerTest {
         val plan = DailyStudyPlanner.plan(input(listOf(due, weak, optional), listOf(due), limit = 10))
 
         assertTrue(plan.orderedIds.isEmpty())
+    }
+
+    @Test
+    fun overdueBacklogRotatesSubjectsWithinTheDailyLimit() {
+        val math1 = mistake(20L, mastery = 0, nextReviewAt = now - 40L, createdAt = 1L).copy(subject = "数学")
+        val math2 = mistake(21L, mastery = 0, nextReviewAt = now - 30L, createdAt = 2L).copy(subject = "数学")
+        val english = mistake(22L, mastery = 0, nextReviewAt = now - 20L, createdAt = 3L).copy(subject = "英语")
+
+        val plan = DailyStudyPlanner.plan(input(listOf(math1, math2, english), listOf(math1, math2, english), limit = 2))
+
+        assertEquals(2, plan.due.size)
+        assertTrue(plan.due.any { it == english.id })
     }
 
     private fun input(

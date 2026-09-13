@@ -13,8 +13,11 @@ class MistakeSearchQueryTest {
 
         assertTrue(spec.sql.contains("deletedAt IS NULL AND archived = 0"))
         assertTrue(spec.sql.contains("title LIKE ?"))
-        assertTrue(spec.sql.contains("ocrText LIKE ?"))
-        assertEquals(22, spec.bindArgs.size)
+        assertFalse(spec.sql.contains("note LIKE ?"))
+        assertFalse(spec.sql.contains("tags LIKE ?"))
+        assertFalse(spec.sql.contains("errorReason LIKE ?"))
+        assertFalse(spec.sql.contains("ocrText LIKE ?"))
+        assertEquals(14, spec.bindArgs.size)
         assertEquals("%函数%", spec.bindArgs.first())
         assertEquals("%OCR%", spec.bindArgs.last())
         assertTrue(spec.sql.contains(") AND ("))

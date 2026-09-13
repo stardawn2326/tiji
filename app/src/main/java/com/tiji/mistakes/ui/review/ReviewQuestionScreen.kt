@@ -1,4 +1,4 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 
 package com.tiji.mistakes.ui.review
 
@@ -29,7 +29,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.tiji.mistakes.ui.design.TijiShapes
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CheckCircle
@@ -38,22 +38,22 @@ import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Visibility
-import androidx.compose.material3.Button
+import com.tiji.mistakes.ui.design.TijiButton
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
+import com.tiji.mistakes.ui.design.TijiCard
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import com.tiji.mistakes.ui.design.TijiMenu
+import com.tiji.mistakes.ui.design.TijiMenuItem
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
+import com.tiji.mistakes.ui.design.TijiIconButton
+import com.tiji.mistakes.ui.design.TijiProgress
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Scaffold
+import com.tiji.mistakes.ui.design.TijiSecondaryButton
+import com.tiji.mistakes.ui.design.TijiScreen
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
+import com.tiji.mistakes.ui.design.TijiTextButton
+import com.tiji.mistakes.ui.design.TijiTopBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -82,26 +82,28 @@ import com.tiji.mistakes.domain.ReviewSessionAnalytics
 import com.tiji.mistakes.domain.ReviewSessionContext
 import com.tiji.mistakes.domain.ReviewSessionSource
 import com.tiji.mistakes.domain.time.LearningCalendar
-import com.tiji.mistakes.ui.ConceptPageHeader
+import com.tiji.mistakes.ui.design.TijiPageHeader
+import com.tiji.mistakes.ui.design.TijiDialog
 import com.tiji.mistakes.ui.common.formatLocalDate
 import com.tiji.mistakes.ui.common.reviewGradeUiLabel
 import com.tiji.mistakes.ui.common.reviewIntervalLabel
-import com.tiji.mistakes.ui.ConceptSectionHeader
-import com.tiji.mistakes.ui.ConceptTag
+import com.tiji.mistakes.domain.mistakeReviewStatusLabel
+import com.tiji.mistakes.ui.design.TijiSectionHeader
+import com.tiji.mistakes.ui.design.TijiTag
 import com.tiji.mistakes.ui.image.ImagePreview
 import com.tiji.mistakes.ui.LocalTijiSemanticColors
 import com.tiji.mistakes.ui.math.MathText
 import com.tiji.mistakes.ui.MistakeViewModel
 import com.tiji.mistakes.ui.normalizedSubject
-import com.tiji.mistakes.ui.TijiDimens
-import com.tiji.mistakes.ui.TijiStatusBadge
-import com.tiji.mistakes.ui.TijiSurfaceCard
+import com.tiji.mistakes.ui.design.TijiDimens
+import com.tiji.mistakes.ui.design.TijiStatusBadge
+import com.tiji.mistakes.ui.design.TijiPaperCard
 import java.time.ZoneId
 import java.time.temporal.ChronoUnit
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-private const val REVIEW_PAGE_TRANSITION_DURATION_MS = 220
+private const val REVIEW_PAGE_TRANSITION_DURATION_MS = com.tiji.mistakes.ui.design.TijiMotion.Page
 private val reviewPageEaseOut = CubicBezierEasing(0.23f, 1f, 0.32f, 1f)
 
 @Composable
@@ -150,7 +152,8 @@ internal fun ReviewQuestionScreen(
     var mistake by remember { mutableStateOf<MistakeEntity?>(null) }
     var loadError by remember { mutableStateOf<String?>(null) }
     var showAnswer by remember(currentId) { mutableStateOf(false) }
-    var showExplanation by remember(currentId) { mutableStateOf(false) }
+    var showEasyConfirm by remember(currentId) { mutableStateOf(false) }
+    var pendingEasyGrade by remember(currentId) { mutableStateOf<ReviewGrade?>(null) }
     var reviewMenuExpanded by remember(currentId) { mutableStateOf(false) }
     var reviewReasonExpanded by remember(currentId) { mutableStateOf(false) }
     var autoAdvancePending by remember(currentId) { mutableStateOf(false) }
@@ -206,7 +209,17 @@ internal fun ReviewQuestionScreen(
         if (currentId <= 0L) {
             loadError = "错题编号无效"
         } else {
-            viewModel.find(currentId, onLoaded = { mistake = it }, onError = { loadError = it.message ?: "无法读取错题" })
+            viewModel.find(
+                currentId,
+                onLoaded = { loaded ->
+                    if (loaded == null || loaded.deletedAt != null || loaded.archived) {
+                        loadError = "这道题已从复习范围移除"
+                    } else {
+                        mistake = loaded
+                    }
+                },
+                onError = { loadError = it.message ?: "无法读取错题" }
+            )
         }
     }
     LaunchedEffect(currentId, mistake != null) {
@@ -263,9 +276,20 @@ internal fun ReviewQuestionScreen(
             navigationAnimating = false
         }
     }
+    LaunchedEffect(currentId, loadError, isUnifiedSession, effectiveReviewIds) {
+        if (isUnifiedSession && loadError != null && effectiveReviewIds.isNotEmpty()) {
+            if (currentIndex < effectiveReviewIds.lastIndex) {
+                navigateQuestion(1, cancelAutoAdvance = false)
+            } else {
+                completeFocusedSession()
+            }
+        }
+    }
     val progressLabel = if (effectiveReviewIds.isEmpty() || currentIndex < 0) "复习" else "${currentIndex + 1} / ${effectiveReviewIds.size}"
     val reviewHistoryFlow = remember(currentId) { viewModel.reviewHistory(currentId) }
     val currentReviewHistory by reviewHistoryFlow.collectAsStateWithLifecycle(emptyList())
+    val latestReviewGrade = currentReviewHistory.firstOrNull()?.grade
+        ?.let { value -> runCatching { ReviewGrade.valueOf(value) }.getOrNull() }
     val reviewReason = current?.let { reviewReasonFor(it, currentReviewHistory.firstOrNull(), sessionContext) }
     val leaveQuestion = {
         cancelPendingAutoAdvance()
@@ -320,6 +344,14 @@ internal fun ReviewQuestionScreen(
             reviewJob.invokeOnCompletion { reviewSubmitting = false }
         }
     }
+    fun requestReview(grade: ReviewGrade) {
+        if (grade == ReviewGrade.EASY) {
+            pendingEasyGrade = grade
+            showEasyConfirm = true
+        } else {
+            submitReview(grade)
+        }
+    }
     val showSummary = isUnifiedSession && focusedSession?.summaryVisible == true
     if (showSummary && summaryState.sessionKey == resolvedSessionKey && summaryState.isLoaded) {
         ReviewSessionSummaryScreen(
@@ -333,9 +365,9 @@ internal fun ReviewQuestionScreen(
         ReviewSessionSummaryLoadingScreen(onBack = exitSession)
         return
     }
-    Scaffold(
+    TijiScreen(
         topBar = {
-            TopAppBar(
+            TijiTopBar(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
@@ -348,19 +380,19 @@ internal fun ReviewQuestionScreen(
                         }
                     }
                 },
-                navigationIcon = { IconButton(onClick = leaveQuestion) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回复习") } },
+                navigationIcon = { TijiIconButton(onClick = leaveQuestion) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回复习") } },
                 actions = {
                     if (current != null && isUnifiedSession && sessionContext.source == com.tiji.mistakes.domain.ReviewSessionSource.TODAY_PLAN) {
-                        IconButton(
+                        TijiIconButton(
                             onClick = { reviewMenuExpanded = true }
                         ) {
                             Icon(Icons.Outlined.MoreVert, contentDescription = "更多操作")
                         }
-                        DropdownMenu(
+                        TijiMenu(
                             expanded = reviewMenuExpanded,
                             onDismissRequest = { reviewMenuExpanded = false }
                         ) {
-                            DropdownMenuItem(
+                            TijiMenuItem(
                                 text = { Text("移出复习计划") },
                                 onClick = { reviewMenuExpanded = false; onRemovedFromPlan(currentId, onBack) }
                             )
@@ -377,7 +409,7 @@ internal fun ReviewQuestionScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(loadError ?: "正在读取复习题…", color = if (loadError == null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error)
-                if (loadError != null) OutlinedButton(onClick = onBack) { Text("返回复习") }
+                if (loadError != null) TijiSecondaryButton(onClick = onBack) { Text("返回复习") }
             }
         } else {
             Box(
@@ -465,7 +497,7 @@ internal fun ReviewQuestionScreen(
                             Spacer(Modifier.weight(1f))
                             Text(formatLocalDate(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        LinearProgressIndicator(
+                        TijiProgress(
                             progress = { if (effectiveReviewIds.isEmpty()) 0f else ((currentIndex + 1).toFloat() / effectiveReviewIds.size).coerceIn(0f, 1f) },
                             modifier = Modifier.fillMaxWidth().height(7.dp),
                             trackColor = MaterialTheme.colorScheme.primaryContainer
@@ -474,7 +506,7 @@ internal fun ReviewQuestionScreen(
                 }
                 if (reviewReason != null) {
                     item {
-                        TijiSurfaceCard(contentPadding = 12.dp) {
+                        TijiPaperCard(contentPadding = 12.dp) {
                             Row(
                                 modifier = Modifier.fillMaxWidth().clickable {
                                     reviewReasonExpanded = !reviewReasonExpanded
@@ -507,13 +539,15 @@ internal fun ReviewQuestionScreen(
                     }
                 }
                 item {
-                    TijiSurfaceCard {
+                    TijiPaperCard {
                         Row(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
-                            ConceptTag(normalizedSubject(current.subject))
-                            TijiStatusBadge(current.mastery)
+                            TijiTag(normalizedSubject(current.subject))
+                            TijiStatusBadge(
+                                label = mistakeReviewStatusLabel(current.reviewCount, latestReviewGrade)
+                            )
                         }
                         Text("题目", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                        Text(current.title.ifBlank { "先独立回想，再查看答案" }, style = MaterialTheme.typography.titleLarge)
+                        Text(current.title.ifBlank { "未命名错题" }, style = MaterialTheme.typography.titleLarge)
                         MathText(
                             current.questionText.ifBlank { "（图片题，请查看题目图片）" },
                             preserveSourceExactly = true,
@@ -525,8 +559,8 @@ internal fun ReviewQuestionScreen(
                     }
                 }
                 item {
-                    Button(
-                        onClick = { showAnswer = true; showExplanation = true },
+                    TijiButton(
+                        onClick = { showAnswer = true },
                         enabled = !showAnswer,
                         colors = ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.primaryContainer,
@@ -541,40 +575,40 @@ internal fun ReviewQuestionScreen(
                 }
                 if (showAnswer) {
                     if (current.answerImagePath != null) item {
-                        TijiSurfaceCard {
-                            ConceptSectionHeader("答案图片")
+                        TijiPaperCard {
+                            TijiSectionHeader("答案图片")
                             ImagePreview(current.answerImagePath)
                         }
                     }
                     item {
-                        TijiSurfaceCard {
-                            ConceptSectionHeader("参考答案", "对照检查自己的思路")
+                        TijiPaperCard {
+                            TijiSectionHeader("参考答案")
                             MathText(current.answerText.ifBlank { "未填写答案" })
                         }
                     }
                 }
-                if (showExplanation) {
+                if (showAnswer) {
                     if (current.explanationImagePath != null) item {
-                        TijiSurfaceCard {
-                            ConceptSectionHeader("解析图片")
+                        TijiPaperCard {
+                            TijiSectionHeader("解析图片")
                             ImagePreview(current.explanationImagePath)
                         }
                     }
                     item {
-                        TijiSurfaceCard {
-                            ConceptSectionHeader("解析", "把错误归纳成下一次的提醒")
+                        TijiPaperCard {
+                            TijiSectionHeader("解析")
                             MathText(current.explanation.ifBlank { "未填写解析" }, normalizeTerminalPeriod = true)
                         }
                     }
                     item {
                         val semanticColors = LocalTijiSemanticColors.current
                         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            ConceptSectionHeader("复习反馈", "选择你对这道题的真实掌握程度")
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                            TijiSectionHeader("复习反馈")
+                            androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp), maxItemsInEachRow = 2, modifier = Modifier.fillMaxWidth()) {
                                 ReviewGrade.values().forEach { grade ->
                                     val selected = selectedGrade == grade
-                                    val preview = remember(current.id, grade) {
-                                        ReviewScheduler.preview(current, grade)
+                                    val preview = remember(current.id, grade, currentReviewHistory) {
+                                        ReviewScheduler.preview(current, grade, currentReviewHistory)
                                     }
                                     val gradeColor = when (grade) {
                                         ReviewGrade.FORGOT -> MaterialTheme.colorScheme.error
@@ -582,22 +616,22 @@ internal fun ReviewQuestionScreen(
                                         ReviewGrade.GOOD -> semanticColors.reviewMastered
                                         ReviewGrade.EASY -> semanticColors.reviewEasy
                                     }
-                                        Card(
-                                            onClick = { submitReview(grade) },
+                                        TijiCard(
+                                            onClick = { requestReview(grade) },
                                         enabled = !reviewSubmitting && !autoAdvancePending && (selectedGrade == null || selected),
                                         colors = CardDefaults.cardColors(
                                             containerColor = if (selected) gradeColor.copy(alpha = 0.16f) else gradeColor.copy(alpha = 0.07f)
                                         ),
                                         border = BorderStroke(1.dp, if (selected) gradeColor else gradeColor.copy(alpha = 0.28f)),
-                                        shape = RoundedCornerShape(14.dp),
+                                        shape = TijiShapes.M,
                                         modifier = Modifier
                                             .weight(1f)
                                             .heightIn(min = 72.dp)
                                             .testTag("review_grade_${grade.name.lowercase()}"),
                                     ) {
                                         Column(Modifier.fillMaxWidth().padding(8.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                            Text(reviewGradeUiLabel(grade), style = MaterialTheme.typography.titleSmall, color = gradeColor, maxLines = 1)
-                                            Text(reviewIntervalLabel(preview), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                                            Text(reviewGradeUiLabel(grade), style = MaterialTheme.typography.titleSmall, color = gradeColor)
+                                            Text(reviewIntervalLabel(preview), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
                                     }
                                 }
@@ -615,7 +649,7 @@ internal fun ReviewQuestionScreen(
                         summaryState.sessionKey == resolvedSessionKey && summaryState.isLoading
                     val controlsEnabled = !reviewSubmitting && !autoAdvancePending && !navigationAnimating
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                        IconButton(
+                        TijiIconButton(
                             onClick = { scope.launch { navigateQuestion(-1) } },
                             enabled = controlsEnabled && currentIndex > 0,
                             modifier = Modifier.testTag("review_previous")
@@ -624,7 +658,7 @@ internal fun ReviewQuestionScreen(
                         }
                         Text(if (effectiveReviewIds.isEmpty()) "复习题" else "${currentIndex + 1} / ${effectiveReviewIds.size}", modifier = Modifier.padding(horizontal = 12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (isLastQuestion) {
-                            TextButton(
+                            TijiTextButton(
                                 onClick = {
                                     if (isUnifiedSession) completeFocusedSession() else exitSession()
                                 },
@@ -640,7 +674,7 @@ internal fun ReviewQuestionScreen(
                                 )
                             }
                         } else {
-                            IconButton(
+                            TijiIconButton(
                                 onClick = { scope.launch { navigateQuestion(1) } },
                                 enabled = controlsEnabled && currentIndex in 0 until (effectiveReviewIds.size - 1),
                                 modifier = Modifier.testTag("review_next")
@@ -653,36 +687,35 @@ internal fun ReviewQuestionScreen(
             }
         }
     }
-}
-}
-
-@Composable
-private fun ReviewSessionSummaryLoadingScreen(onBack: () -> Unit) {
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("本次复习") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回复习")
+    if (showEasyConfirm) {
+        TijiDialog(
+            onDismissRequest = {
+                showEasyConfirm = false
+                pendingEasyGrade = null
+            },
+            title = { Text("确认熟练？") },
+            text = { Text("确认后将记录本次复习为“熟练”。") },
+            confirmButton = {
+                TijiButton(
+                    onClick = {
+                        val grade = pendingEasyGrade
+                        showEasyConfirm = false
+                        pendingEasyGrade = null
+                        if (grade != null) submitReview(grade)
                     }
-                }
-            )
-        }
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .padding(padding)
-                .fillMaxSize()
-                .padding(20.dp)
-                .testTag("review_session_summary_loading"),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            CircularProgressIndicator()
-            Text("正在恢复本轮记录…", modifier = Modifier.padding(top = 12.dp))
-        }
+                ) { Text("确认熟练") }
+            },
+            dismissButton = {
+                TijiTextButton(
+                    onClick = {
+                        showEasyConfirm = false
+                        pendingEasyGrade = null
+                    }
+                ) { Text("取消") }
+            }
+        )
     }
+}
 }
 
 private fun reviewReasonFor(
@@ -706,160 +739,4 @@ private fun reviewReasonFor(
         }
     }
     return reasons.joinToString(" · ").takeIf(String::isNotBlank)
-}
-
-@Composable
-private fun ReviewSessionSummaryScreen(
-    context: ReviewSessionContext,
-    stats: com.tiji.mistakes.domain.ReviewSessionStats,
-    onBack: () -> Unit
-) {
-    val returnLabel = when (context.source) {
-        ReviewSessionSource.TODAY_PLAN -> "返回复习中心"
-        ReviewSessionSource.KNOWLEDGE_POINT -> "查看知识点"
-        ReviewSessionSource.LIBRARY_SELECTION -> "返回错题库"
-    }
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("本次复习") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回知识点")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
-            )
-        }
-    ) { padding ->
-        LazyColumn(
-            modifier = Modifier.padding(padding).fillMaxSize().testTag("review_session_summary"),
-            contentPadding = PaddingValues(
-                start = TijiDimens.pagePadding,
-                top = 16.dp,
-                end = TijiDimens.pagePadding,
-                bottom = 24.dp
-            ),
-            verticalArrangement = Arrangement.spacedBy(TijiDimens.cardGap)
-        ) {
-            item {
-                ConceptPageHeader(
-                    eyebrow = "复习完成",
-                    title = "这一轮有了新的反馈",
-                    subtitle = if (stats.completed == 0) {
-                        "本次还没有写入复习记录，可以返回知识点继续练习。"
-                    } else {
-                        "所有数字都来自本次真实 ReviewRecord。"
-                    }
-                )
-            }
-            item {
-                TijiSurfaceCard {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Icon(
-                            Icons.Outlined.CheckCircle,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(24.dp)
-                        )
-                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text("本次复习", style = MaterialTheme.typography.titleMedium)
-                            Text(
-                                buildString {
-                                    append(context.knowledgePointName?.takeIf { !it.isNullOrBlank() } ?: context.source.label)
-                                    context.knowledgePointLabel?.takeIf { it.isNotBlank() }?.let { append(" · ").append(it) }
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        SessionMetric("完成", stats.completed, Modifier.weight(1f), "review_session_completed")
-                        SessionMetric("忘记", stats.forgot, Modifier.weight(1f), "review_session_forgot")
-                        SessionMetric("困难", stats.hard, Modifier.weight(1f), "review_session_hard")
-                        SessionMetric(reviewGradeUiLabel(ReviewGrade.GOOD), stats.good, Modifier.weight(1f), "review_session_good")
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        SessionMetric(reviewGradeUiLabel(ReviewGrade.EASY), stats.easy, Modifier.weight(1f), "review_session_easy")
-                        Spacer(Modifier.weight(3f))
-                    }
-                }
-            }
-            item {
-                TijiSurfaceCard {
-                    ConceptSectionHeader("下一步", "可以回到原入口继续巩固")
-                    ConceptTag(context.knowledgePointName?.takeIf { !it.isNullOrBlank() } ?: context.source.label)
-                    Text(
-                        "复习反馈已写入学习记录，下一次打开时会重新计算薄弱度。",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = onBack,
-                            modifier = Modifier.weight(1f).heightIn(min = 48.dp)
-                        ) { Text(returnLabel) }
-                        Button(
-                            onClick = onBack,
-                            modifier = Modifier.weight(1f).heightIn(min = 48.dp)
-                        ) { Text("完成") }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun SessionMetric(label: String, value: Int, modifier: Modifier, testTag: String) {
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text(
-            value.toString(),
-            modifier = Modifier.testTag(testTag),
-            style = MaterialTheme.typography.headlineSmall,
-            color = MaterialTheme.colorScheme.primary
-        )
-        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
-
-@Composable
-internal fun ReviewSessionUnavailableScreen(onBack: () -> Unit) {
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("复习会话") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回")
-                    }
-                }
-            )
-        }
-    ) { padding ->
-        Column(
-            modifier = Modifier.padding(padding).fillMaxSize().padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text("这轮复习已不可恢复", style = MaterialTheme.typography.titleLarge)
-            Text(
-                "会话状态已经结束或不在当前任务中，请从复习中心重新开始。",
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            OutlinedButton(onClick = onBack, modifier = Modifier.heightIn(min = 48.dp)) {
-                Text("返回复习中心")
-            }
-        }
-    }
 }

@@ -1,4 +1,4 @@
-package com.tiji.mistakes.ui
+package com.tiji.mistakes.ui.design
 
 import androidx.compose.ui.unit.dp
 import androidx.compose.animation.animateContentSize
@@ -35,24 +35,18 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
-
-internal object TijiDimens {
-    val pagePadding = 16.dp
-    val sectionGap = 20.dp
-    val cardGap = 12.dp
-    val cardPadding = 16.dp
-    val controlGap = 8.dp
-    val cardRadius = 16.dp
-}
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.selected
 
 @Composable
-internal fun ConceptPageHeader(
+internal fun TijiPageHeader(
     title: String,
     subtitle: String? = null,
     eyebrow: String? = null,
     action: @Composable () -> Unit = {}
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
@@ -65,7 +59,7 @@ internal fun ConceptPageHeader(
                         color = MaterialTheme.colorScheme.primary
                     )
                 }
-                Text(title, style = MaterialTheme.typography.headlineMedium)
+                Text(title, style = if (title == "题迹") MaterialTheme.typography.displayLarge else MaterialTheme.typography.headlineMedium, modifier = Modifier.semantics { heading() })
             }
             action()
         }
@@ -80,7 +74,7 @@ internal fun ConceptPageHeader(
 }
 
 @Composable
-internal fun ConceptSectionHeader(
+internal fun TijiSectionHeader(
     title: String,
     subtitle: String? = null,
     action: @Composable () -> Unit = {}
@@ -104,7 +98,7 @@ internal fun ConceptSectionHeader(
 }
 
 @Composable
-internal fun ConceptTag(
+internal fun TijiTag(
     text: String,
     modifier: Modifier = Modifier,
     containerColor: Color = MaterialTheme.colorScheme.primaryContainer,
@@ -114,18 +108,18 @@ internal fun ConceptTag(
         modifier = modifier,
         color = containerColor,
         contentColor = contentColor,
-        shape = RoundedCornerShape(999.dp)
+        shape = TijiShapes.Pill
     ) {
         Text(
             text,
             modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
-            style = MaterialTheme.typography.labelSmall
+            style = MaterialTheme.typography.labelMedium
         )
     }
 }
 
 @Composable
-internal fun ConceptDashedDropZone(
+internal fun TijiDropZone(
     title: String,
     subtitle: String,
     icon: ImageVector,
@@ -135,7 +129,7 @@ internal fun ConceptDashedDropZone(
     compact: Boolean = false,
     actions: (@Composable RowScope.() -> Unit)? = null
 ) {
-    val shape = RoundedCornerShape(16.dp)
+    val shape = TijiShapes.L
     val borderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.56f)
     val contentPadding = if (compact) 12.dp else 18.dp
     val iconPadding = if (compact) 8.dp else 10.dp
@@ -166,7 +160,7 @@ internal fun ConceptDashedDropZone(
             Surface(
                 color = MaterialTheme.colorScheme.primaryContainer,
                 contentColor = MaterialTheme.colorScheme.primary,
-                shape = RoundedCornerShape(12.dp)
+                shape = TijiShapes.M
             ) {
                 Icon(icon, contentDescription = null, modifier = Modifier.padding(iconPadding).size(iconSize))
             }
@@ -190,7 +184,7 @@ internal fun ConceptDashedDropZone(
 }
 
 @Composable
-internal fun TijiSurfaceCard(
+internal fun TijiPaperCard(
     modifier: Modifier = Modifier,
     selected: Boolean = false,
     onClick: (() -> Unit)? = null,
@@ -199,12 +193,12 @@ internal fun TijiSurfaceCard(
 ) {
     val borderColor = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
     val borderWidth = if (selected) 1.5.dp else 1.dp
-    val cardModifier = modifier.fillMaxWidth()
+    val cardModifier = modifier.fillMaxWidth().semantics { this.selected = selected }
     val cardContent: @Composable ColumnScope.() -> Unit = {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .animateContentSize(animationSpec = tween(200))
+                .animateContentSize(animationSpec = tween(TijiMotion.Normal))
                 .padding(contentPadding),
             verticalArrangement = Arrangement.spacedBy(TijiDimens.controlGap),
             content = content
@@ -215,7 +209,7 @@ internal fun TijiSurfaceCard(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             border = BorderStroke(borderWidth, borderColor),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-            shape = RoundedCornerShape(TijiDimens.cardRadius),
+            shape = TijiShapes.M,
             modifier = cardModifier,
             content = cardContent
         )
@@ -225,7 +219,7 @@ internal fun TijiSurfaceCard(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             border = BorderStroke(borderWidth, borderColor),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-            shape = RoundedCornerShape(TijiDimens.cardRadius),
+            shape = TijiShapes.M,
             modifier = cardModifier,
             content = cardContent
         )
@@ -234,29 +228,23 @@ internal fun TijiSurfaceCard(
 
 @Composable
 internal fun TijiStatusBadge(
-    mastery: Int,
+    label: String,
     modifier: Modifier = Modifier
 ) {
-    val semanticColors = LocalTijiSemanticColors.current
-    val visual = when (mastery) {
-        0 -> StatusVisual("未掌握", MaterialTheme.colorScheme.error)
-        1 -> StatusVisual("复习中", semanticColors.reviewInProgress)
-        2 -> StatusVisual("基本掌握", semanticColors.reviewEasy)
-        else -> StatusVisual("已掌握", semanticColors.reviewMastered)
-    }
+    val visual = StatusVisual(label, MaterialTheme.colorScheme.primary)
     Surface(
         modifier = modifier,
         color = visual.color.copy(alpha = 0.12f),
         contentColor = visual.color,
-        shape = RoundedCornerShape(999.dp)
+        shape = TijiShapes.Pill
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("●", style = MaterialTheme.typography.labelSmall)
+            Text("●", style = MaterialTheme.typography.labelMedium)
             Spacer(Modifier.size(4.dp))
-            Text(visual.label, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Medium)
+            Text(visual.label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium)
         }
     }
 }

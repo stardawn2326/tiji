@@ -20,15 +20,15 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.PictureAsPdf
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
+import com.tiji.mistakes.ui.design.TijiDialog
+import com.tiji.mistakes.ui.design.TijiButton
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Switch
+import com.tiji.mistakes.ui.design.TijiSecondaryButton
+import com.tiji.mistakes.ui.design.TijiSwitch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.tiji.mistakes.ui.design.TijiTextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -41,9 +41,9 @@ import androidx.compose.ui.unit.dp
 import com.tiji.mistakes.service.BackupImportMode
 import com.tiji.mistakes.service.BackupPreview
 import com.tiji.mistakes.service.BackupService
-import com.tiji.mistakes.ui.TijiDimens
+import com.tiji.mistakes.ui.design.TijiDimens
 import com.tiji.mistakes.ui.common.reviewDateKey
-import com.tiji.mistakes.ui.settings.components.SettingCard
+import com.tiji.mistakes.ui.design.TijiSettingGroup
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
@@ -120,30 +120,30 @@ internal fun DataSettingsScreen(
     }
 
     if (showResetWarning) {
-        AlertDialog(
+        TijiDialog(
             onDismissRequest = { showResetWarning = false },
             title = { Text("重置本机数据？") },
             text = {
                 Text("将删除本机保存的全部错题、图片、复习计划和每日掌握记录。AI 配置和 API Key 不会删除，建议先导出数据。")
             },
             confirmButton = {
-                Button(onClick = {
+                TijiButton(onClick = {
                     showResetWarning = false
                     showResetConfirmation = true
                 }) { Text("继续") }
             },
             dismissButton = {
-                TextButton(onClick = { showResetWarning = false }) { Text("取消") }
+                TijiTextButton(onClick = { showResetWarning = false }) { Text("取消") }
             }
         )
     }
     if (showResetConfirmation) {
-        AlertDialog(
+        TijiDialog(
             onDismissRequest = { if (!resettingData) showResetConfirmation = false },
             title = { Text("确认永久重置？") },
             text = { Text("第二次确认：数据删除后无法从本机恢复。确定要删除全部错题和图片吗？") },
             confirmButton = {
-                Button(
+                TijiButton(
                     enabled = !resettingData,
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
                     onClick = {
@@ -157,7 +157,7 @@ internal fun DataSettingsScreen(
                 ) { Text(if (resettingData) "正在重置…" else "确认重置") }
             },
             dismissButton = {
-                TextButton(
+                TijiTextButton(
                     enabled = !resettingData,
                     onClick = { showResetConfirmation = false }
                 ) { Text("取消") }
@@ -165,7 +165,7 @@ internal fun DataSettingsScreen(
         )
     }
     importPreview?.let { preview ->
-        AlertDialog(
+        TijiDialog(
             onDismissRequest = {
                 if (!importingBackup) {
                     importPreview = null
@@ -175,9 +175,14 @@ internal fun DataSettingsScreen(
             title = { Text(if (preview.legacy) "导入旧版题迹备份" else "导入题迹数据") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(
-                        "错题 ${preview.mistakeCount} 道 · 图片 ${preview.imageCount} 张 · 复习记录 ${preview.reviewRecordCount} 条 · 知识点 ${preview.knowledgePointCount} 个"
-                    )
+                    Text("检查结果：新增 ${preview.willAdd} · 更新 ${preview.willUpdate} · 跳过 ${preview.willSkip}")
+                    Text("错题 ${preview.mistakeCount} 道 · 图片 ${preview.imageCount} 张 · 复习记录 ${preview.reviewRecordCount} 条")
+                    if (preview.missingImages > 0) {
+                        Text("缺少图片 ${preview.missingImages} 张", color = MaterialTheme.colorScheme.error)
+                    }
+                    preview.parseErrors.forEach { error ->
+                        Text("解析错误：$error", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    }
                     Text(
                         if (preview.legacy) "检测到旧版 ZIP，将自动迁移为当前数据结构。"
                         else "数据版本 ${preview.schemaVersion} · 来源应用 ${preview.appVersion}",
@@ -188,20 +193,20 @@ internal fun DataSettingsScreen(
                         "推荐合并导入：按稳定编号和内容去重，并保留较新的记录。",
                         style = MaterialTheme.typography.bodySmall
                     )
-                    TextButton(
-                        enabled = !importingBackup,
+                    TijiTextButton(
+                        enabled = !importingBackup && preview.parseErrors.isEmpty() && preview.missingImages == 0,
                         onClick = { restoreBackup(BackupImportMode.REPLACE) }
                     ) { Text("清空现有数据后恢复") }
                 }
             },
             confirmButton = {
-                Button(
-                    enabled = !importingBackup,
+                TijiButton(
+                    enabled = !importingBackup && preview.parseErrors.isEmpty() && preview.missingImages == 0,
                     onClick = { restoreBackup(BackupImportMode.MERGE) }
                 ) { Text(if (importingBackup) "正在恢复…" else "合并导入") }
             },
             dismissButton = {
-                TextButton(
+                TijiTextButton(
                     enabled = !importingBackup,
                     onClick = { importPreview = null; importUri = null }
                 ) { Text("取消") }
@@ -216,13 +221,13 @@ internal fun DataSettingsScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item {
-                SettingCard("备份与恢复", Icons.Outlined.FolderOpen) {
+                TijiSettingGroup("备份与恢复", Icons.Outlined.FolderOpen) {
                     Text(
                         "可供各版本读取：包含错题、图片、复习计划以及每日掌握记录，不包含 API Key。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    OutlinedButton(
+                    TijiSecondaryButton(
                         onClick = { backupLauncher.launch("题迹数据-${reviewDateKey()}.tiji") },
                         modifier = Modifier.fillMaxWidth()
                     ) {
@@ -230,7 +235,7 @@ internal fun DataSettingsScreen(
                         Spacer(Modifier.size(8.dp))
                         Text("导出题迹数据 (.tiji)")
                     }
-                    OutlinedButton(
+                    TijiSecondaryButton(
                         enabled = !importingBackup,
                         onClick = { importLauncher.launch(arrayOf("application/octet-stream", "application/zip")) },
                         modifier = Modifier.fillMaxWidth()
@@ -239,7 +244,7 @@ internal fun DataSettingsScreen(
                         Spacer(Modifier.size(8.dp))
                         Text(if (importingBackup) "正在恢复…" else "导入并迁移数据")
                     }
-                    OutlinedButton(
+                    TijiSecondaryButton(
                         enabled = !importingBackup && !resettingData,
                         onClick = { showResetWarning = true },
                         modifier = Modifier.fillMaxWidth()
@@ -262,7 +267,7 @@ internal fun DataSettingsScreen(
                 }
             }
             item {
-                SettingCard("PDF 导出", Icons.Outlined.PictureAsPdf) {
+                TijiSettingGroup("PDF 导出", Icons.Outlined.PictureAsPdf) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.fillMaxWidth()
@@ -275,7 +280,7 @@ internal fun DataSettingsScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                        Switch(
+                        TijiSwitch(
                             checked = !aiExcludeSourceImageByDefault,
                             onCheckedChange = { exportOriginal ->
                                 onAiExcludeSourceImageByDefault(!exportOriginal)

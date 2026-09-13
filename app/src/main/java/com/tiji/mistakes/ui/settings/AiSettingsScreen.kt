@@ -17,13 +17,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Image
-import androidx.compose.material3.Button
-import androidx.compose.material3.FilterChip
+import com.tiji.mistakes.ui.design.TijiButton
+import com.tiji.mistakes.ui.design.TijiChip
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
+import com.tiji.mistakes.ui.design.TijiSecondaryButton
+import com.tiji.mistakes.ui.design.TijiTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.tiji.mistakes.ui.design.TijiTextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -40,12 +40,13 @@ import com.tiji.mistakes.data.AiVisualProfile
 import com.tiji.mistakes.data.AppPreferences
 import com.tiji.mistakes.service.AiProviderPreset
 import com.tiji.mistakes.service.AiVisionService
+import com.tiji.mistakes.service.AiProviderCapabilityCheck
 import com.tiji.mistakes.service.OcrModelDownloadService
 import com.tiji.mistakes.service.OcrModelManager
 import com.tiji.mistakes.service.SecureKeyStore
-import com.tiji.mistakes.ui.TijiDimens
+import com.tiji.mistakes.ui.design.TijiDimens
 import com.tiji.mistakes.ui.settings.components.CombinedOcrSettingsCard
-import com.tiji.mistakes.ui.settings.components.SettingCard
+import com.tiji.mistakes.ui.design.TijiSettingGroup
 import java.util.UUID
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
@@ -89,6 +90,7 @@ internal fun AiSettingsScreen(
     var apiKey by remember(selectedProfileId) { mutableStateOf(secureStore.read(selectedProfileId)) }
     val selectedVisualProfile = aiVisualProfiles.firstOrNull { it.id == aiVisualBindings[selectedProfileId] }
     var connectionMessage by remember { mutableStateOf("") }
+    var capabilityCheck by remember { mutableStateOf<AiProviderCapabilityCheck?>(null) }
 
     SettingsPageScaffold(title = "AI 模型", pageTag = "settings_ai", onBack = onBack) { padding ->
         LazyColumn(
@@ -97,9 +99,9 @@ internal fun AiSettingsScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item {
-                SettingCard("AI Profiles", Icons.Outlined.AutoAwesome) {
+                TijiSettingGroup("AI 模型配置", Icons.Outlined.AutoAwesome) {
                     Text(
-                        "按需配置，未配置时核心功能完全离线。每个 Profile 独立保存服务商、模型和本机密钥。",
+                        "按需配置，未配置时核心功能完全离线。每套配置独立保存服务商、模型和本机密钥。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -109,7 +111,7 @@ internal fun AiSettingsScreen(
                         modifier = Modifier.testTag("ai_profile_list")
                     ) {
                         items(aiProfiles, key = { it.id }) { profile ->
-                            FilterChip(
+                            TijiChip(
                                 selected = selectedProfileId == profile.id,
                                 onClick = {
                                     selectedProfileId = profile.id
@@ -119,7 +121,7 @@ internal fun AiSettingsScreen(
                             )
                         }
                         item {
-                            OutlinedButton(onClick = {
+                            TijiSecondaryButton(onClick = {
                                 val fresh = AiProfile(
                                     UUID.randomUUID().toString(),
                                     "新 AI 配置",
@@ -139,7 +141,7 @@ internal fun AiSettingsScreen(
                     Text("服务商预设", style = MaterialTheme.typography.labelLarge)
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(AiProviderPreset.entries) { value ->
-                            FilterChip(
+                            TijiChip(
                                 selected = preset == value,
                                 onClick = {
                                     preset = value
@@ -157,21 +159,21 @@ internal fun AiSettingsScreen(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    OutlinedTextField(
+                    TijiTextField(
                         value = profileName,
                         onValueChange = { profileName = it },
                         label = { Text("配置名称（可选）") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth().testTag("ai_profile_name")
                     )
-                    OutlinedTextField(
+                    TijiTextField(
                         value = endpoint,
                         onValueChange = { endpoint = it; preset = AiProviderPreset.CUSTOM },
                         label = { Text("服务地址") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth().testTag("ai_endpoint")
                     )
-                    OutlinedTextField(
+                    TijiTextField(
                         value = model,
                         onValueChange = { model = it; preset = AiProviderPreset.CUSTOM },
                         label = { Text("模型 ID") },
@@ -188,7 +190,7 @@ internal fun AiSettingsScreen(
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             items(preset.modelOptions) { option ->
                                 Column {
-                                    FilterChip(
+                                    TijiChip(
                                         selected = model.equals(option, ignoreCase = true),
                                         onClick = { model = option },
                                         label = { Text(option, maxLines = 1) }
@@ -202,11 +204,10 @@ internal fun AiSettingsScreen(
                             }
                         }
                     }
-                    OutlinedTextField(
+                    com.tiji.mistakes.ui.design.TijiSecretField(
                         value = apiKey,
                         onValueChange = { apiKey = it },
                         label = { Text("API Key（本机加密保存）") },
-                        visualTransformation = PasswordVisualTransformation(),
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth().testTag("ai_api_key")
                     )
@@ -225,7 +226,7 @@ internal fun AiSettingsScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                            Button(
+                            TijiButton(
                                 onClick = {
                                     val profile = AiProfile(
                                         selectedProfileId,
@@ -246,22 +247,32 @@ internal fun AiSettingsScreen(
                                 },
                                 modifier = Modifier.weight(1f).testTag("ai_save_config")
                             ) { Text("保存配置") }
-                            OutlinedButton(
+                            TijiSecondaryButton(
                                 onClick = {
-                                    connectionMessage = "正在测试…"
+                                    connectionMessage = "正在执行能力自检…"
+                                    capabilityCheck = null
                                     scope.launch {
-                                        val result = aiService.testConnection(endpoint, model, apiKey)
-                                        connectionMessage = result.fold(
-                                            { "连接成功" },
-                                            { "连接失败：${it.message ?: "未知错误"}" }
+                                        capabilityCheck = aiService.testProviderCapabilities(
+                                            endpoint = endpoint,
+                                            model = model,
+                                            apiKey = apiKey,
+                                            visualAssistBound = selectedVisualProfile != null,
+                                            visualEndpoint = selectedVisualProfile?.endpoint,
+                                            visualModel = selectedVisualProfile?.model,
+                                            visualApiKey = selectedVisualProfile?.let { profile ->
+                                                secureStore.read(profile.id).ifBlank {
+                                                    profile.keyProfileId?.let(secureStore::read).orEmpty()
+                                                }
+                                            }
                                         )
+                                        connectionMessage = "能力自检完成"
                                     }
                                 },
                                 modifier = Modifier.weight(1f).testTag("ai_test_connection")
-                            ) { Text("测试连接") }
+                            ) { Text("能力自检") }
                         }
                         Row(modifier = Modifier.fillMaxWidth()) {
-                            TextButton(
+                            TijiTextButton(
                                 onClick = { onOpenVisualAssistConfig(selectedProfileId) },
                                 contentPadding = PaddingValues(0.dp),
                                 enabled = selectedProfileId.isNotBlank()
@@ -269,7 +280,7 @@ internal fun AiSettingsScreen(
                                 Text(if (selectedVisualProfile == null) "添加视觉辅助配置" else "查看视觉辅助配置")
                             }
                             Spacer(Modifier.weight(1f))
-                            TextButton(
+                            TijiTextButton(
                                 onClick = {
                                     val fallback = aiProfiles.filterNot { it.id == selectedProfileId }.firstOrNull()
                                         ?: AiProfile(
@@ -293,6 +304,15 @@ internal fun AiSettingsScreen(
                     if (connectionMessage.isNotBlank()) {
                         Text(connectionMessage, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                     }
+                    capabilityCheck?.let { check ->
+                        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            capabilityRow("文本请求", check.text.ok, check.text.detail)
+                            capabilityRow("流式解题", check.streaming.ok, check.streaming.detail)
+                            capabilityRow("图片输入", check.image.ok, check.image.detail)
+                            capabilityRow("视觉 Profile", check.visualProfile.ok, check.visualProfile.detail)
+                            capabilityRow("视觉辅助", check.visualAssistBinding.ok, check.visualAssistBinding.detail)
+                        }
+                    }
                 }
             }
             item {
@@ -306,7 +326,7 @@ internal fun AiSettingsScreen(
                 )
             }
             item {
-                SettingCard("视觉输入说明", Icons.Outlined.Image) {
+                TijiSettingGroup("视觉输入说明", Icons.Outlined.Image) {
                     Text(
                         "视觉辅助配置独立绑定到当前文本 Profile，可在此进入管理；图片输入测试和 OCR 模型状态也不会改变文本模型设置。",
                         style = MaterialTheme.typography.bodySmall,
@@ -315,5 +335,13 @@ internal fun AiSettingsScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun capabilityRow(label: String, ok: Boolean, detail: String) {
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+        Text(if (ok) "✓" else "!", color = if (ok) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
+        Text("$label：$detail", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

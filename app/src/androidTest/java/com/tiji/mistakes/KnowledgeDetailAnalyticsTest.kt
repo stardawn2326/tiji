@@ -1,5 +1,6 @@
 package com.tiji.mistakes
 
+import androidx.activity.compose.setContent
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithTag
@@ -29,6 +30,7 @@ class KnowledgeDetailAnalyticsTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
     private var fixtureId = 0L
     private var pointStableId = ""
+    private lateinit var knowledgeData: KnowledgeTestData
 
     @Before
     fun insertHistoryFixture() = runBlocking {
@@ -64,6 +66,7 @@ class KnowledgeDetailAnalyticsTest {
                 )
             )
         }
+        knowledgeData = loadKnowledgeTestData(context, pointStableId)
     }
 
     @After
@@ -78,15 +81,10 @@ class KnowledgeDetailAnalyticsTest {
 
     @Test
     fun knowledgeDetail30DayMetricExcludesOlderHistory() {
-        composeRule.onNodeWithTag("nav_library").performClick()
-        composeRule.onNodeWithTag("library_open_knowledge").performClick()
-        composeRule.waitUntil(5_000) {
-            runCatching {
-                composeRule.onNodeWithTag("knowledge_card_$pointStableId").assertExists()
-                true
-            }.getOrDefault(false)
+        composeRule.activity.runOnUiThread {
+            composeRule.activity.setContent { KnowledgeTestHost(knowledgeData) }
         }
-        composeRule.onNodeWithTag("knowledge_card_$pointStableId").performClick()
+        composeRule.waitForIdle()
         composeRule.onNodeWithTag("knowledge_detail")
             .performScrollToNode(hasTestTag("knowledge_recent_30_count"))
         composeRule.onNodeWithTag("knowledge_recent_30_count").assertTextEquals("2")

@@ -8,10 +8,15 @@ import com.tiji.mistakes.data.KnowledgePointEntity
 import com.tiji.mistakes.domain.KnowledgePointInsight
 import com.tiji.mistakes.domain.DailyStudyPlan
 import com.tiji.mistakes.domain.ReviewAnalyticsSummary
+import com.tiji.mistakes.domain.MistakeProgressSummary
+import com.tiji.mistakes.domain.MistakeListItem
 
 internal data class TijiNavGraphState(
     val allMistakes: List<MistakeEntity>,
     val mistakes: List<MistakeEntity>,
+    val allMistakeItems: List<MistakeListItem>,
+    val mistakeItems: List<MistakeListItem>,
+    val progressSummary: MistakeProgressSummary,
     val reviewNow: Long,
     val todayDate: String,
     val dueMistakes: List<MistakeEntity>,
@@ -29,7 +34,6 @@ internal data class TijiNavGraphState(
     val reviewSubjects: String,
     val randomReview: Boolean,
     val librarySubject: String?,
-    val libraryKnowledgePointStableId: String?,
     val aiProfiles: List<AiProfile>,
     val activeAiProfileId: String,
     val activeAiProfile: AiProfile,

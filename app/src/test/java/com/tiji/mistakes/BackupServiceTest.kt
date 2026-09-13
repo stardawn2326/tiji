@@ -128,6 +128,23 @@ class BackupServiceTest {
         assertTrue(error is IllegalArgumentException)
     }
 
+    @Test
+    fun lenientInspectionReportsMissingVersionedImagesBeforeImport() {
+        val entries = mapOf(
+            "manifest.json" to bytes(
+                """{"format":"tiji-backup","schemaVersion":1,"appVersion":"0.5.2","exportedAt":123}"""
+            ),
+            "data/mistakes.json" to bytes(
+                """[{"stableId":"stable-1","title":"测试题","imageEntry":"images/missing.png"}]"""
+            )
+        )
+
+        val preview = BackupService.inspectEntries(entries, strictImages = false)
+
+        assertEquals(1, preview.missingImages)
+        assertEquals(0, preview.imageCount)
+    }
+
     private fun bytes(value: String) = value.toByteArray(Charsets.UTF_8)
 
     private fun legacySchemaTwoReaderAccepts(manifest: JSONObject): Boolean {

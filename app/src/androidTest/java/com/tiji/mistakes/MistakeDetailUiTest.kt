@@ -48,10 +48,13 @@ class MistakeDetailUiTest {
         composeRule.onNodeWithTag("mistake_card_$fixtureId").performClick()
         val detailContent = composeRule.onNodeWithTag("detail_content")
 
-        detailContent.performScrollToNode(hasText("更多信息"))
-        composeRule.onNodeWithText("我的答案").assertDoesNotExist()
-        composeRule.onNodeWithTag("detail_more_info_toggle").performClick()
-        listOf("我的答案", "正确答案", "错因标签", "我的总结").forEach { label ->
+        detailContent.performScrollToNode(hasText("我的答案"))
+        composeRule.onNodeWithText("我的答案").assertExists()
+        listOf("更多信息", "错因标签", "我的总结").forEach { label ->
+            composeRule.onNodeWithText(label).assertDoesNotExist()
+        }
+        composeRule.onNodeWithTag("detail_more_info_toggle").assertDoesNotExist()
+        listOf("正确答案").forEach { label ->
             detailContent.performScrollToNode(hasText(label))
             composeRule.onNodeWithText(label).assertExists()
         }
@@ -62,10 +65,18 @@ class MistakeDetailUiTest {
 
         composeRule.onNodeWithTag("detail_mastery_action").performClick()
         composeRule.onNodeWithTag("detail_grade_easy").performClick()
+        composeRule.onNodeWithText("确认熟练？").assertExists()
+        composeRule.onNodeWithText("取消").performClick()
+        composeRule.waitForIdle()
+        check(runBlocking { AppDatabase.get(context).reviewRecordDao().listByMistakeId(fixtureId) }.isEmpty())
+
+        composeRule.onNodeWithTag("detail_mastery_action").performClick()
+        composeRule.onNodeWithTag("detail_grade_easy").performClick()
+        composeRule.onNodeWithText("确认熟练").performClick()
         composeRule.waitUntil(5_000) {
             runBlocking {
                 AppDatabase.get(context).mistakeDao().findById(fixtureId)?.let {
-                    it.mastery == 3 && it.inReviewPlan &&
+                    it.mastery == 3 && !it.inReviewPlan &&
                         AppDatabase.get(context).reviewRecordDao().listByMistakeId(fixtureId)
                             .lastOrNull()?.grade == ReviewGrade.EASY.name
                 } == true
@@ -80,7 +91,7 @@ class MistakeDetailUiTest {
             composeRule.onAllNodesWithTag("mistake_card_$fixtureId").fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithTag("mistake_card_$fixtureId").assertExists()
-        composeRule.onNodeWithText("已掌握").assertExists()
+        composeRule.onNodeWithText("复习 1 次 · 熟练").assertExists()
 
         composeRule.onNodeWithTag("mistake_card_$fixtureId").performClick()
         composeRule.waitUntil(5_000) {

@@ -32,10 +32,7 @@ data class AiSolveDiagnostics(
     val solveDurationMs: Long = 0L,
     val verifyDurationMs: Long = 0L,
     val repairDurationMs: Long = 0L,
-    val requestCount: Int = 0,
-    val v3Success: Boolean = false,
-    val v2Fallback: Boolean = false,
-    val legacyFallback: Boolean = false
+    val requestCount: Int = 0
 ) {
     val available: Boolean
         get() = requestCount > 0 || solveDurationMs > 0L
