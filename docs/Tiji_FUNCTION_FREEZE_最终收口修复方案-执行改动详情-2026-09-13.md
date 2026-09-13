@@ -90,8 +90,9 @@ PR：[#8](https://github.com/stardawn2326/tiji/pull/8)，保持 OPEN，不合并
 - 远程 `refs/heads/codex/ui-2.0-paper-blue` 已核验指向同一 SHA；推送只更新该分支，没有写入其他仓库或分支。
 - GitHub Actions run：[`34756680107`](https://github.com/stardawn2326/tiji/actions/runs/34756680107)，head 为 `d61e436a4d56e3a750577099ea6d6e58e11e9e17`。
   - [`Compile, test, lint and package`](https://github.com/stardawn2326/tiji/actions/runs/34756680107/job/103722134760)：success。
-  - [`Android instrumentation (API 30)`](https://github.com/stardawn2326/tiji/actions/runs/34756680107/job/103722134899)：success。
+- [`Android instrumentation (API 30)`](https://github.com/stardawn2326/tiji/actions/runs/34756680107/job/103722134899)：success。
 - PR [`#8`](https://github.com/stardawn2326/tiji/pull/8) 仍为 OPEN，head `codex/ui-2.0-paper-blue`，未执行合并。
+- `fe58655` 之后的文档同步不改变应用代码；当前 head 的检查仍复用同一份已验证源码。
 
 ## 6. 验收边界
 
