@@ -8,6 +8,13 @@ import com.tiji.mistakes.domain.ai.AiDuplicateDetector
  * conservative; the caller always chooses whether to open, update, or create.
  */
 object MistakeDuplicateService {
+    enum class DuplicateReason { TEXT_MATCH, IMAGE_MATCH }
+
+    data class DuplicateMatch(
+        val mistakeId: Long,
+        val reasons: Set<DuplicateReason>
+    )
+
     data class Comparison(
         val sameQuestion: Boolean,
         val sameImage: Boolean
@@ -21,17 +28,37 @@ object MistakeDuplicateService {
         sourceImagePaths: List<String>,
         existing: MistakeEntity
     ): Comparison {
-        val candidate = findCandidates(question, sourceImagePaths, listOf(existing)).firstOrNull()
-        // The detector intentionally exposes only high-confidence matches. The
-        // boundary still reports a single reason so callers do not implement a
-        // second, subtly different duplicate policy.
+        val match = findMatches(question, sourceImagePaths, listOf(existing)).firstOrNull()
         return Comparison(
-            sameQuestion = candidate != null && question.isNotBlank() &&
-                existing.questionText.isNotBlank() &&
-                AiDuplicateDetector.normalizeQuestionForDuplicate(question) ==
-                AiDuplicateDetector.normalizeQuestionForDuplicate(existing.questionText),
-            sameImage = candidate != null && !sameQuestionText(question, existing)
+            sameQuestion = DuplicateReason.TEXT_MATCH in (match?.reasons ?: emptySet()),
+            sameImage = DuplicateReason.IMAGE_MATCH in (match?.reasons ?: emptySet())
         )
+    }
+
+    /** Returns every high-confidence duplicate together with all matching evidence. */
+    fun findMatches(
+        question: String,
+        sourceImagePaths: List<String>,
+        existing: List<MistakeEntity>,
+        excludeId: Long = 0L
+    ): List<DuplicateMatch> {
+        val normalizedQuestion = AiDuplicateDetector.normalizeQuestionForDuplicate(question)
+        return existing.asSequence()
+            .filterNot { excludeId > 0L && it.id == excludeId }
+            .filterNot { it.archived || it.deletedAt != null }
+            .mapNotNull { mistake ->
+                val reasons = buildSet {
+                    if (normalizedQuestion.length >= MIN_QUESTION_LENGTH &&
+                        normalizedQuestion == AiDuplicateDetector.normalizeQuestionForDuplicate(mistake.questionText)
+                    ) add(DuplicateReason.TEXT_MATCH)
+                    if (AiDuplicateDetector.hasImageMatch(sourceImagePaths, mistake)) {
+                        add(DuplicateReason.IMAGE_MATCH)
+                    }
+                }
+                reasons.takeIf(Set<DuplicateReason>::isNotEmpty)
+                    ?.let { DuplicateMatch(mistake.id, it) }
+            }
+            .toList()
     }
 
     fun findCandidates(
@@ -45,10 +72,7 @@ object MistakeDuplicateService {
         existing = existing.filterNot { excludeId > 0L && it.id == excludeId }
     )
 
-    private fun sameQuestionText(question: String, existing: MistakeEntity): Boolean =
-        question.isNotBlank() && existing.questionText.isNotBlank() &&
-            AiDuplicateDetector.normalizeQuestionForDuplicate(question) ==
-            AiDuplicateDetector.normalizeQuestionForDuplicate(existing.questionText)
+    private const val MIN_QUESTION_LENGTH = 8
 
     /**
      * Merge explicitly accepted content into an existing row while preserving
@@ -67,7 +91,9 @@ object MistakeDuplicateService {
         subject = incoming.subject.takeIf { it.isNotBlank() && it != "未分类" } ?: existing.subject,
         questionType = incoming.questionType.takeIf { it.isNotBlank() && it != "未分类" } ?: existing.questionType,
         tags = incoming.tags.takeIf(String::isNotBlank) ?: existing.tags,
-        difficulty = incoming.difficulty.takeIf { it > 0 } ?: existing.difficulty,
+        difficulty = incoming.difficulty.takeIf { it > 0 }
+            ?.let(Difficulty::normalize)
+            ?: existing.difficulty,
         includeSourceImageInPdf = incoming.includeSourceImageInPdf,
         imagePath = incoming.imagePath,
         sourceImagePaths = incoming.sourceImagePaths,

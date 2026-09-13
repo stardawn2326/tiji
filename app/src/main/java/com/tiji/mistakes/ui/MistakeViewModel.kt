@@ -12,6 +12,7 @@ import com.tiji.mistakes.data.MistakeEntity
 import com.tiji.mistakes.data.MistakeRepository
 import com.tiji.mistakes.data.ReviewRecordEntity
 import com.tiji.mistakes.domain.ReviewGrade
+import com.tiji.mistakes.domain.Difficulty
 import com.tiji.mistakes.domain.ReviewSessionController
 import com.tiji.mistakes.domain.ReviewSessionPlan
 import com.tiji.mistakes.domain.ReviewSessionSource
@@ -273,6 +274,9 @@ class MistakeViewModel(
             LearningCalendar.startOfRecentDays(now, 30).toEpochMilli()
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    /** Full review history for calendar and progress consumers; Room is the fact source. */
+    val allReviewRecords: StateFlow<List<ReviewRecordEntity>> = repository.observeAllReviewRecords()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val knowledgePoints = repository.observeKnowledgePoints()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val knowledgePointLinks = repository.observeKnowledgePointLinks()
@@ -606,7 +610,7 @@ class MistakeViewModel(
         aiSolveRequestId = 0L
     }
 
-    /** Remove a solve-result image from state and delete the app-owned file itself. */
+    /** Remove a solve-result image and reclaim it only when no owner remains. */
     fun removeAiSolveContentBlock(path: String) {
         if (path.isBlank()) return
         val current = _aiSolve.value
@@ -621,7 +625,7 @@ class MistakeViewModel(
         aiSolveStore.write(updated.toPersisted())
         _aiSolve.value = updated
         updateActiveHistory { record -> record.removeContentBlock(path).first }
-        deleteImagesNow(listOf(path))
+        deleteImagesIfUnreferenced(listOf(path))
     }
 
     /** Removes the current source image and all derived blocks sourced from it. */
@@ -643,7 +647,7 @@ class MistakeViewModel(
         aiSolveStore.write(updated.toPersisted())
         _aiSolve.value = updated
         updateActiveHistory { record -> record.removeImage(path).first }
-        deleteImagesNow(listOf(path))
+        deleteImagesIfUnreferenced(listOf(path))
     }
 
     /** Restores a snapshot into the normal solve screen without starting a request. */
@@ -767,15 +771,6 @@ class MistakeViewModel(
             aiSolveHistoryStore.update(updated)
             _aiSolveHistory.value = aiSolveHistoryStore.read()
             deleteImagesIfUnreferencedNow(removedPaths)
-        }
-    }
-
-    /** Deletes the selected app-owned image files after the owning record was updated. */
-    fun deleteImagesNow(paths: Collection<String>) {
-        val candidates = paths.filter(String::isNotBlank).distinct()
-        if (candidates.isEmpty()) return
-        viewModelScope.launch {
-            ImageStorage.deletePrivateFiles(getApplication(), candidates)
         }
     }
 
@@ -915,7 +910,7 @@ class MistakeViewModel(
             lastImagePaths = message.imagePaths,
             status = "COMPLETED",
             error = null,
-            messages = (current.messages + message).takeLast(30)
+            messages = current.messages + message
         )
         aiChatStore.write(next)
         _aiChat.value = next.toUiState()
@@ -1292,7 +1287,7 @@ class MistakeViewModel(
                     subject = subject?.trim()?.ifBlank { current.subject } ?: current.subject,
                     questionType = questionType?.trim()?.ifBlank { current.questionType } ?: current.questionType,
                     tags = tags?.trim() ?: current.tags,
-                    difficulty = difficulty?.coerceIn(0, 5) ?: current.difficulty,
+                    difficulty = difficulty?.let(Difficulty::normalize) ?: current.difficulty,
                     inReviewPlan = inReviewPlan ?: current.inReviewPlan,
                     nextReviewAt = tomorrow ?: current.nextReviewAt,
                     updatedAt = System.currentTimeMillis()
@@ -1368,6 +1363,18 @@ class MistakeViewModel(
         aiRecognitionRequestId = 0L
     }
 
+    /** Drops an uncommitted recognition request and reclaims only files no longer owned elsewhere. */
+    fun discardAiRecognition(retainedPaths: Collection<String> = emptyList()) {
+        val retained = retainedPaths.filter(String::isNotBlank).toSet()
+        val current = _aiRecognition.value
+        val transientPaths = buildList {
+            addAll(current.imagePaths)
+            addAll(current.result?.diagramBlocks.orEmpty().mapNotNull { it.cropPath })
+        }.filterNot { it in retained }
+        clearAiRecognition()
+        deleteImagesIfUnreferenced(transientPaths)
+    }
+
     fun stopAiRecognition() {
         val current = _aiRecognition.value
         if (!current.running) return
@@ -1393,14 +1400,31 @@ class MistakeViewModel(
         val updated = current.copy(result = updatedResult)
         aiRecognitionStore.write(updated)
         _aiRecognition.value = updated
+        deleteImagesIfUnreferenced(listOf(path))
     }
 
     suspend fun resetAllData() {
         repository.resetAllData()
         refreshReviewClock()
+        aiSolveObserverJob?.cancel()
+        AiSolveService.clearAndStop(getApplication())
+        aiSolveStore.clear()
+        _aiSolve.value = AiSolveState()
+        aiSolveRequestId = 0L
         aiSolveHistoryStore.clear()
         activeAiSolveHistoryId = null
+        aiChatObserverJob?.cancel()
+        AiFollowUpService.cancel(getApplication())
         aiChatStore.clear()
+        _aiChat.value = AiChatState()
+        aiChatRequestId = 0L
+        aiRecognitionObserverJob?.cancel()
+        AiRecognitionService.cancel(getApplication())
+        aiRecognitionStore.clear()
+        _aiRecognition.value = AiRecognitionState()
+        aiRecognitionRequestId = 0L
+        aiMistakeSaveStore.clear()
+        _aiMistakeSave.value = AiMistakeSaveState(taskId = "", requestId = 0L, phase = AiMistakeSavePhase.IDLE)
         _aiSolveHistory.value = emptyList()
         ImageStorage.deleteAllPrivateFiles(getApplication())
     }

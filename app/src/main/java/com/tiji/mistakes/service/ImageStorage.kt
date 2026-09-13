@@ -6,6 +6,7 @@ import android.net.Uri
 import android.media.MediaScannerConnection
 import android.os.Build
 import android.os.Environment
+import android.provider.OpenableColumns
 import android.provider.MediaStore
 import android.webkit.MimeTypeMap
 import java.io.File
@@ -19,22 +20,54 @@ object ImageStorage {
         return File(dir, "capture_${System.currentTimeMillis()}.jpg")
     }
 
-    fun copyToPrivate(context: Context, uri: Uri, prefix: String): String? = runCatching {
+    fun copyToPrivate(context: Context, uri: Uri, prefix: String): String? {
         val dir = File(context.filesDir, "images").apply { mkdirs() }
-        val file = File(dir, "${prefix}_${System.currentTimeMillis()}_${UUID.randomUUID()}.jpg")
-        context.contentResolver.openInputStream(uri).use { input ->
-            requireNotNull(input)
-            FileOutputStream(file).use { output -> input.copyTo(output) }
+        val extension = extensionForUri(context, uri)
+        val file = File(dir, "${prefix}_${System.currentTimeMillis()}_${UUID.randomUUID()}.$extension")
+        return runCatching {
+            context.contentResolver.openInputStream(uri).use { input ->
+                requireNotNull(input)
+                FileOutputStream(file).use { output -> input.copyTo(output) }
+            }
+            require(file.length() > 0L) { "图片文件为空" }
+            file.absolutePath
+        }.getOrElse {
+            file.delete()
+            null
         }
-        file.absolutePath
-    }.getOrNull()
+    }
 
-    fun copyFileToPrivate(context: Context, source: File, prefix: String): String? = runCatching {
+    fun copyFileToPrivate(context: Context, source: File, prefix: String): String? {
         val dir = File(context.filesDir, "images").apply { mkdirs() }
-        val target = File(dir, "${prefix}_${System.currentTimeMillis()}_${UUID.randomUUID()}.jpg")
-        FileInputStream(source).use { input -> FileOutputStream(target).use { output -> input.copyTo(output) } }
-        target.absolutePath
-    }.getOrNull()
+        val extension = sanitizeExtension(source.extension) ?: "jpg"
+        val target = File(dir, "${prefix}_${System.currentTimeMillis()}_${UUID.randomUUID()}.$extension")
+        return runCatching {
+            FileInputStream(source).use { input -> FileOutputStream(target).use { output -> input.copyTo(output) } }
+            require(target.length() > 0L) { "图片文件为空" }
+            target.absolutePath
+        }.getOrElse {
+            target.delete()
+            null
+        }
+    }
+
+    private fun extensionForUri(context: Context, uri: Uri): String {
+        val displayName = runCatching {
+            context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+                ?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
+        }.getOrNull()
+        val fromName = displayName?.substringAfterLast('.', "")
+        val fromMime = context.contentResolver.getType(uri)
+            ?.let(MimeTypeMap.getSingleton()::getExtensionFromMimeType)
+        val fromPath = uri.lastPathSegment?.substringAfterLast('.', "")
+        return sanitizeExtension(fromName) ?: sanitizeExtension(fromMime) ?: sanitizeExtension(fromPath) ?: "jpg"
+    }
+
+    private fun sanitizeExtension(value: String?): String? = value
+        ?.trim()
+        ?.trimStart('.')
+        ?.lowercase()
+        ?.takeIf { it in setOf("jpg", "jpeg", "png", "webp", "heic", "heif") }
 
     /**
      * Replaces one app-owned image without changing its persisted path. A
