@@ -115,6 +115,9 @@ import com.tiji.mistakes.ui.image.ImagePreview
 import com.tiji.mistakes.ui.math.MathText
 import com.tiji.mistakes.ui.editor.MistakeFields
 import com.tiji.mistakes.ui.MistakeViewModel
+import com.tiji.mistakes.domain.MistakeDraft
+import com.tiji.mistakes.domain.MistakeDraftAssets
+import com.tiji.mistakes.domain.MistakeDraftMetadata
 import com.tiji.mistakes.ui.math.normalizeQuestionSource
 import com.tiji.mistakes.ui.math.normalizeVisualLayout
 import com.tiji.mistakes.ui.math.removeStandaloneMarkdownSeparators
@@ -276,7 +279,7 @@ internal fun NewCaptureScreen(
             explanationImage = null
         } else {
             aiRecognitionImages = emptyList()
-            viewModel.clearAiRecognition()
+            viewModel.discardAiRecognition()
         }
         modeName = next.name
     }
@@ -288,7 +291,7 @@ internal fun NewCaptureScreen(
 
     fun acceptProcessed(path: String) {
         if (mode == EntryMode.AI && selectedRole == PhotoRole.QUESTION) {
-            viewModel.clearAiRecognition()
+            viewModel.discardAiRecognition(retainedPaths = aiRecognitionImages)
             val original = aiRecognitionEditingOriginalPath
             aiRecognitionImages = replaceImageAtSamePosition(aiRecognitionImages, original, path)
             if (original != null && original != path) viewModel.deleteImagesIfUnreferenced(listOf(original))
@@ -379,6 +382,22 @@ internal fun NewCaptureScreen(
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) openCamera(role) else permissionLauncher.launch(Manifest.permission.CAMERA)
     }
 
+    fun leaveCapture() {
+        val transientPaths = buildList {
+            addAll(photoQuestionImages)
+            addAll(aiRecognitionImages)
+            answerImage?.let(::add)
+            explanationImage?.let(::add)
+            addAll(QuestionContentBlockCodec.decode(contentBlocksJson).flatMap { block ->
+                listOfNotNull(block.path, block.sourcePath)
+            })
+            addAll(pendingRecognition?.diagramBlocks.orEmpty().mapNotNull { it.cropPath })
+        }
+        viewModel.discardAiRecognition()
+        viewModel.deleteImagesIfUnreferenced(transientPaths)
+        onBack()
+    }
+
     fun persistCapture(metadata: MistakeSaveMetadata) {
         if (saving) return
         saving = true
@@ -389,34 +408,41 @@ internal fun NewCaptureScreen(
         val sourceImages = buildList {
             if (mode == EntryMode.AI) addAll(aiRecognitionImages) else addAll(photoQuestionImages)
         }
-        val sourceImagePaths = org.json.JSONArray().apply { sourceImages.forEach(::put) }.toString()
-        val draft = MistakeEntity(
-                title = title.ifBlank { "未命名错题" },
-                questionText = question,
-                userAnswer = userAnswer,
-                answerText = answer,
-                explanation = explanation,
-                note = note,
-                errorReason = errorReason,
-                subject = metadata.subject,
-                questionType = metadata.questionType,
-                tags = metadata.tags,
-                difficulty = metadata.difficulty,
-                inReviewPlan = metadata.inReviewPlan,
-                includeSourceImageInPdf = mode != EntryMode.AI || !aiExcludeSourceImageByDefault,
-                imagePath = activeQuestionImage,
-                sourceImagePaths = sourceImagePaths,
-                contentBlocks = if (mode == EntryMode.AI) contentBlocksJson else "",
-                answerImagePath = answerImage,
-                explanationImagePath = explanationImage
-            )
+        val draftMetadata = MistakeDraftMetadata(
+            title = title.ifBlank { "未命名错题" },
+            subject = metadata.subject,
+            questionType = metadata.questionType,
+            tags = metadata.tags,
+            difficulty = metadata.difficulty,
+            inReviewPlan = metadata.inReviewPlan,
+            includeSourceImageInPdf = mode != EntryMode.AI || !aiExcludeSourceImageByDefault,
+            captureMode = mode.name,
+            aiRecognitionSource = if (mode == EntryMode.AI) question else ""
+        )
+        val draftAssets = MistakeDraftAssets(
+            imagePath = activeQuestionImage,
+            sourceImagePaths = sourceImages,
+            answerImagePath = answerImage,
+            explanationImagePath = explanationImage,
+            contentBlocks = if (mode == EntryMode.AI) contentBlocksJson else ""
+        )
+        val draft = MistakeDraft.from(
+            metadata = draftMetadata,
+            assets = draftAssets,
+            questionText = question,
+            userAnswer = userAnswer,
+            answerText = answer,
+            explanation = explanation,
+            note = note,
+            errorReason = errorReason
+        ).toEntity()
         val updateId = duplicateUpdateId
         duplicateUpdateId = 0L
         if (updateId > 0L) {
             viewModel.updateExistingMistakeFromDuplicate(
                 existingId = updateId,
                 incoming = draft,
-                onSaved = { saving = false; showSaveSheet = false; onBack() },
+                onSaved = { saving = false; showSaveSheet = false; leaveCapture() },
                 onFailure = {
                     saving = false
                     captureMessage = "更新失败：${it.message ?: "请重试"}"
@@ -424,7 +450,7 @@ internal fun NewCaptureScreen(
             )
         } else viewModel.save(
             draft,
-            onSaved = { saving = false; showSaveSheet = false; onBack() },
+            onSaved = { saving = false; showSaveSheet = false; leaveCapture() },
             onFailure = {
                 saving = false
                 captureMessage = "保存失败：${it.message ?: "请重试"}"
@@ -478,8 +504,7 @@ internal fun NewCaptureScreen(
         aiRecognitionImages = aiRecognitionImages.filterNot { it == path }
         aiFilled = false
         pendingRecognition = null
-        viewModel.clearAiRecognition()
-        viewModel.deleteImagesNow(listOf(path))
+        viewModel.discardAiRecognition(retainedPaths = aiRecognitionImages)
         captureMessage = "已删除图片，可继续添加或重新识别"
     }
 
@@ -576,7 +601,7 @@ internal fun NewCaptureScreen(
             normalizeVisualLayout(AiDrawingRenderer.stripMarkers(removeStandaloneMarkdownSeparators(result.explanation)))
         }
         TijiDialog(
-            onDismissRequest = { pendingRecognition = null; viewModel.clearAiRecognition() },
+            onDismissRequest = { pendingRecognition = null; viewModel.discardAiRecognition() },
             title = { Text("确认 AI 识别结果") },
             text = {
                 Column(
@@ -627,7 +652,7 @@ internal fun NewCaptureScreen(
                         result.diagramBlocks.mapIndexedNotNull { index, block -> block.toContentBlock(index) },
                         onDelete = { block ->
                             viewModel.removeAiRecognitionContentBlock(block.path)
-                            viewModel.deleteImagesNow(listOf(block.path))
+                            viewModel.deleteImagesIfUnreferenced(listOfNotNull(block.path, block.sourcePath))
                             pendingRecognition = pendingRecognition?.copy(
                                 diagramBlocks = pendingRecognition?.diagramBlocks.orEmpty()
                                     .filterNot { it.cropPath == block.path }
@@ -673,7 +698,7 @@ internal fun NewCaptureScreen(
             dismissButton = {
                 TijiTextButton(onClick = {
                     pendingRecognition = null
-                    viewModel.clearAiRecognition()
+                    viewModel.discardAiRecognition()
                     captureMessage = "已取消填入，可手动编辑"
                 }) { Text("取消") }
             }
@@ -755,7 +780,7 @@ internal fun NewCaptureScreen(
         topBar = {
             TijiTopBar(
                 title = { Text("录入错题") },
-                navigationIcon = { TijiIconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回") } },
+                navigationIcon = { TijiIconButton(onClick = ::leaveCapture) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回") } },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
         }
@@ -1002,7 +1027,7 @@ internal fun NewCaptureScreen(
                                 contentBlocks = aiContentBlocks,
                                 onDeleteBlock = { block ->
                                     viewModel.removeAiRecognitionContentBlock(block.path)
-                                    viewModel.deleteImagesNow(listOf(block.path))
+                                    viewModel.deleteImagesIfUnreferenced(listOfNotNull(block.path, block.sourcePath))
                                     contentBlocksJson = removeContentBlockPath(contentBlocksJson, block.path)
                                 },
                                 showOptionalFields = false,

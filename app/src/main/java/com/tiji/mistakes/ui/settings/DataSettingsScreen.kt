@@ -47,12 +47,15 @@ import com.tiji.mistakes.ui.design.TijiSettingGroup
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
+private enum class DataResetAction { LEARNING_DATA, FACTORY_RESET }
+
 @Composable
 internal fun DataSettingsScreen(
     aiExcludeSourceImageByDefault: Boolean,
     onAiExcludeSourceImageByDefault: (Boolean) -> Unit,
     backgroundScope: CoroutineScope,
-    onResetData: ((String?) -> Unit) -> Unit,
+    onClearLearningData: ((String?) -> Unit) -> Unit,
+    onFactoryReset: ((String?) -> Unit) -> Unit,
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
@@ -62,7 +65,13 @@ internal fun DataSettingsScreen(
     var importingBackup by remember { mutableStateOf(false) }
     var showResetWarning by remember { mutableStateOf(false) }
     var showResetConfirmation by remember { mutableStateOf(false) }
+    var resetAction by remember { mutableStateOf<DataResetAction?>(null) }
     var resettingData by remember { mutableStateOf(false) }
+
+    fun requestReset(action: DataResetAction) {
+        resetAction = action
+        showResetWarning = true
+    }
 
     val backupLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/octet-stream")
@@ -122,9 +131,15 @@ internal fun DataSettingsScreen(
     if (showResetWarning) {
         TijiDialog(
             onDismissRequest = { showResetWarning = false },
-            title = { Text("重置本机数据？") },
+            title = { Text(if (resetAction == DataResetAction.FACTORY_RESET) "恢复出厂设置？" else "清除学习数据？") },
             text = {
-                Text("将删除本机保存的全部错题、图片、复习计划和每日掌握记录。AI 配置和 API Key 不会删除，建议先导出数据。")
+                Text(
+                    if (resetAction == DataResetAction.FACTORY_RESET) {
+                        "将删除全部错题、图片、复习记录、AI 历史、AI 配置和 API Key。此操作不可撤销，建议先导出数据。"
+                    } else {
+                        "将删除全部错题、图片、复习记录和学习计划，保留外观、AI 配置和 API Key。建议先导出数据。"
+                    }
+                )
             },
             confirmButton = {
                 TijiButton(onClick = {
@@ -140,8 +155,8 @@ internal fun DataSettingsScreen(
     if (showResetConfirmation) {
         TijiDialog(
             onDismissRequest = { if (!resettingData) showResetConfirmation = false },
-            title = { Text("确认永久重置？") },
-            text = { Text("第二次确认：数据删除后无法从本机恢复。确定要删除全部错题和图片吗？") },
+            title = { Text(if (resetAction == DataResetAction.FACTORY_RESET) "确认恢复出厂？" else "确认清除学习数据？") },
+            text = { Text("第二次确认：数据删除后无法从本机恢复。确定继续吗？") },
             confirmButton = {
                 TijiButton(
                     enabled = !resettingData,
@@ -149,9 +164,11 @@ internal fun DataSettingsScreen(
                     onClick = {
                         resettingData = true
                         showResetConfirmation = false
-                        onResetData { message ->
+                        val callback = if (resetAction == DataResetAction.FACTORY_RESET) onFactoryReset else onClearLearningData
+                        callback { message ->
                             resettingData = false
-                            backupMessage = message ?: "本机数据已重置"
+                            backupMessage = message ?: if (resetAction == DataResetAction.FACTORY_RESET) "已恢复出厂设置" else "学习数据已清除"
+                            resetAction = null
                         }
                     }
                 ) { Text(if (resettingData) "正在重置…" else "确认重置") }
@@ -223,7 +240,7 @@ internal fun DataSettingsScreen(
             item {
                 TijiSettingGroup("备份与恢复", Icons.Outlined.FolderOpen) {
                     Text(
-                        "可供各版本读取：包含错题、图片、复习计划以及每日掌握记录，不包含 API Key。",
+                        "可供各版本读取：包含错题、图片、复习计划和复习记录，不包含 API Key。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -246,7 +263,7 @@ internal fun DataSettingsScreen(
                     }
                     TijiSecondaryButton(
                         enabled = !importingBackup && !resettingData,
-                        onClick = { showResetWarning = true },
+                        onClick = { requestReset(DataResetAction.LEARNING_DATA) },
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Icon(
@@ -255,7 +272,16 @@ internal fun DataSettingsScreen(
                             tint = MaterialTheme.colorScheme.primary
                         )
                         Spacer(Modifier.size(8.dp))
-                        Text("重置本机数据")
+                        Text("清除学习数据")
+                    }
+                    TijiSecondaryButton(
+                        enabled = !importingBackup && !resettingData,
+                        onClick = { requestReset(DataResetAction.FACTORY_RESET) },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Outlined.Close, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                        Spacer(Modifier.size(8.dp))
+                        Text("恢复出厂设置", color = MaterialTheme.colorScheme.error)
                     }
                     if (backupMessage.isNotBlank()) {
                         Text(

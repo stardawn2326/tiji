@@ -61,6 +61,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tiji.mistakes.data.MistakeEntity
 import com.tiji.mistakes.domain.ReviewGrade
+import com.tiji.mistakes.domain.ReviewScheduler
 import com.tiji.mistakes.service.ContentBlockKind
 import com.tiji.mistakes.service.ContentBlockRole
 import com.tiji.mistakes.service.ImageStorage
@@ -197,7 +198,7 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                 reviewCount = current.reviewCount + 1,
                 lastReviewedAt = record.reviewedAt,
                 nextReviewAt = record.nextReviewAt,
-                inReviewPlan = record.masteryAfter < 3
+                inReviewPlan = ReviewScheduler.shouldRemainInReviewPlan(grade)
             )
             saveMessage = "已记录：${reviewGradeUiLabel(grade)}"
         }
@@ -364,7 +365,7 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
     fun persistDetailImageUpdate(updated: MistakeEntity, removedPaths: Collection<String> = emptyList()) {
         mistake = updated
         viewModel.save(updated, onSaved = {
-            viewModel.deleteImagesNow(removedPaths)
+            viewModel.deleteImagesIfUnreferenced(removedPaths)
         })
     }
     fun removeDetailContentBlock(block: com.tiji.mistakes.service.QuestionContentBlock) {
@@ -374,7 +375,7 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
         persistDetailImageUpdate(
             mistake?.copy(contentBlocks = QuestionContentBlockCodec.encode(remaining))
                 ?: return,
-            removedPaths = listOf(block.path)
+            removedPaths = listOfNotNull(block.path, block.sourcePath)
         )
     }
     fun removeDetailImage(role: PhotoRole, path: String) {

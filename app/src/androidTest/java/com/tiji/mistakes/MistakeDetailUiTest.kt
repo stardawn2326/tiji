@@ -2,6 +2,7 @@ package com.tiji.mistakes
 
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithTag
@@ -91,7 +92,7 @@ class MistakeDetailUiTest {
             composeRule.onAllNodesWithTag("mistake_card_$fixtureId").fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithTag("mistake_card_$fixtureId").assertExists()
-        composeRule.onNodeWithText("复习 1 次 · 熟练").assertExists()
+        composeRule.onNodeWithTag("mistake_card_$fixtureId").assertTextContains("复习 1 次 · 熟练")
 
         composeRule.onNodeWithTag("mistake_card_$fixtureId").performClick()
         composeRule.waitUntil(5_000) {

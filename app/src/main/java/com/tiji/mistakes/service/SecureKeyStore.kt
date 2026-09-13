@@ -22,8 +22,9 @@ class SecureKeyStore(context: Context) {
     }
 
     fun read(profileId: String = DEFAULT_PROFILE_ID): String {
-        val encoded = preferences.getString(keyFor(profileId), null)
-            ?: preferences.getString(LEGACY_KEY, null)
+        val profileKey = keyFor(profileId)
+        val legacyEncoded = if (profileId == DEFAULT_PROFILE_ID) preferences.getString(LEGACY_KEY, null) else null
+        val encoded = preferences.getString(profileKey, null) ?: legacyEncoded
             ?: return ""
         return runCatching {
             val raw = Base64.decode(encoded, Base64.NO_WRAP)
@@ -32,10 +33,29 @@ class SecureKeyStore(context: Context) {
                 init(Cipher.DECRYPT_MODE, getOrCreateKey(), GCMParameterSpec(128, iv))
             }
             String(cipher.doFinal(raw.copyOfRange(12, raw.size)), StandardCharsets.UTF_8)
+        }.onSuccess {
+            if (legacyEncoded != null && preferences.getString(profileKey, null) == null) {
+                // Migrate the single legacy key only into the default profile;
+                // arbitrary profiles must never inherit it implicitly.
+                preferences.edit().putString(profileKey, legacyEncoded).remove(LEGACY_KEY).apply()
+            }
         }.getOrDefault("")
     }
 
-    fun clear(profileId: String = DEFAULT_PROFILE_ID) { preferences.edit().remove(keyFor(profileId)).apply() }
+    fun clear(profileId: String = DEFAULT_PROFILE_ID) {
+        val editor = preferences.edit().remove(keyFor(profileId))
+        if (profileId == DEFAULT_PROFILE_ID) editor.remove(LEGACY_KEY)
+        editor.apply()
+    }
+
+    fun clearAll() {
+        preferences.edit().clear().commit()
+        runCatching {
+            KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+                .takeIf { it.containsAlias(keyAlias) }
+                ?.deleteEntry(keyAlias)
+        }
+    }
 
     private fun keyFor(profileId: String): String = "$KEY_PREFIX${profileId.ifBlank { DEFAULT_PROFILE_ID }}"
 

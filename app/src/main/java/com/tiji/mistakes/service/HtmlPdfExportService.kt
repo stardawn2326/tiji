@@ -856,50 +856,6 @@ object HtmlPdfExportService {
         target.append("</section>")
     }
 
-    /** Keep the PDF answer book compact while preserving the key reasoning and formulas. */
-    private fun compactExplanation(source: String): String {
-        val cleaned = source
-            .replace(Regex("""(?m)^\s*(?:题目识别|解题思路|逐步推导|最终答案|答案|解析)\s*[：:]?\s*$"""), "")
-            .replace(Regex("""\n{3,}"""), "\n\n")
-            .trim()
-        if (cleaned.isBlank()) return cleaned
-
-        val mathBlocks = mutableListOf<String>()
-        val protected = Regex("""(?s)(\$\$.*?\$\$|\\\[.*?\\\]|\\\(.*?\\\))""")
-            .replace(cleaned) { match ->
-                val index = mathBlocks.size
-                mathBlocks += match.value
-                "__PDF_MATH_BLOCK_" + index + "__"
-            }
-        fun restoreMathBlocks(value: String): String =
-            Regex("""__PDF_MATH_BLOCK_(\d+)__""").replace(value) { match ->
-                mathBlocks.getOrNull(match.groupValues[1].toIntOrNull() ?: -1) ?: match.value
-            }
-
-        val chunks = protected
-            .split(Regex("""\n+|(?<=[。！？．!?；;])\s*"""))
-            .map { it.trim() }
-            .filter(String::isNotBlank)
-        if (chunks.size <= 7 && cleaned.length <= 1_200) return cleaned
-
-        fun containsMath(value: String): Boolean =
-            value.contains("__PDF_MATH_BLOCK_") || value.contains('$') ||
-                value.contains("\\(") || value.contains("\\[") ||
-                Regex("""\\(?:frac|dfrac|tfrac|sqrt|sum|prod|int|lim)\b""").containsMatchIn(value) ||
-                Regex("""(?<![A-Za-z])[^\s]+\s*=\s*[^\s]+""").containsMatchIn(value)
-
-        val picked = buildList {
-            addAll(chunks.take(2))
-            addAll(chunks.filter(::containsMath).take(3))
-            addAll(chunks.takeLast(2))
-        }.distinct()
-        val compacted = restoreMathBlocks(picked.joinToString("\n"))
-        if (compacted.length <= 1_200) return compacted
-        val clipped = compacted.take(1_200)
-        val boundary = clipped.lastIndexOfAny(charArrayOf('。', '；', '．', ';', '\n'))
-        return if (boundary >= 240) clipped.substring(0, boundary + 1).trim() + "…" else clipped.trimEnd() + "…"
-    }
-
     private fun normalizeTextbookPunctuation(value: String): String {
         val delimiter = Regex("""(\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\)|\$\$[\s\S]*?\$\$|\$[^\$\n]+\$)""")
         fun prosePart(part: String): String = part
