@@ -32,6 +32,9 @@ import com.tiji.mistakes.ui.knowledge.KnowledgeListScreen
 import com.tiji.mistakes.ui.MistakeViewModel
 import com.tiji.mistakes.ui.ThemeMode
 import com.tiji.mistakes.ui.ThemePalette
+import com.tiji.mistakes.domain.DataResetCoordinator
+import com.tiji.mistakes.domain.DataResetDependencies
+import com.tiji.mistakes.domain.DataResetMode
 import com.tiji.mistakes.domain.ReviewSessionPlan
 import com.tiji.mistakes.domain.ReviewSessionSource
 import com.tiji.mistakes.ui.review.ReviewCalendarScreen
@@ -68,6 +71,15 @@ internal fun TijiNavGraph(
 ) {
     val context = LocalContext.current
     val activeReviewSession by viewModel.reviewSession.collectAsStateWithLifecycle()
+    suspend fun executeReset(mode: DataResetMode) = DataResetCoordinator.execute(
+        mode = mode,
+        dependencies = DataResetDependencies(
+            clearLearningData = { viewModel.resetAllData() },
+            clearLearningPreferences = { preferences.resetReviewData() },
+            clearFactoryPreferences = { preferences.clearAll() },
+            clearKeystoreAliases = { SecureKeyStore(context).clearAll() }
+        )
+    )
     val reviewRecordsByDate = remember(state.reviewRecords) {
         state.reviewRecords
             .groupBy { reviewDateKey(it.reviewedAt) }
@@ -347,8 +359,7 @@ internal fun TijiNavGraph(
                         onClearLearningData = { onFinished ->
                             scope.launch {
                                 runCatching {
-                                    viewModel.resetAllData()
-                                    preferences.resetReviewData()
+                                    executeReset(DataResetMode.LEARNING_DATA)
                                 }.onSuccess {
                                     onFinished(null)
                                 }.onFailure { error ->
@@ -359,9 +370,7 @@ internal fun TijiNavGraph(
                         onFactoryReset = { onFinished ->
                             scope.launch {
                                 runCatching {
-                                    viewModel.resetAllData()
-                                    preferences.clearAll()
-                                    SecureKeyStore(context).clearAll()
+                                    executeReset(DataResetMode.FACTORY_RESET)
                                 }.onSuccess {
                                     onFinished(null)
                                 }.onFailure { error ->

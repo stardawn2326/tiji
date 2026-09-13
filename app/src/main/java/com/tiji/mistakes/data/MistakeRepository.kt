@@ -324,6 +324,10 @@ class MistakeRepository(private val database: AppDatabase) {
             database.reviewRecordDao().deleteAll()
             database.mistakeKnowledgePointDao().deleteAll()
             database.knowledgePointDao().deleteAll()
+            // Import markers are transient transaction-bound state. A data
+            // reset must remove them so a later startup cannot mistake an
+            // abandoned import for a committed one.
+            database.backupImportCommitMarkerDao().clearAll()
         }
         return paths
     }

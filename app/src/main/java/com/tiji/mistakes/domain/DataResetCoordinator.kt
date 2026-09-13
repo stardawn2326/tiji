@@ -19,6 +19,18 @@ data class DataResetManifest(
     val clearsKeystoreAliases: Boolean
 )
 
+/** Dependencies are supplied by the application boundary, keeping reset order in one place. */
+data class DataResetDependencies(
+    val clearLearningData: suspend () -> Unit,
+    val clearLearningPreferences: suspend () -> Unit,
+    val clearFactoryPreferences: suspend () -> Unit,
+    val clearKeystoreAliases: suspend () -> Unit
+)
+
+data class DataResetResult(
+    val manifest: DataResetManifest
+)
+
 object DataResetCoordinator {
     fun plan(mode: DataResetMode): DataResetManifest = when (mode) {
         DataResetMode.LEARNING_DATA -> DataResetManifest(
@@ -37,5 +49,25 @@ object DataResetCoordinator {
             clearsApiKeys = true,
             clearsKeystoreAliases = true
         )
+    }
+
+    /**
+     * Executes the exact data-set contract. Any dependency failure is allowed
+     * to propagate so callers cannot display a false success message.
+     */
+    suspend fun execute(
+        mode: DataResetMode,
+        dependencies: DataResetDependencies
+    ): DataResetResult {
+        val manifest = plan(mode)
+        dependencies.clearLearningData()
+        when (mode) {
+            DataResetMode.LEARNING_DATA -> dependencies.clearLearningPreferences()
+            DataResetMode.FACTORY_RESET -> {
+                dependencies.clearFactoryPreferences()
+                dependencies.clearKeystoreAliases()
+            }
+        }
+        return DataResetResult(manifest)
     }
 }

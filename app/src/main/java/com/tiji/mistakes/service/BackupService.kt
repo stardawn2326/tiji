@@ -251,34 +251,43 @@ object BackupService {
         preferences: AppPreferences?
     ): BackupRecoveryAction = withContext(Dispatchers.IO) {
         val coordinator = BackupImportCoordinator(context)
-        val journal = coordinator.read() ?: return@withContext BackupRecoveryAction.NONE
+        val journalRead = coordinator.readResult()
+        if (journalRead.status == BackupJournalReadStatus.CORRUPT) {
+            // Never delete staging or published files when the only journal
+            // version is unreadable. The diagnostic sidecar and the original
+            // journal remain available for a deliberate repair.
+            return@withContext BackupRecoveryAction.CORRUPT_JOURNAL
+        }
+        val journal = journalRead.journal ?: return@withContext BackupRecoveryAction.NONE
+        val markerDao = database.backupImportCommitMarkerDao()
+        suspend fun cleanupCommitted(): BackupRecoveryAction {
+            val referenced = MistakeRepository(database).allReferencedImagePaths()
+            coordinator.cleanupPublished(journal, referenced)
+            markerDao.clear(journal.importId)
+            return BackupRecoveryAction.CLEANED_COMMITTED
+        }
+        suspend fun cleanupBeforeCommit(): BackupRecoveryAction {
+            // Restore the portable settings while the journal still exists;
+            // an I/O failure leaves both the journal and files for retry.
+            restorePreferenceSnapshot(database, preferences, journal)
+            coordinator.cleanup(journal, deleteCreatedFiles = true)
+            markerDao.clear(journal.importId)
+            return BackupRecoveryAction.CLEANED_BEFORE_COMMIT
+        }
         when (journal.phase) {
             BackupImportPhase.VALIDATED,
             BackupImportPhase.STAGED,
             BackupImportPhase.SNAPSHOT_CREATED -> {
-                coordinator.cleanup(journal, deleteCreatedFiles = true)
-                BackupRecoveryAction.CLEANED_BEFORE_COMMIT
+                cleanupBeforeCommit()
             }
             BackupImportPhase.FILES_PUBLISHED -> {
-                val referenced = MistakeRepository(database).allReferencedImagePaths()
-                val databaseCommitted = journal.createdImagePaths.any { it in referenced }
-                if (databaseCommitted) {
-                    // The Room transaction committed before the process died;
-                    // preserve its files and only remove transient work.
-                    coordinator.cleanup(journal, deleteCreatedFiles = false)
-                    BackupRecoveryAction.CLEANED_COMMITTED
-                } else {
-                    coordinator.cleanup(journal, deleteCreatedFiles = true)
-                    restorePreferenceSnapshot(database, preferences, journal)
-                    BackupRecoveryAction.CLEANED_BEFORE_COMMIT
-                }
+                if (markerDao.isCommitted(journal.importId)) cleanupCommitted()
+                else cleanupBeforeCommit()
             }
             BackupImportPhase.ROOM_COMMITTED,
-            BackupImportPhase.PREFERENCES_COMMITTED,
-            BackupImportPhase.COMMITTED -> {
-                coordinator.cleanup(journal, deleteCreatedFiles = false)
-                BackupRecoveryAction.CLEANED_COMMITTED
-            }
+            BackupImportPhase.PREFERENCES_COMMITTED ->
+                if (markerDao.isCommitted(journal.importId)) cleanupCommitted() else cleanupBeforeCommit()
+            BackupImportPhase.COMMITTED -> cleanupCommitted()
         }
     }
 
@@ -289,10 +298,8 @@ object BackupService {
     ) {
         val raw = journal.snapshot.preferencesJson ?: return
         if (preferences == null) return
-        runCatching {
-            val stableToLocal = database.mistakeDao().listAll().associate { it.stableId to it.id }
-            preferences.importBackupJson(JSONObject(raw), stableToLocal, replace = true)
-        }
+        val stableToLocal = database.mistakeDao().listAll().associate { it.stableId to it.id }
+        preferences.importBackupJson(JSONObject(raw), stableToLocal, replace = true)
     }
 
     /** Internal database seam used by compatibility tests without mutating device data. */
@@ -304,7 +311,9 @@ object BackupService {
         preferences: AppPreferences? = null
     ): Result<BackupImportResult> = withContext(Dispatchers.IO) {
         val coordinator = BackupImportCoordinator(context)
-        recoverPendingImport(context, database, preferences)
+        check(recoverPendingImport(context, database, preferences) != BackupRecoveryAction.CORRUPT_JOURNAL) {
+            "备份导入 journal 损坏，已保留现场，请先修复 journal.error"
+        }
         val importId = UUID.randomUUID().toString()
         val stagingDirectory = File(context.filesDir, "staging/import_$importId")
         val rollbackDirectory = File(context.filesDir, "staging/rollback_$importId")
@@ -521,13 +530,22 @@ object BackupService {
                 }
                 knowledgePointDao.deleteOrphans()
 
-                // DataStore settings are committed before leaving the Room
-                // transaction. If this import fails, Room rolls back together
-                // with the settings write instead of leaving two stores out of sync.
+                // Apply DataStore settings while the Room transaction is open.
+                // DataStore cannot join Room's transaction; if either side
+                // fails, the absent marker makes the failure path restore this
+                // snapshot before any staged files are removed.
                 preferences?.importBackupJson(
                     payload.preferences,
                     importedStableToLocalId,
                     replace = mode == BackupImportMode.REPLACE
+                )
+                // This marker is the final Room operation. It is deliberately
+                // independent of image references so preference-only imports
+                // have the same transaction fact as image imports.
+                database.backupImportCommitMarkerDao().markCommitted(
+                    importId = importId,
+                    mode = mode.name,
+                    committedAt = System.currentTimeMillis()
                 )
             }
             coordinator.advance(BackupImportPhase.ROOM_COMMITTED)
@@ -545,34 +563,76 @@ object BackupService {
             coordinator.advance(BackupImportPhase.COMMITTED)
             BackupImportResult(inserted, updated, skipped, copiedImages)
         }
-        stagingDirectory.deleteRecursively()
-        rollbackDirectory.deleteRecursively()
         if (result.isSuccess) {
+            stagingDirectory.deleteRecursively()
+            rollbackDirectory.deleteRecursively()
             val currentReferencedImagePaths = MistakeRepository(database).allReferencedImagePaths()
             ImageStorage.deletePrivateFiles(
                 context,
                 (previousReferencedImagePaths.filterNot { it in currentReferencedImagePaths } +
                     createdImagePaths.filterNot { it in currentReferencedImagePaths })
             )
+            // The journal is already COMMITTED here. Clearing the marker first
+            // is safe because COMMITTED recovery always preserves Room-owned
+            // files and clears any orphan marker on the next startup.
+            database.backupImportCommitMarkerDao().clear(importId)
             coordinator.clear()
         } else {
-            // Room rolls back rows inside withTransaction; remove only files this
-            // attempt created so the pre-import archive remains intact.
-            ImageStorage.deletePrivateFiles(context, createdImagePaths)
-            // Room has rolled back its transaction. Restore the portable
-            // DataStore snapshot as a compensating action because DataStore is
-            // an independent persistence system.
-            if (preferenceSnapshot != null && preferences != null) {
-                runCatching {
-                    val stableToLocal = database.mistakeDao().listAll().associate { it.stableId to it.id }
-                    preferences.importBackupJson(
-                        preferenceSnapshot,
-                        stableToLocal,
-                        replace = true
+            // The transaction may already have committed before a later
+            // journal/sanitization step failed. The marker, rather than the
+            // presence of images, decides whether compensation is allowed.
+            val failedJournalRead = coordinator.readResult()
+            if (failedJournalRead.status == BackupJournalReadStatus.CORRUPT) {
+                // A newly corrupt journal is itself a recovery incident. Keep
+                // its diagnostic and all files for deliberate startup repair.
+            } else {
+                val failedJournal = failedJournalRead.journal
+                val markerCommitted = database.backupImportCommitMarkerDao().isCommitted(importId)
+                if (markerCommitted) {
+                    val referenced = MistakeRepository(database).allReferencedImagePaths()
+                    ImageStorage.deletePrivateFiles(
+                        context,
+                        createdImagePaths.filterNot { it in referenced }
                     )
+                    if (failedJournal != null) {
+                        coordinator.cleanupPublished(failedJournal, referenced)
+                    } else {
+                        stagingDirectory.deleteRecursively()
+                        rollbackDirectory.deleteRecursively()
+                        coordinator.clear()
+                    }
+                    database.backupImportCommitMarkerDao().clear(importId)
+                } else {
+                    // Room rolled back (or was never entered). Restore the
+                    // portable DataStore snapshot before deleting the journal.
+                    // If restoration fails, retain the journal and files so
+                    // startup recovery can retry instead of reporting a false
+                    // rollback.
+                    val restore = runCatching {
+                        if (failedJournal != null) {
+                            restorePreferenceSnapshot(database, preferences, failedJournal)
+                        } else if (preferenceSnapshot != null && preferences != null) {
+                            val stableToLocal = database.mistakeDao().listAll().associate { it.stableId to it.id }
+                            preferences.importBackupJson(
+                                preferenceSnapshot,
+                                stableToLocal,
+                                replace = true
+                            )
+                        }
+                    }
+                    if (restore.isSuccess) {
+                        ImageStorage.deletePrivateFiles(context, createdImagePaths)
+                        if (failedJournal != null) {
+                            coordinator.cleanup(failedJournal, deleteCreatedFiles = true)
+                        } else {
+                            stagingDirectory.deleteRecursively()
+                            rollbackDirectory.deleteRecursively()
+                            coordinator.clear()
+                        }
+                        database.backupImportCommitMarkerDao().clear(importId)
+                    }
                 }
             }
-            coordinator.clear()
         }
         result
     }
