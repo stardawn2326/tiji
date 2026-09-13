@@ -2,7 +2,7 @@ package com.tiji.mistakes.domain
 
 import com.tiji.mistakes.data.MistakeEntity
 import com.tiji.mistakes.data.ReviewRecordEntity
-import java.util.Calendar
+import com.tiji.mistakes.domain.time.LearningCalendar
 import kotlin.math.roundToInt
 
 enum class ReviewGrade(val label: String) { FORGOT("忘记"), HARD("生疏"), GOOD("掌握"), EASY("熟练") }
@@ -18,7 +18,8 @@ object ReviewScheduler {
     /** Only the explicit 熟练 grade leaves the automatic review plan. */
     fun shouldRemainInReviewPlan(grade: ReviewGrade): Boolean = grade != ReviewGrade.EASY
 
-    fun nextLocalMidnight(now: Long = System.currentTimeMillis()): Long = localMidnightAfter(now, 1)
+    fun nextLocalMidnight(now: Long = System.currentTimeMillis()): Long =
+        LearningCalendar.addStudyDays(now, 1)
 
     fun preview(
         mistake: MistakeEntity,
@@ -35,7 +36,7 @@ object ReviewScheduler {
         return ReviewPreview(
             grade = grade,
             intervalDays = interval,
-            nextReviewAt = localMidnightAfter(now, interval),
+            nextReviewAt = LearningCalendar.addStudyDays(now, interval.toLong()),
             masteryAfter = mastery
         )
     }
@@ -87,7 +88,7 @@ object ReviewScheduler {
         }
         return base.copy(
             intervalDays = interval,
-            nextReviewAt = localMidnightAfter(now, interval)
+            nextReviewAt = LearningCalendar.addStudyDays(now, interval.toLong())
         )
     }
 
@@ -120,25 +121,17 @@ object ReviewScheduler {
 
     fun currentIntervalDays(mistake: MistakeEntity): Int {
         if (mistake.lastReviewedAt == null) return 1
-        val start = localMidnightAfter(mistake.lastReviewedAt, 0)
-        val end = localMidnightAfter(mistake.nextReviewAt, 0)
-        val days = ((end - start).toDouble() / DAY_MS).roundToInt()
+        val days = LearningCalendar.daysBetweenLocalDates(
+            mistake.lastReviewedAt,
+            mistake.nextReviewAt
+        ).toInt()
         return maxOf(1, days)
     }
 
-    private fun localMidnightAfter(time: Long, days: Int): Long = Calendar.getInstance().apply {
-        timeInMillis = time
-        set(Calendar.HOUR_OF_DAY, 0)
-        set(Calendar.MINUTE, 0)
-        set(Calendar.SECOND, 0)
-        set(Calendar.MILLISECOND, 0)
-        add(Calendar.DAY_OF_YEAR, days)
-    }.timeInMillis
-
     private fun overdueDays(mistake: MistakeEntity, now: Long): Int {
-        val due = localMidnightAfter(mistake.nextReviewAt, 0)
-        val today = localMidnightAfter(now, 0)
-        return ((today - due).coerceAtLeast(0L) / DAY_MS).toInt()
+        return LearningCalendar.daysBetweenLocalDates(mistake.nextReviewAt, now)
+            .coerceAtLeast(0L)
+            .toInt()
     }
 
     private fun gradeScore(record: ReviewRecordEntity): Int = when (record.grade) {
@@ -149,6 +142,5 @@ object ReviewScheduler {
         else -> 1
     }
 
-    private const val DAY_MS = 24L * 60L * 60L * 1000L
     private const val MAX_ADAPTIVE_HISTORY = 8
 }

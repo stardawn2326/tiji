@@ -496,13 +496,13 @@ internal fun TijiNavGraph(
                                             questionId,
                                             false,
                                             onUpdated = {
-                                                viewModel.clearReviewSession(session.sessionId)
+                                                viewModel.removeMistakeFromReviewSession(session.sessionId, questionId)
                                                 onDone()
                                             }
                                         )
                                     }
                                 } else {
-                                    viewModel.clearReviewSession(session.sessionId)
+                                    viewModel.removeMistakeFromReviewSession(session.sessionId, questionId)
                                     onDone()
                                 }
                             },

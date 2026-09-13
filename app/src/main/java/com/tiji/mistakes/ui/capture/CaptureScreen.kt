@@ -61,12 +61,14 @@ import com.tiji.mistakes.ui.design.TijiTopBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -118,6 +120,10 @@ import com.tiji.mistakes.ui.MistakeViewModel
 import com.tiji.mistakes.domain.MistakeDraft
 import com.tiji.mistakes.domain.MistakeDraftAssets
 import com.tiji.mistakes.domain.MistakeDraftMetadata
+import com.tiji.mistakes.domain.MistakeDraftState
+import com.tiji.mistakes.domain.MistakeAssetManager
+import com.tiji.mistakes.domain.MistakeDraftController
+import com.tiji.mistakes.domain.MistakeDraftAction
 import com.tiji.mistakes.ui.math.normalizeQuestionSource
 import com.tiji.mistakes.ui.math.normalizeVisualLayout
 import com.tiji.mistakes.ui.math.removeStandaloneMarkdownSeparators
@@ -129,8 +135,156 @@ import com.tiji.mistakes.ui.design.TijiPaperCard
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
 
 internal enum class EntryMode(val label: String) { PHOTO("拍照录题"), AI("AI 识题"), MANUAL("手动录入") }
+
+/** Compose binding that keeps every persisted capture field behind the domain reducer. */
+internal class CaptureDraftBindings(private val savedDraft: MutableState<MistakeDraft>) {
+    val controller = MistakeDraftController(MistakeDraftState(savedDraft.value))
+
+    private fun dispatch(action: MistakeDraftAction) {
+        savedDraft.value = controller.dispatch(action).draft
+    }
+
+    private fun updateMetadata(update: (MistakeDraftMetadata) -> MistakeDraftMetadata) {
+        val draft = savedDraft.value
+        dispatch(
+            MistakeDraftAction.SetMetadata(
+                update(
+                    MistakeDraftMetadata(
+                        title = draft.title,
+                        subject = draft.subject,
+                        questionType = draft.questionType,
+                        tags = draft.tags,
+                        difficulty = draft.difficulty,
+                        inReviewPlan = draft.inReviewPlan,
+                        includeSourceImageInPdf = draft.includeSourceImageInPdf,
+                        captureMode = draft.captureMode,
+                        aiRecognitionSource = draft.aiRecognitionSource
+                    )
+                )
+            )
+        )
+    }
+
+    private fun sourceImages(): List<String> = runCatching {
+        val array = JSONArray(savedDraft.value.sourceImagePaths.ifBlank { "[]" })
+        (0 until array.length()).mapNotNull { array.optString(it).trim().takeIf(String::isNotBlank) }
+    }.getOrDefault(emptyList())
+
+    var title: String
+        get() = savedDraft.value.title
+        set(value) { dispatch(MistakeDraftAction.SetTitle(value)) }
+    var question: String
+        get() = savedDraft.value.questionText
+        set(value) { dispatch(MistakeDraftAction.SetQuestionText(value)) }
+    var userAnswer: String
+        get() = savedDraft.value.userAnswer
+        set(value) { dispatch(MistakeDraftAction.SetUserAnswer(value)) }
+    var answer: String
+        get() = savedDraft.value.answerText
+        set(value) { dispatch(MistakeDraftAction.SetAnswerText(value)) }
+    var explanation: String
+        get() = savedDraft.value.explanation
+        set(value) { dispatch(MistakeDraftAction.SetExplanation(value)) }
+    var note: String
+        get() = savedDraft.value.note
+        set(value) { dispatch(MistakeDraftAction.SetNote(value)) }
+    var errorReason: String
+        get() = savedDraft.value.errorReason
+        set(value) { dispatch(MistakeDraftAction.SetErrorReason(value)) }
+    var subject: String
+        get() = savedDraft.value.subject
+        set(value) { updateMetadata { it.copy(subject = value) } }
+    var questionType: String
+        get() = savedDraft.value.questionType
+        set(value) { updateMetadata { it.copy(questionType = value) } }
+    var tags: String
+        get() = savedDraft.value.tags
+        set(value) { updateMetadata { it.copy(tags = value) } }
+    var difficulty: Int
+        get() = savedDraft.value.difficulty
+        set(value) { updateMetadata { it.copy(difficulty = value) } }
+    var modeName: String
+        get() = savedDraft.value.captureMode
+        set(value) { dispatch(MistakeDraftAction.SetCaptureMode(value)) }
+    var photoQuestionImages: List<String>
+        get() = sourceImages()
+        set(value) { dispatch(MistakeDraftAction.SetQuestionImages(value)) }
+    var aiRecognitionImages: List<String>
+        get() = sourceImages()
+        set(value) { dispatch(MistakeDraftAction.SetQuestionImages(value)) }
+    var answerImage: String?
+        get() = savedDraft.value.answerImagePath
+        set(value) { dispatch(MistakeDraftAction.SetAnswerImage(value)) }
+    var explanationImage: String?
+        get() = savedDraft.value.explanationImagePath
+        set(value) { dispatch(MistakeDraftAction.SetExplanationImage(value)) }
+    var contentBlocksJson: String
+        get() = savedDraft.value.contentBlocks
+        set(value) { dispatch(MistakeDraftAction.SetContentBlocks(value)) }
+
+    fun draft(): MistakeDraft = savedDraft.value
+}
+
+/** Saveable process-recreation boundary for the capture draft. */
+internal val mistakeDraftSaver: Saver<MistakeDraft, String> = Saver(
+    save = { draft ->
+        JSONObject()
+            .put("title", draft.title)
+            .put("questionText", draft.questionText)
+            .put("userAnswer", draft.userAnswer)
+            .put("answerText", draft.answerText)
+            .put("explanation", draft.explanation)
+            .put("note", draft.note)
+            .put("errorReason", draft.errorReason)
+            .put("subject", draft.subject)
+            .put("questionType", draft.questionType)
+            .put("tags", draft.tags)
+            .put("difficulty", draft.difficulty)
+            .put("inReviewPlan", draft.inReviewPlan)
+            .put("includeSourceImageInPdf", draft.includeSourceImageInPdf)
+            .put("imagePath", draft.imagePath)
+            .put("sourceImagePaths", draft.sourceImagePaths)
+            .put("answerImagePath", draft.answerImagePath)
+            .put("explanationImagePath", draft.explanationImagePath)
+            .put("contentBlocks", draft.contentBlocks)
+            .put("captureMode", draft.captureMode)
+            .put("aiRecognitionSource", draft.aiRecognitionSource)
+            .put("ocrText", draft.ocrText)
+            .toString()
+    },
+    restore = { raw ->
+        runCatching {
+            val json = JSONObject(raw)
+            MistakeDraft(
+                title = json.optString("title"),
+                questionText = json.optString("questionText"),
+                userAnswer = json.optString("userAnswer"),
+                answerText = json.optString("answerText"),
+                explanation = json.optString("explanation"),
+                note = json.optString("note"),
+                errorReason = json.optString("errorReason"),
+                subject = json.optString("subject"),
+                questionType = json.optString("questionType"),
+                tags = json.optString("tags"),
+                difficulty = json.optInt("difficulty"),
+                inReviewPlan = json.optBoolean("inReviewPlan", true),
+                includeSourceImageInPdf = json.optBoolean("includeSourceImageInPdf", true),
+                imagePath = json.optString("imagePath").takeIf(String::isNotBlank),
+                sourceImagePaths = json.optString("sourceImagePaths"),
+                answerImagePath = json.optString("answerImagePath").takeIf(String::isNotBlank),
+                explanationImagePath = json.optString("explanationImagePath").takeIf(String::isNotBlank),
+                contentBlocks = json.optString("contentBlocks"),
+                captureMode = json.optString("captureMode", EntryMode.PHOTO.name),
+                aiRecognitionSource = json.optString("aiRecognitionSource"),
+                ocrText = json.optString("ocrText")
+            )
+        }.getOrNull()
+    }
+)
 
 @Composable
 internal fun EntryModeSegmented(selected: EntryMode, enabled: Boolean, onSelected: (EntryMode) -> Unit) {
@@ -177,19 +331,19 @@ internal fun NewCaptureScreen(
     var duplicateUpdateId by rememberSaveable { mutableStateOf(0L) }
     var showSupplementImages by rememberSaveable { mutableStateOf(false) }
     var showCaptureConfiguration by rememberSaveable { mutableStateOf(false) }
-    var modeName by rememberSaveable { mutableStateOf(EntryMode.PHOTO.name) }
+    val initialDraft = remember {
+        MistakeDraft(
+            title = "",
+            subject = "",
+            questionType = "",
+            captureMode = EntryMode.PHOTO.name
+        )
+    }
+    val savedDraft = rememberSaveable(stateSaver = mistakeDraftSaver) { mutableStateOf(initialDraft) }
+    val draftBindings = remember(savedDraft) { CaptureDraftBindings(savedDraft) }
+    val draftController = draftBindings.controller
+    with(draftBindings) {
     val mode = EntryMode.entries.firstOrNull { it.name == modeName } ?: EntryMode.PHOTO
-    var title by rememberSaveable { mutableStateOf("") }; var question by rememberSaveable { mutableStateOf("") }
-    var answer by rememberSaveable { mutableStateOf("") }; var explanation by rememberSaveable { mutableStateOf("") }
-    var userAnswer by rememberSaveable { mutableStateOf("") }
-    var note by rememberSaveable { mutableStateOf("") }; var subject by rememberSaveable { mutableStateOf("") }
-    var errorReason by rememberSaveable { mutableStateOf("") }
-    var questionType by rememberSaveable { mutableStateOf("") }; var tags by rememberSaveable { mutableStateOf("") }
-    var difficulty by rememberSaveable { mutableIntStateOf(0) }
-    var photoQuestionImages by rememberSaveable(stateSaver = stringListSaver) { mutableStateOf(emptyList()) }
-    var answerImage by rememberSaveable { mutableStateOf<String?>(null) }
-    var explanationImage by rememberSaveable { mutableStateOf<String?>(null) }
-    var aiRecognitionImages by rememberSaveable(stateSaver = stringListSaver) { mutableStateOf(emptyList()) }
     var aiRecognitionEditingOriginalPath by rememberSaveable { mutableStateOf<String?>(null) }
     var aiInputModeName by rememberSaveable { mutableStateOf(initialAiInputMode) }
     var pendingModeName by rememberSaveable { mutableStateOf("") }
@@ -202,7 +356,6 @@ internal fun NewCaptureScreen(
     var aiFilled by rememberSaveable { mutableStateOf(false) }
     var showAiConsentDialog by remember { mutableStateOf(false) }
     var pendingRecognition by remember { mutableStateOf<AiRecognitionResult?>(null) }
-    var contentBlocksJson by rememberSaveable { mutableStateOf("") }
     val aiRecognitionState by viewModel.aiRecognition.collectAsStateWithLifecycle()
     val suggestedSubjects = remember(allMistakes) {
         allMistakes.asSequence()
@@ -265,8 +418,29 @@ internal fun NewCaptureScreen(
             photoQuestionImages.isNotEmpty() || answerImage != null || explanationImage != null ||
             aiRecognitionImages.isNotEmpty() || pendingRecognition != null || aiFilled || contentBlocksJson.isNotBlank()
 
+    fun currentDraftAssetPaths(): Set<String> = buildSet {
+        addAll(photoQuestionImages)
+        addAll(aiRecognitionImages)
+        answerImage?.let(::add)
+        explanationImage?.let(::add)
+        addAll(MistakeAssetManager.collectAiState(contentBlocks = contentBlocksJson).paths)
+        addAll(pendingRecognition?.diagramBlocks.orEmpty().mapNotNull { it.cropPath })
+    }
+
     fun applyModeSwitch(next: EntryMode) {
         if (next == mode) return
+        val beforePaths = currentDraftAssetPaths()
+        val retainedPaths = when (next) {
+            EntryMode.AI -> aiRecognitionImages.toSet()
+            EntryMode.PHOTO, EntryMode.MANUAL -> buildSet {
+                addAll(photoQuestionImages)
+                answerImage?.let(::add)
+                explanationImage?.let(::add)
+            }
+        }
+        // Cleanup must happen before the state lists are cleared; otherwise the
+        // old ownership set is lost and abandoned private files survive.
+        viewModel.deleteImagesIfUnreferenced(beforePaths - retainedPaths)
         pendingModeName = ""
         clearTextDraft()
         aiFilled = false
@@ -356,6 +530,13 @@ internal fun NewCaptureScreen(
             copied.firstOrNull()?.let { load(it, selectedRole) }
         }
     }
+    // The answer and explanation slots have single-file ownership. Keeping a
+    // dedicated contract prevents a multi-select callback from copying extra
+    // files that are immediately discarded as orphaned assets.
+    val singleGalleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        uri?.let { ImageStorage.copyToPrivate(context, it, selectedRole.prefix) }
+            ?.let { load(it, selectedRole) }
+    }
     val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
         if (success) {
             val copied = ImageStorage.copyFileToPrivate(context, cameraFile, selectedRole.prefix)
@@ -435,7 +616,9 @@ internal fun NewCaptureScreen(
             explanation = explanation,
             note = note,
             errorReason = errorReason
-        ).toEntity()
+        ).also { draftController.dispatch(MistakeDraftAction.ReplaceDraft(it)) }
+            .let { draftController.snapshot().draft }
+            .toEntity()
         val updateId = duplicateUpdateId
         duplicateUpdateId = 0L
         if (updateId > 0L) {
@@ -914,12 +1097,12 @@ internal fun NewCaptureScreen(
                                             title = "添加${role.label}",
                                             subtitle = "拍照或从相册选择",
                                             icon = Icons.Outlined.Image,
-                                            onClick = { selectedRole = role; galleryLauncher.launch("image/*") },
+                                            onClick = { selectedRole = role; singleGalleryLauncher.launch("image/*") },
                                             modifier = Modifier.heightIn(min = 112.dp)
                                         )
                                     } else ImagePreview(path)
                                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                                        TijiSecondaryButton(onClick = { selectedRole = role; galleryLauncher.launch("image/*") }, modifier = Modifier.weight(1f)) { Text("相册") }
+                                        TijiSecondaryButton(onClick = { selectedRole = role; singleGalleryLauncher.launch("image/*") }, modifier = Modifier.weight(1f)) { Text("相册") }
                                         TijiSecondaryButton(onClick = { requestCamera(role) }, modifier = Modifier.weight(1f)) { Text("拍照") }
                                     }
                                 }
@@ -1070,5 +1253,6 @@ internal fun NewCaptureScreen(
                 }
             }
         }
+    }
     }
 }

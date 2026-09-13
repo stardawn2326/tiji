@@ -262,7 +262,7 @@ class AppPreferences(private val context: Context) {
     suspend fun setReviewPlanEnabled(value: Boolean) { context.tijiDataStore.edit { it[reviewPlanEnabledKey] = value } }
     suspend fun setRandomReview(value: Boolean) { context.tijiDataStore.edit { it[randomReviewKey] = value } }
 
-    /** Kept as a source-compatibility shim; review results are written by Room. */
+    /** @deprecated Legacy migration shim; new review facts are written by Room. */
     @Deprecated("Use MistakeRepository.recordReview")
     suspend fun recordReviewStatus(date: String, questionId: Long, status: String) = Unit
 
@@ -296,7 +296,7 @@ class AppPreferences(private val context: Context) {
         }
     }
 
-    /** Kept as a source-compatibility shim; it no longer stores review scores. */
+    /** @deprecated Legacy migration shim; it no longer stores review scores. */
     @Deprecated("ReviewRecordEntity is the only review fact source")
     suspend fun recordReview(date: String = localDateKey()) = Unit
 

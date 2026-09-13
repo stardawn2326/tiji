@@ -19,6 +19,9 @@ import com.tiji.mistakes.domain.ReviewSessionSource
 import com.tiji.mistakes.domain.ReviewSessionStatus
 import com.tiji.mistakes.domain.ReviewSessionUiState
 import com.tiji.mistakes.domain.MistakeDuplicateService
+import com.tiji.mistakes.domain.MistakeAssetManager
+import com.tiji.mistakes.domain.DataResetCoordinator
+import com.tiji.mistakes.domain.DataResetMode
 import com.tiji.mistakes.domain.MistakeProgressCalculator
 import com.tiji.mistakes.domain.MistakeProgressSummary
 import com.tiji.mistakes.domain.MistakeListItem
@@ -408,6 +411,12 @@ class MistakeViewModel(
         persistReviewSession(ReviewSessionController.move(current, delta))
     }
 
+    /** Removes one queued question without discarding the rest of the session. */
+    fun removeMistakeFromReviewSession(sessionKey: String, mistakeId: Long) {
+        val current = _reviewSession.value?.takeIf { it.sessionKey == sessionKey } ?: return
+        persistReviewSession(ReviewSessionController.removeMistake(current, mistakeId))
+    }
+
     fun clearReviewSession(sessionKey: String) {
         if (_reviewSession.value?.sessionKey != sessionKey) return
         persistReviewSession(null)
@@ -785,17 +794,16 @@ class MistakeViewModel(
         if (candidates.isEmpty()) return
         val currentSolve = _aiSolve.value
         val currentRecognition = _aiRecognition.value
-        val currentPaths = buildSet {
-            addAll(currentSolve.imagePaths)
-            currentSolve.imagePath?.takeIf(String::isNotBlank)?.let(::add)
-            currentSolve.graphicImagePath?.takeIf(String::isNotBlank)?.let(::add)
-            addAll(QuestionContentBlockCodec.decode(currentSolve.contentBlocks).flatMap { listOfNotNull(it.path, it.sourcePath) })
-            addAll(currentRecognition.imagePaths)
-            addAll(currentRecognition.result?.diagramBlocks.orEmpty().mapNotNull { it.cropPath })
-            addAll(_aiChat.value.currentImagePaths)
-            addAll(_aiChat.value.lastImagePaths)
-            addAll(_aiChat.value.messages.flatMap(AiChatMessage::imagePaths))
-        }
+        val currentPaths = MistakeAssetManager.collectAiState(
+            imagePaths = currentSolve.imagePaths + currentRecognition.imagePaths,
+            imagePath = currentSolve.imagePath,
+            graphicImagePath = currentSolve.graphicImagePath,
+            contentBlocks = currentSolve.contentBlocks,
+            extraPaths = currentRecognition.result?.diagramBlocks.orEmpty().mapNotNull { it.cropPath } +
+                _aiChat.value.currentImagePaths +
+                _aiChat.value.lastImagePaths +
+                _aiChat.value.messages.flatMap(AiChatMessage::imagePaths)
+        ).paths
         val referenced = aiSolveHistoryStore.referencedImagePaths() +
             repository.allReferencedImagePaths() + currentPaths
         ImageStorage.deletePrivateFiles(
@@ -1166,6 +1174,11 @@ class MistakeViewModel(
                 val existing = requireNotNull(repository.find(existingId)) { "已有错题不存在" }
                 val merged = MistakeDuplicateService.mergeForExplicitUpdate(existing, incoming)
                 val id = repository.save(merged, preserveReviewPlan = true)
+                val replacement = MistakeAssetManager.replacement(existing, merged)
+                // The database update succeeded; only now is it safe to collect
+                // the old/new difference and reclaim files no longer referenced
+                // by the saved row or AI/capture state.
+                deleteImagesIfUnreferencedNow(replacement.obsoleteCandidates)
                 val completed = saving.copy(
                     mistakeId = id,
                     phase = AiMistakeSavePhase.LOCAL_SAVED,
@@ -1178,6 +1191,10 @@ class MistakeViewModel(
                 _aiMistakeSave.value = completed
                 onSaved(id)
             } catch (error: Throwable) {
+                // The capture screen still owns incoming files after a failed
+                // update and lets the learner retry or leave the draft. Do not
+                // reclaim them here; leaveCapture() performs the same global
+                // reference check once that UI owner is gone.
                 val failed = saving.copy(
                     phase = AiMistakeSavePhase.SAVE_FAILED,
                     completedAt = System.currentTimeMillis(),
@@ -1404,6 +1421,9 @@ class MistakeViewModel(
     }
 
     suspend fun resetAllData() {
+        check(DataResetCoordinator.plan(DataResetMode.LEARNING_DATA).clearsMistakes) {
+            "学习数据清除契约未启用"
+        }
         repository.resetAllData()
         refreshReviewClock()
         aiSolveObserverJob?.cancel()

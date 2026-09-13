@@ -305,6 +305,10 @@ class AiSolveService : Service() {
                         }
                         verifyDurationMs = SystemClock.elapsedRealtime() - verifyStartedAt
                         if (verification.status == AiVerificationStatus.FAILED) {
+                            // The first response is the recovery baseline. A repair is
+                            // only a candidate until its independent second verification
+                            // has completed with PASS.
+                            val originalSolution = complete
                             runningState = runningState.copy(
                                 status = AiSolveStatus.REPAIRING,
                                 progress = 0.975f,
@@ -325,8 +329,6 @@ class AiSolveService : Service() {
                             }.getOrNull()?.trim().orEmpty()
                             repairDurationMs = SystemClock.elapsedRealtime() - repairStartedAt
                             if (isUsableAiSolution(repaired)) {
-                                complete = repaired
-                                streamedAnswer = complete
                                 requestCount += 1
                                 val reverifyStartedAt = SystemClock.elapsedRealtime()
                                 val repairedVerification = boundedCheck {
@@ -335,15 +337,23 @@ class AiSolveService : Service() {
                                         model = model,
                                         apiKey = apiKey,
                                         question = verificationQuestion,
-                                        candidateSolution = complete
+                                        candidateSolution = repaired
                                     ).getOrThrow()
                                 }
                                 verifyDurationMs += SystemClock.elapsedRealtime() - reverifyStartedAt
-                                verification = repairedVerification.getOrElse { error ->
+                                val secondVerification = repairedVerification.getOrElse { error ->
                                     AiVerificationResult.unavailable(
-                                        "修正解答已保留，但本次未完成复核：${error.message ?: "校验服务不可用"}"
+                                        "修正候选未完成复核：${error.message ?: "校验服务不可用"}"
                                     )
-                                }.copy(repairAttempted = true)
+                                }
+                                val decision = AiRepairPolicy.decide(
+                                    originalSolution = originalSolution,
+                                    repairCandidate = repaired,
+                                    secondVerification = secondVerification
+                                )
+                                complete = decision.publishedSolution
+                                streamedAnswer = complete
+                                verification = secondVerification.copy(repairAttempted = true)
                             } else {
                                 // Keep the original answer visible when a repair is
                                 // empty, malformed, or unavailable.

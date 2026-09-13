@@ -62,6 +62,7 @@ internal fun reviewStatusFilterLabel(value: Int): String = when (value) {
     else -> ReviewGrade.entries.getOrNull(value - 1)?.label ?: "未选择"
 }
 
+@Deprecated("ReviewGrade is the only product-facing review status")
 internal fun masteryLabel(value: Int): String = when (value) {
     0 -> "未掌握"
     1 -> "学习中"
