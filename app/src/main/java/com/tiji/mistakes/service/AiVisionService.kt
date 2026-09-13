@@ -20,6 +20,16 @@ internal class AiOutputLimitException(
     val partialContent: String
 ) : IllegalStateException("AI 输出达到长度上限，回答可能未完成，请重新解题或重新追问")
 
+data class AiCapabilityResult(val ok: Boolean, val detail: String)
+
+data class AiProviderCapabilityCheck(
+    val text: AiCapabilityResult,
+    val streaming: AiCapabilityResult,
+    val image: AiCapabilityResult,
+    val visualAssistBinding: AiCapabilityResult,
+    val visualProfile: AiCapabilityResult = AiCapabilityResult(false, "未配置视觉辅助配置")
+)
+
 private fun monotonicTimeMs(): Long = System.nanoTime() / 1_000_000L
 
 private fun logInfo(tag: String, message: String) = runCatching { Log.i(tag, message) }
@@ -1128,7 +1138,9 @@ class AiVisionService internal constructor(
                 .put("stream", true)
                 .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", content)))
             applyDeepSeekTextOptions(body, endpoint, model)
-            val streamed = runCatching { streamRequest(endpoint, apiKey, body, onDelta) }
+            val streamed = runCatching {
+                streamWithSingleContinuation(endpoint, apiKey, body, onDelta)
+            }
             streamed.getOrElse {
                 logError(TAG, "vision_stream_failed model=${model.take(80)} image=${visualPaths.isNotEmpty()}", it)
                 currentCoroutineContext().ensureActive()
@@ -1465,6 +1477,55 @@ class AiVisionService internal constructor(
             Unit
         }
     }
+
+    /** Runs the three provider contracts used by the app's solve paths. */
+    suspend fun testProviderCapabilities(
+        endpoint: String,
+        model: String,
+        apiKey: String,
+        visualAssistBound: Boolean,
+        visualEndpoint: String? = null,
+        visualModel: String? = null,
+        visualApiKey: String? = null
+    ): AiProviderCapabilityCheck = withContext(Dispatchers.IO) {
+        fun result(value: Result<Unit>, success: String): AiCapabilityResult = value.fold(
+            onSuccess = { AiCapabilityResult(true, success) },
+            onFailure = { AiCapabilityResult(false, it.message ?: "未知错误") }
+        )
+        val text = result(testConnection(endpoint, model, apiKey), "文本请求可用")
+        val streaming = result(testStreamingConnection(endpoint, model, apiKey), "流式解题可用")
+        val image = result(testVisionConnection(endpoint, model, apiKey), "图片输入可用")
+        val visual = if (!visualAssistBound) {
+            AiCapabilityResult(false, "未配置视觉辅助配置")
+        } else if (visualEndpoint.isNullOrBlank() || visualModel.isNullOrBlank() || visualApiKey.isNullOrBlank()) {
+            AiCapabilityResult(false, "视觉 Profile 配置不完整")
+        } else {
+            result(
+                testVisionConnection(visualEndpoint, visualModel, visualApiKey),
+                "视觉 Profile 可用"
+            )
+        }
+        val binding = when {
+            !visualAssistBound -> AiCapabilityResult(false, "未绑定视觉辅助配置")
+            visual.ok -> AiCapabilityResult(true, "文本 Profile 与视觉 Profile 绑定正常")
+            else -> AiCapabilityResult(false, "绑定存在，但视觉 Profile 自检未通过")
+        }
+        AiProviderCapabilityCheck(text, streaming, image, binding, visual)
+    }
+
+    private suspend fun testStreamingConnection(endpoint: String, model: String, apiKey: String): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                requireConfig(endpoint, model, apiKey)
+                val body = JSONObject()
+                    .put("model", model)
+                    .put("max_tokens", 8)
+                    .put("stream", true)
+                    .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", "Reply only OK")))
+                streamRequest(endpoint, apiKey, body) {}
+                Unit
+            }
+        }
 
     /**
      * First pass for visual-assist mode. It uses the same hidden question
@@ -1940,6 +2001,44 @@ $retryInstruction
                 } else {
                     "服务商返回空响应：请检查模型是否支持流式输出、API Key、额度或网络连接"
                 }
+            }
+        }
+    }
+
+    /** Continue exactly once when a provider stops at its output limit. */
+    private suspend fun streamWithSingleContinuation(
+        endpoint: String,
+        apiKey: String,
+        body: JSONObject,
+        onDelta: suspend (String) -> Unit
+    ): String {
+        return try {
+            streamRequest(endpoint, apiKey, body, onDelta)
+        } catch (first: AiOutputLimitException) {
+            currentCoroutineContext().ensureActive()
+            logWarn(TAG, "vision_stream_output_limit_continue", first)
+            val continuationBody = JSONObject(body.toString())
+            val messages = JSONArray(continuationBody.optJSONArray("messages")?.toString() ?: "[]")
+            messages.put(
+                JSONObject()
+                    .put("role", "assistant")
+                    .put("content", first.partialContent.take(MAX_CONTINUATION_CONTEXT))
+            )
+            messages.put(
+                JSONObject()
+                    .put("role", "user")
+                    .put(
+                        "content",
+                        "上一条回答在输出上限处被截断。请从截断处继续，不能重复已经输出的内容；保持原题、四个 V2 section 和原有格式，直到完整结束。"
+                    )
+            )
+            continuationBody.put("messages", messages)
+            try {
+                first.partialContent + streamRequest(endpoint, apiKey, continuationBody, onDelta)
+            } catch (second: AiOutputLimitException) {
+                throw AiOutputLimitException(
+                    (first.partialContent + second.partialContent).take(MAX_CONTINUATION_RESULT)
+                )
             }
         }
     }
@@ -2576,6 +2675,8 @@ $retryInstruction
 
     companion object {
         private const val TAG = "AiVisionService"
+        private const val MAX_CONTINUATION_CONTEXT = 24_000
+        private const val MAX_CONTINUATION_RESULT = 48_000
         private const val MAX_CLASSIFICATION_SOURCE_CHARS = 18_000
         private const val CLASSIFICATION_SOURCE_HEAD_CHARS = 12_000
         private const val CLASSIFICATION_SOURCE_TAIL_CHARS = 6_000

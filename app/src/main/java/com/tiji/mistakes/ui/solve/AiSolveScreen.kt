@@ -75,9 +75,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.tiji.mistakes.data.AiProfile
 import com.tiji.mistakes.data.AiVisualProfile
 import com.tiji.mistakes.data.MistakeEntity
-import com.tiji.mistakes.domain.ai.AiDuplicateDetector
 import com.tiji.mistakes.domain.ai.AiSolvedMistakeDraftInput
 import com.tiji.mistakes.domain.ai.AiSolvedMistakeDraftMapper
+import com.tiji.mistakes.domain.MistakeDuplicateService
 import com.tiji.mistakes.service.AiChatMessage
 import com.tiji.mistakes.service.AiAnswerDiagnosisState
 import com.tiji.mistakes.service.AiAnswerDiagnosisStatus
@@ -89,8 +89,6 @@ import com.tiji.mistakes.service.AiRecognitionMode
 import com.tiji.mistakes.service.AiSolveHistoryRecord
 import com.tiji.mistakes.service.AiSolveReliabilityMode
 import com.tiji.mistakes.service.AiSolveStatus
-import com.tiji.mistakes.service.AiSolutionStep
-import com.tiji.mistakes.service.AiStructuredSolutionV3Codec
 import com.tiji.mistakes.service.ContentBlockKind
 import com.tiji.mistakes.service.ContentBlockRole
 import com.tiji.mistakes.service.followUpReplyForDisplay
@@ -181,6 +179,7 @@ internal fun AiSolveScreen(
     var showPrivacyDialog by remember { mutableStateOf(false) }
     var showFollowUpDialog by remember { mutableStateOf(false) }
     var showDuplicateDialog by rememberSaveable { mutableStateOf(false) }
+    var duplicateUpdateId by rememberSaveable { mutableLongStateOf(0L) }
     var showRecognitionEditor by rememberSaveable { mutableStateOf(false) }
     var showSaveSheet by rememberSaveable { mutableStateOf(false) }
     var saveMetadataLoading by rememberSaveable { mutableStateOf(false) }
@@ -219,9 +218,8 @@ internal fun AiSolveScreen(
     val isLoading = aiSolveState.running
     val completeSolution = aiSolveState.completeText.orEmpty()
     val solutionSections = remember(completeSolution) { parseAiSolutionSections(completeSolution) }
-    val structuredV3 = remember(completeSolution) { AiStructuredSolutionV3Codec.parse(completeSolution) }
     val duplicateCandidates = remember(question, imagePaths, allMistakes) {
-        AiDuplicateDetector.findCandidates(question, imagePaths, allMistakes)
+        MistakeDuplicateService.findCandidates(question, imagePaths, allMistakes)
     }
     val suggestedSubjects = remember(allMistakes) {
         allMistakes.asSequence()
@@ -340,16 +338,15 @@ internal fun AiSolveScreen(
     LaunchedEffect(aiSolveState.requestId, aiSolveState.completeText, aiSolveState.historyWriteError) {
         val complete = aiSolveState.completeText ?: return@LaunchedEffect
         val sections = parseAiSolutionSections(complete)
-        val structured = AiStructuredSolutionV3Codec.parse(complete)
+        val structured = com.tiji.mistakes.service.AiStructuredSolutionCodec.parse(complete)
         val persistedQuestion = aiSolveState.question.orEmpty()
         val recognizedQuestion = stripQuestionCommentary(
-            structured?.questionText?.takeIf(String::isNotBlank)
+            structured?.section("recognition")?.displaySource()?.takeIf(String::isNotBlank)
                 ?: persistedQuestion.ifBlank { sections.recognition }
         )
         val titleSource = streamingAiMeta(complete)?.title?.takeIf {
             it.isNotBlank() && it != "简短题型总结"
         }
-            ?: structured?.learning?.questionType?.takeIf(String::isNotBlank)
             ?: if (aiSolveState.question.isNullOrBlank()) {
                 sections.recognition.ifBlank { "AI 图片解题" }
             } else {
@@ -359,22 +356,25 @@ internal fun AiSolveScreen(
         question = recognizedQuestion
         recognitionEditDraft = recognizedQuestion
         val visibleSolution = visibleAiSolution(complete)
-        answer = structured?.finalAnswerText?.takeIf(String::isNotBlank)
+        answer = structured?.section("finalAnswer")?.displaySource()?.takeIf(String::isNotBlank)
             ?: sections.finalAnswer.ifBlank { visibleSolution }
         explanation = listOf(
-            structured?.approachText,
-            structured?.derivationText,
+            structured?.section("approach")?.displaySource(),
+            structured?.section("derivation")?.displaySource(),
             sections.approach,
             sections.derivation
         )
             .mapNotNull { it?.takeIf(String::isNotBlank) }
             .distinct()
             .joinToString("\n\n")
-        subject = structured?.learning?.subject.orEmpty()
-        questionType = structured?.learning?.questionType.orEmpty()
-        tags = structured?.learning?.knowledgePoints.orEmpty().joinToString(", ")
-        difficulty = structured?.learning?.difficulty ?: 0
-        note = structured?.learning?.pitfalls.orEmpty().joinToString("；")
+        // Classification and editable metadata are supplied explicitly by the
+        // save sheet/classifier. The solve protocol only carries the four V2
+        // content sections.
+        subject = ""
+        questionType = ""
+        tags = ""
+        difficulty = 0
+        note = ""
         message = aiSolveState.historyWriteError.ifBlank {
             if (aiSolveState.status == AiSolveStatus.FAILED) {
                 "AI 解题失败，已保留当前收到的部分内容，可继续追问修正。"
@@ -540,7 +540,10 @@ internal fun AiSolveScreen(
             visualEndpoint = visualAssistProfile?.endpoint,
             visualModel = visualAssistProfile?.model,
             visualApiKey = visualApiKey,
-            visualConfigurationId = visualAssistProfile?.id
+            visualConfigurationId = visualAssistProfile?.id,
+            previousCompleteText = if (correctionContext != null && completeSolution.isNotBlank()) completeSolution else "",
+            previousVerification = if (correctionContext != null && completeSolution.isNotBlank()) aiSolveState.verification else com.tiji.mistakes.service.AiVerificationResult(),
+            previousUpdatedAt = if (correctionContext != null && completeSolution.isNotBlank()) aiSolveState.updatedAt else 0L
         )
     }
 
@@ -610,7 +613,7 @@ internal fun AiSolveScreen(
         val apiKey = secureStore.read(activeAiProfileId)
         showSaveSheet = true
         saveMetadataTaskId = null
-        if (completeSolution.isBlank() || apiKey.isBlank()) {
+        if (duplicateUpdateId > 0L || completeSolution.isBlank() || apiKey.isBlank()) {
             saveMetadataLoading = false
             return
         }
@@ -663,12 +666,18 @@ internal fun AiSolveScreen(
         showSaveSheet = false
         val classificationTaskId = saveMetadataTaskId
         saveMetadataTaskId = null
-        viewModel.saveAiMistake(
-            draft = draft,
-            requestId = aiSolveState.requestId,
-            preserveReviewPlan = true,
-            classificationTaskId = classificationTaskId
-        )
+        val updateId = duplicateUpdateId
+        duplicateUpdateId = 0L
+        if (updateId > 0L) {
+            viewModel.updateExistingMistakeFromDuplicate(updateId, draft)
+        } else {
+            viewModel.saveAiMistake(
+                draft = draft,
+                requestId = aiSolveState.requestId,
+                preserveReviewPlan = true,
+                classificationTaskId = classificationTaskId
+            )
+        }
     }
 
     fun saveSolvedMistake(force: Boolean = false) {
@@ -676,6 +685,7 @@ internal fun AiSolveScreen(
             showDuplicateDialog = true
             return
         }
+        if (force) duplicateUpdateId = 0L
         showDuplicateDialog = false
         openSaveSheetWithClassification()
     }
@@ -790,7 +800,16 @@ internal fun AiSolveScreen(
                 }
             },
             confirmButton = {
-                TijiTextButton(onClick = { saveSolvedMistake(force = true) }) { Text("仍然保存") }
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (firstDuplicate != null) {
+                        TijiButton(onClick = {
+                            duplicateUpdateId = firstDuplicate.id
+                            showDuplicateDialog = false
+                            openSaveSheetWithClassification()
+                        }) { Text("更新已有记录") }
+                    }
+                    TijiTextButton(onClick = { saveSolvedMistake(force = true) }) { Text("另存为新题") }
+                }
             },
             dismissButton = {
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -1142,7 +1161,14 @@ internal fun AiSolveScreen(
                 TijiPaperCard {
                     TijiSectionHeader(
                         "答案与解析",
-                        action = { TijiTextButton(onClick = { aiSolutionExpanded = !aiSolutionExpanded }) { Text(if (aiSolutionExpanded) "收起" else "展开") } }
+                        action = {
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                if (aiSolveState.previousCompleteText.isNotBlank()) {
+                                    TijiTextButton(onClick = viewModel::undoAiSolveCorrection) { Text("撤销本次修正") }
+                                }
+                                TijiTextButton(onClick = { aiSolutionExpanded = !aiSolutionExpanded }) { Text(if (aiSolutionExpanded) "收起" else "展开") }
+                            }
+                        }
                     )
                     if (aiSolutionExpanded) {
                         if (solutionSections.structured) {

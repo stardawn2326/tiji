@@ -49,6 +49,26 @@ data class AiStructuredSolution(
 object AiStructuredSolutionCodec {
     private val requiredSectionIds = listOf("recognition", "approach", "derivation", "finalAnswer")
 
+    fun encode(solution: AiStructuredSolution): String {
+        val sections = JSONArray().apply {
+            solution.sections.forEach { section ->
+                put(JSONObject().put("id", section.id).put("segments", JSONArray().apply {
+                    section.segments.forEach { segment ->
+                        put(JSONObject().put("type", segment.type).apply {
+                            when (segment.type) {
+                                "math", "block" -> put("latex", segment.value)
+                                "lineBreak", "paragraphBreak", "blank" -> Unit
+                                else -> put("text", segment.value)
+                            }
+                        })
+                    }
+                }))
+            }
+        }
+        val root = JSONObject().put("schemaVersion", 2).put("sections", sections)
+        return "$TIJI_SOLUTION_V2_START\n$root\n$TIJI_SOLUTION_V2_END"
+    }
+
     fun parse(raw: String): AiStructuredSolution? {
         val payload = extractPayload(raw) ?: return null
         return runCatching {
@@ -118,9 +138,8 @@ object AiStructuredSolutionCodec {
     }
 }
 
-/** Hide transport envelopes; strict V2 or the v50 four-heading fallback remains visible. */
+/** Hide transport envelopes; strict V2 or the four-heading fallback remains visible. */
 internal fun stripAiProtocolForDisplay(raw: String): String {
-    AiStructuredSolutionV3Codec.parse(raw)?.let { return it.copyText() }
     AiStructuredSolutionCodec.parse(raw)?.let { return it.copyText() }
     recoverPartialStructuredSolutionForDisplay(raw)?.let { return it }
     val recoveredQuestion = recoverQuestionSegmentsForDisplay(raw)

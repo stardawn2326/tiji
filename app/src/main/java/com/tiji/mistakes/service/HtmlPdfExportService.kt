@@ -350,11 +350,11 @@ object HtmlPdfExportService {
                 .question-continuation .question-title { color: #718599; font-size: 11pt; }
                 .question-continuation .question-meta { display: none; }
                 .question:first-of-type { border-top: 0; padding-top: 0; }
-                .question-head { border-left: 1.2mm solid #3b5ecc; padding-left: 3mm; margin-bottom: .6mm; }
-                .question-title { font-size: 12pt; line-height: 1.2; font-weight: 700; color: #244668; }
+                .question-head { border-left: 1.2mm solid #3b5ecc; padding-left: 3mm; margin-bottom: .6mm; break-after: avoid; page-break-after: avoid; }
+                .question-title { font-size: 12pt; line-height: 1.2; font-weight: 700; color: #244668; break-after: avoid; page-break-after: avoid; }
                 .question-meta { margin-top: .4mm; color: #718599; font-size: 8.5pt; }
-                .section { margin-top: .45mm; }
-                .section-label, .answer-label { color: #3b5ecc; font-size: 8.8pt; margin-bottom: .12mm; }
+                .section { margin-top: .45mm; break-inside: avoid; page-break-inside: avoid; }
+                .section-label, .answer-label { color: #3b5ecc; font-size: 8.8pt; margin-bottom: .12mm; break-after: avoid; page-break-after: avoid; }
                 .math-text { color: #243f59; min-width: 0; white-space: pre-wrap; word-break: break-word; line-height: 1.28; }
                 .question-title .math-text { color: #244668; }
                 .keep-unit { display: inline-flex; align-items: baseline; width: max-content; max-width: 100%; white-space: nowrap; vertical-align: baseline; overflow: hidden; }
@@ -387,7 +387,7 @@ object HtmlPdfExportService {
                 }
                 .original-images-only .question-image { width: auto; max-width: 100%; max-height: 165mm; }
                 .answer-label { margin-top: .5mm; margin-bottom: 0; }
-                .answer-space { width: 100%; min-height: 10mm; }
+                .answer-space { width: 100%; min-height: 10mm; break-inside: avoid; page-break-inside: avoid; }
                 .original-images-only .answer-label { margin-top: 1.5mm; }
                 .original-photo-answer-space {
                   height: 50mm;

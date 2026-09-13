@@ -1,9 +1,8 @@
 package com.tiji.mistakes
 
-import com.tiji.mistakes.service.AiOutputLimitException
 import com.tiji.mistakes.service.AiProviderTransport
 import com.tiji.mistakes.service.AiSolutionVerifier
-import com.tiji.mistakes.service.AiStructuredSolutionV3Codec
+import com.tiji.mistakes.service.AiStructuredSolutionCodec
 import com.tiji.mistakes.service.AiVisionService
 import com.tiji.mistakes.service.HttpUrlConnectionAiProviderTransport
 import com.tiji.mistakes.service.aiProviderErrorMessage
@@ -92,13 +91,13 @@ class AiProviderContractHarnessTest {
     }
 
     @Test
-    fun streamingV3WrapperIsReturnedAndDeltasAreExposed() = runBlocking {
-        val candidate = v3Candidate()
+    fun streamingV2WrapperIsReturnedAndDeltasAreExposed() = runBlocking {
+        val candidate = v2Candidate()
         val transport = FakeAiProviderTransport(
             streamLines = listOf(
-                sseDelta("[[TIJI_SOLUTION_V3_START]]\n"),
-                sseDelta(candidate.substringAfter("[[TIJI_SOLUTION_V3_START]]\n").substringBefore("\n[[TIJI_SOLUTION_V3_END]]")),
-                sseDelta("\n[[TIJI_SOLUTION_V3_END]]", finishReason = "stop"),
+                sseDelta("[[TIJI_SOLUTION_V2_START]]\n"),
+                sseDelta(candidate.substringAfter("[[TIJI_SOLUTION_V2_START]]\n").substringBefore("\n[[TIJI_SOLUTION_V2_END]]")),
+                sseDelta("\n[[TIJI_SOLUTION_V2_END]]", finishReason = "stop"),
                 "data: [DONE]"
             )
         )
@@ -114,7 +113,7 @@ class AiProviderContractHarnessTest {
 
         assertEquals(candidate, result)
         assertEquals(candidate, deltas.joinToString(""))
-        assertNotNull(AiStructuredSolutionV3Codec.parse(result))
+        assertNotNull(AiStructuredSolutionCodec.parse(result))
         assertTrue(transport.lastStreamBody?.optBoolean("stream") == true)
     }
 
@@ -144,24 +143,27 @@ class AiProviderContractHarnessTest {
     }
 
     @Test
-    fun outputLengthLimitKeepsPartialContent() = runBlocking {
+    fun outputLengthLimitContinuesOnceAndMergesContent() = runBlocking {
         val transport = FakeAiProviderTransport(
-            streamLines = listOf(
+            streamLineSets = listOf(listOf(
                 sseDelta("已收到的部分"),
                 sseDelta("", finishReason = "length"),
                 "data: [DONE]"
-            )
+            ), listOf(
+                sseDelta("续写内容", finishReason = "stop"),
+                "data: [DONE]"
+            ))
         )
-        val error = AiVisionService(transport).streamSolve(
+        val result = AiVisionService(transport).streamSolve(
             endpoint = "https://fake.test/v1",
             model = "fake-model",
             apiKey = "test-key",
             question = "题目",
             onDelta = {}
-        ).exceptionOrNull()
+        ).getOrThrow()
 
-        assertTrue(error is AiOutputLimitException)
-        assertEquals("已收到的部分", (error as AiOutputLimitException).partialContent)
+        assertEquals("已收到的部分续写内容", result)
+        assertEquals(2, transport.streamCallCount)
     }
 
     @Test
@@ -210,10 +212,10 @@ class AiProviderContractHarnessTest {
         assertTrue(aiProviderErrorMessage(500, "").contains("暂时不可用"))
     }
 
-    private fun v3Candidate(): String = """
-        [[TIJI_SOLUTION_V3_START]]
-        {"schemaVersion":3,"recognition":{"segments":[{"type":"text","text":"求 1+1"}],"uncertainItems":[],"warning":""},"solution":{"approach":[{"type":"text","text":"直接相加"}],"steps":[{"segments":[{"type":"text","text":"1+1=2"}],"reason":"使用加法定义","concepts":["整数运算"]}],"finalAnswer":[{"type":"text","text":"2"}]},"learning":{"subject":"数学","questionType":"计算题","knowledgePoints":["整数运算"],"difficulty":1,"pitfalls":[]}}
-        [[TIJI_SOLUTION_V3_END]]
+    private fun v2Candidate(): String = """
+        [[TIJI_SOLUTION_V2_START]]
+        {"schemaVersion":2,"sections":[{"id":"recognition","segments":[{"type":"text","text":"求 1+1"}]},{"id":"approach","segments":[{"type":"text","text":"直接相加"}]},{"id":"derivation","segments":[{"type":"text","text":"1+1=2"}]},{"id":"finalAnswer","segments":[{"type":"text","text":"2"}]}]}
+        [[TIJI_SOLUTION_V2_END]]
     """.trimIndent()
 
     private fun sseDelta(content: String, finishReason: String? = null): String {
@@ -225,9 +227,11 @@ class AiProviderContractHarnessTest {
     private class FakeAiProviderTransport(
         private val response: String = "",
         private val streamLines: List<String> = emptyList(),
+        private val streamLineSets: List<List<String>> = emptyList(),
         private val streamDelayMs: Long = 0L
     ) : AiProviderTransport {
         var lastStreamBody: JSONObject? = null
+        var streamCallCount: Int = 0
 
         override fun request(endpoint: String, apiKey: String, body: JSONObject): String = response
 
@@ -238,8 +242,10 @@ class AiProviderContractHarnessTest {
             onLine: suspend (String) -> Unit
         ) {
             lastStreamBody = body
+            streamCallCount += 1
             if (streamDelayMs > 0L) delay(streamDelayMs)
-            for (line in streamLines) onLine(line)
+            val lines = streamLineSets.getOrNull(streamCallCount - 1) ?: streamLines
+            for (line in lines) onLine(line)
         }
 
         override fun cancel() = Unit

@@ -174,7 +174,6 @@ class AiSolutionRepairer(
 internal fun isUsableAiSolution(value: String): Boolean {
     val trimmed = value.trim()
     return trimmed.isNotBlank() && (
-        AiStructuredSolutionV3Codec.parse(trimmed) != null ||
             AiStructuredSolutionCodec.parse(trimmed) != null ||
             listOf("题目识别", "解题思路", "逐步推导", "最终答案").count(trimmed::contains) >= 2
         )

@@ -81,6 +81,7 @@ class ReviewQuestionUiTest {
         }
         composeRule.onNodeWithText("参考答案").assertDoesNotExist()
         composeRule.onNodeWithTag("review_show_answer").performClick()
+        composeRule.onNodeWithTag("review_question_content").performScrollToNode(hasText("参考答案"))
         composeRule.onNodeWithText("参考答案").assertExists()
         composeRule.onNodeWithTag("review_question_content").performScrollToNode(hasText("解析"))
         composeRule.onNodeWithText("解析").assertExists()

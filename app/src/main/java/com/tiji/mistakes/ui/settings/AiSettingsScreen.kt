@@ -40,6 +40,7 @@ import com.tiji.mistakes.data.AiVisualProfile
 import com.tiji.mistakes.data.AppPreferences
 import com.tiji.mistakes.service.AiProviderPreset
 import com.tiji.mistakes.service.AiVisionService
+import com.tiji.mistakes.service.AiProviderCapabilityCheck
 import com.tiji.mistakes.service.OcrModelDownloadService
 import com.tiji.mistakes.service.OcrModelManager
 import com.tiji.mistakes.service.SecureKeyStore
@@ -89,6 +90,7 @@ internal fun AiSettingsScreen(
     var apiKey by remember(selectedProfileId) { mutableStateOf(secureStore.read(selectedProfileId)) }
     val selectedVisualProfile = aiVisualProfiles.firstOrNull { it.id == aiVisualBindings[selectedProfileId] }
     var connectionMessage by remember { mutableStateOf("") }
+    var capabilityCheck by remember { mutableStateOf<AiProviderCapabilityCheck?>(null) }
 
     SettingsPageScaffold(title = "AI 模型", pageTag = "settings_ai", onBack = onBack) { padding ->
         LazyColumn(
@@ -247,17 +249,27 @@ internal fun AiSettingsScreen(
                             ) { Text("保存配置") }
                             TijiSecondaryButton(
                                 onClick = {
-                                    connectionMessage = "正在测试…"
+                                    connectionMessage = "正在执行能力自检…"
+                                    capabilityCheck = null
                                     scope.launch {
-                                        val result = aiService.testConnection(endpoint, model, apiKey)
-                                        connectionMessage = result.fold(
-                                            { "连接成功" },
-                                            { "连接失败：${it.message ?: "未知错误"}" }
+                                        capabilityCheck = aiService.testProviderCapabilities(
+                                            endpoint = endpoint,
+                                            model = model,
+                                            apiKey = apiKey,
+                                            visualAssistBound = selectedVisualProfile != null,
+                                            visualEndpoint = selectedVisualProfile?.endpoint,
+                                            visualModel = selectedVisualProfile?.model,
+                                            visualApiKey = selectedVisualProfile?.let { profile ->
+                                                secureStore.read(profile.id).ifBlank {
+                                                    profile.keyProfileId?.let(secureStore::read).orEmpty()
+                                                }
+                                            }
                                         )
+                                        connectionMessage = "能力自检完成"
                                     }
                                 },
                                 modifier = Modifier.weight(1f).testTag("ai_test_connection")
-                            ) { Text("测试连接") }
+                            ) { Text("能力自检") }
                         }
                         Row(modifier = Modifier.fillMaxWidth()) {
                             TijiTextButton(
@@ -292,6 +304,15 @@ internal fun AiSettingsScreen(
                     if (connectionMessage.isNotBlank()) {
                         Text(connectionMessage, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                     }
+                    capabilityCheck?.let { check ->
+                        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            capabilityRow("文本请求", check.text.ok, check.text.detail)
+                            capabilityRow("流式解题", check.streaming.ok, check.streaming.detail)
+                            capabilityRow("图片输入", check.image.ok, check.image.detail)
+                            capabilityRow("视觉 Profile", check.visualProfile.ok, check.visualProfile.detail)
+                            capabilityRow("视觉辅助", check.visualAssistBinding.ok, check.visualAssistBinding.detail)
+                        }
+                    }
                 }
             }
             item {
@@ -314,5 +335,13 @@ internal fun AiSettingsScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun capabilityRow(label: String, ok: Boolean, detail: String) {
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+        Text(if (ok) "✓" else "!", color = if (ok) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
+        Text("$label：$detail", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

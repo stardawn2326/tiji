@@ -10,8 +10,6 @@ import com.tiji.mistakes.service.QuestionContentBlockCodec
 import com.tiji.mistakes.service.QuestionSegment
 import com.tiji.mistakes.service.TIJI_SOLUTION_V2_END
 import com.tiji.mistakes.service.TIJI_SOLUTION_V2_START
-import com.tiji.mistakes.service.TIJI_SOLUTION_V3_END
-import com.tiji.mistakes.service.TIJI_SOLUTION_V3_START
 import com.tiji.mistakes.service.extractRecognizedQuestionFromSolution
 import com.tiji.mistakes.service.mathSegmentFormatIssues
 import com.tiji.mistakes.service.validateOcrRecognition
@@ -105,8 +103,7 @@ class AiVisionServiceTest {
         assertTrue(instruction.contains(TIJI_SOLUTION_V2_START))
         assertTrue(instruction.contains(TIJI_SOLUTION_V2_END))
         assertTrue(instruction.contains("新解题请求必须以 schemaVersion 2 作为唯一首选协议"))
-        assertFalse(instruction.contains(TIJI_SOLUTION_V3_START))
-        assertFalse(instruction.contains(TIJI_SOLUTION_V3_END))
+        assertFalse(instruction.contains("schemaVersion 3"))
         assertTrue(instruction.contains("最终解答必须使用 schemaVersion 2 的机器可读结构"))
         assertTrue(instruction.contains("sections 必须且只能依次包含 recognition、approach、derivation、finalAnswer"))
         assertTrue(instruction.contains("禁止输出残缺 JSON"))

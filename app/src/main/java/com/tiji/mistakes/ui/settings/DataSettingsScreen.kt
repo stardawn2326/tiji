@@ -175,9 +175,14 @@ internal fun DataSettingsScreen(
             title = { Text(if (preview.legacy) "导入旧版题迹备份" else "导入题迹数据") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(
-                        "错题 ${preview.mistakeCount} 道 · 图片 ${preview.imageCount} 张 · 复习记录 ${preview.reviewRecordCount} 条 · 知识点 ${preview.knowledgePointCount} 个"
-                    )
+                    Text("检查结果：新增 ${preview.willAdd} · 更新 ${preview.willUpdate} · 跳过 ${preview.willSkip}")
+                    Text("错题 ${preview.mistakeCount} 道 · 图片 ${preview.imageCount} 张 · 复习记录 ${preview.reviewRecordCount} 条")
+                    if (preview.missingImages > 0) {
+                        Text("缺少图片 ${preview.missingImages} 张", color = MaterialTheme.colorScheme.error)
+                    }
+                    preview.parseErrors.forEach { error ->
+                        Text("解析错误：$error", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    }
                     Text(
                         if (preview.legacy) "检测到旧版 ZIP，将自动迁移为当前数据结构。"
                         else "数据版本 ${preview.schemaVersion} · 来源应用 ${preview.appVersion}",
@@ -189,14 +194,14 @@ internal fun DataSettingsScreen(
                         style = MaterialTheme.typography.bodySmall
                     )
                     TijiTextButton(
-                        enabled = !importingBackup,
+                        enabled = !importingBackup && preview.parseErrors.isEmpty() && preview.missingImages == 0,
                         onClick = { restoreBackup(BackupImportMode.REPLACE) }
                     ) { Text("清空现有数据后恢复") }
                 }
             },
             confirmButton = {
                 TijiButton(
-                    enabled = !importingBackup,
+                    enabled = !importingBackup && preview.parseErrors.isEmpty() && preview.missingImages == 0,
                     onClick = { restoreBackup(BackupImportMode.MERGE) }
                 ) { Text(if (importingBackup) "正在恢复…" else "合并导入") }
             },

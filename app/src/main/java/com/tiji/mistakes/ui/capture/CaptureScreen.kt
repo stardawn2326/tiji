@@ -1,4 +1,7 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@file:OptIn(
+    androidx.compose.material3.ExperimentalMaterial3Api::class,
+    androidx.compose.foundation.layout.ExperimentalLayoutApi::class
+)
 
 package com.tiji.mistakes.ui.capture
 
@@ -87,6 +90,7 @@ import coil.compose.AsyncImage
 import com.tiji.mistakes.data.AiProfile
 import com.tiji.mistakes.data.AiVisualProfile
 import com.tiji.mistakes.data.MistakeEntity
+import com.tiji.mistakes.domain.MistakeDuplicateService
 import com.tiji.mistakes.service.AiDrawingRenderer
 import com.tiji.mistakes.service.AiProviderPreset
 import com.tiji.mistakes.service.AiRecognitionMode
@@ -159,12 +163,15 @@ internal fun NewCaptureScreen(
     onAiUploadConsent: (Boolean) -> Unit,
     onActiveAiProfile: (String) -> Unit,
     onOpenSettings: () -> Unit,
-    onAiInputMode: (AiInputMode) -> Unit
+    onAiInputMode: (AiInputMode) -> Unit,
+    onOpenMistake: (Long) -> Unit = {}
 ) {
     val context = LocalContext.current
     val secureStore = remember { SecureKeyStore(context) }
     var saving by remember { mutableStateOf(false) }
     var showSaveSheet by rememberSaveable { mutableStateOf(false) }
+    var showDuplicateDialog by rememberSaveable { mutableStateOf(false) }
+    var duplicateUpdateId by rememberSaveable { mutableStateOf(0L) }
     var showSupplementImages by rememberSaveable { mutableStateOf(false) }
     var showCaptureConfiguration by rememberSaveable { mutableStateOf(false) }
     var modeName by rememberSaveable { mutableStateOf(EntryMode.PHOTO.name) }
@@ -176,7 +183,7 @@ internal fun NewCaptureScreen(
     var errorReason by rememberSaveable { mutableStateOf("") }
     var questionType by rememberSaveable { mutableStateOf("") }; var tags by rememberSaveable { mutableStateOf("") }
     var difficulty by rememberSaveable { mutableIntStateOf(0) }
-    var photoQuestionImage by rememberSaveable { mutableStateOf<String?>(null) }
+    var photoQuestionImages by rememberSaveable(stateSaver = stringListSaver) { mutableStateOf(emptyList()) }
     var answerImage by rememberSaveable { mutableStateOf<String?>(null) }
     var explanationImage by rememberSaveable { mutableStateOf<String?>(null) }
     var aiRecognitionImages by rememberSaveable(stateSaver = stringListSaver) { mutableStateOf(emptyList()) }
@@ -185,6 +192,7 @@ internal fun NewCaptureScreen(
     var pendingModeName by rememberSaveable { mutableStateOf("") }
     val aiInputMode = AiInputMode.entries.firstOrNull { it.name == aiInputModeName } ?: AiInputMode.VISION
     var selectedRole by rememberSaveable { mutableStateOf(PhotoRole.QUESTION) }
+    var photoEditingOriginalPath by rememberSaveable { mutableStateOf<String?>(null) }
     var editingPath by rememberSaveable { mutableStateOf<String?>(null) }
     var cameraFile by remember { mutableStateOf(ImageStorage.cameraFile(context)) }
     var captureMessage by rememberSaveable { mutableStateOf("") }
@@ -221,7 +229,11 @@ internal fun NewCaptureScreen(
             .take(8)
             .toList()
     }
-    val activeQuestionImage = if (mode == EntryMode.AI) aiRecognitionImages.firstOrNull() else photoQuestionImage
+    val activeQuestionImage = if (mode == EntryMode.AI) aiRecognitionImages.firstOrNull() else photoQuestionImages.firstOrNull()
+    val duplicateSourceImages = if (mode == EntryMode.AI) aiRecognitionImages else photoQuestionImages
+    val duplicateCandidates = remember(question, duplicateSourceImages, allMistakes) {
+        MistakeDuplicateService.findCandidates(question, duplicateSourceImages, allMistakes)
+    }
     val visualApiKey = visualAssistProfile?.let { profile ->
         secureStore.read(profile.id).ifBlank { profile.keyProfileId?.let(secureStore::read).orEmpty() }
     }.orEmpty()
@@ -247,7 +259,7 @@ internal fun NewCaptureScreen(
         listOf(title, question, userAnswer, answer, explanation, note, errorReason, subject, questionType, tags)
             .any(String::isNotBlank) ||
             difficulty != 0 ||
-            photoQuestionImage != null || answerImage != null || explanationImage != null ||
+            photoQuestionImages.isNotEmpty() || answerImage != null || explanationImage != null ||
             aiRecognitionImages.isNotEmpty() || pendingRecognition != null || aiFilled || contentBlocksJson.isNotBlank()
 
     fun applyModeSwitch(next: EntryMode) {
@@ -259,7 +271,7 @@ internal fun NewCaptureScreen(
         contentBlocksJson = ""
         captureMessage = ""
         if (next == EntryMode.AI) {
-            photoQuestionImage = null
+            photoQuestionImages = emptyList()
             answerImage = null
             explanationImage = null
         } else {
@@ -294,9 +306,18 @@ internal fun NewCaptureScreen(
             explanation = ""
             errorReason = ""
         }
-        if (!(mode == EntryMode.AI && selectedRole == PhotoRole.QUESTION)) {
+        if (mode == EntryMode.PHOTO && selectedRole == PhotoRole.QUESTION) {
+            val original = photoEditingOriginalPath
+            photoQuestionImages = if (original.isNullOrBlank()) {
+                (photoQuestionImages + path).distinct()
+            } else {
+                photoQuestionImages.map { if (it == original) path else it }.distinct()
+            }
+            if (original != null && original != path) viewModel.deleteImagesIfUnreferenced(listOf(original))
+            photoEditingOriginalPath = null
+        } else if (!(mode == EntryMode.AI && selectedRole == PhotoRole.QUESTION)) {
             when (selectedRole) {
-                PhotoRole.QUESTION -> photoQuestionImage = path
+                PhotoRole.QUESTION -> photoQuestionImages = (photoQuestionImages + path).distinct()
                 PhotoRole.ANSWER -> answerImage = path
                 PhotoRole.EXPLANATION -> explanationImage = path
             }
@@ -307,15 +328,40 @@ internal fun NewCaptureScreen(
         if (path != null) {
             selectedRole = role
             aiRecognitionEditingOriginalPath = null
+            photoEditingOriginalPath = if (mode == EntryMode.PHOTO && role == PhotoRole.QUESTION) path else null
             editingPath = path
         }
     }
-    val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri != null) load(ImageStorage.copyToPrivate(context, uri, selectedRole.prefix), selectedRole)
+    fun removePhotoQuestionImage(path: String) {
+        photoQuestionImages = photoQuestionImages.filterNot { it == path }
+        viewModel.deleteImagesIfUnreferenced(listOf(path))
+        captureMessage = "已删除第 ${photoQuestionImages.size + 1} 张图片，可继续添加"
+    }
+    fun movePhotoQuestionImage(from: Int, to: Int) {
+        if (from !in photoQuestionImages.indices || to !in photoQuestionImages.indices || from == to) return
+        photoQuestionImages = photoQuestionImages.toMutableList().apply {
+            add(to, removeAt(from))
+        }
+        captureMessage = "题目图片顺序已调整"
+    }
+    val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
+        val copied = uris.mapNotNull { uri -> ImageStorage.copyToPrivate(context, uri, selectedRole.prefix) }
+        if (selectedRole == PhotoRole.QUESTION && mode == EntryMode.PHOTO) {
+            photoQuestionImages = (photoQuestionImages + copied).distinct()
+            captureMessage = if (copied.size > 1) "已按选择顺序添加 ${copied.size} 张题目图片" else "已添加题目图片"
+        } else {
+            copied.firstOrNull()?.let { load(it, selectedRole) }
+        }
     }
     val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
         if (success) {
-            load(ImageStorage.copyFileToPrivate(context, cameraFile, selectedRole.prefix), selectedRole)
+            val copied = ImageStorage.copyFileToPrivate(context, cameraFile, selectedRole.prefix)
+            if (selectedRole == PhotoRole.QUESTION && mode == EntryMode.PHOTO) {
+                copied?.let { photoQuestionImages = (photoQuestionImages + it).distinct() }
+                captureMessage = "已添加题目图片"
+            } else {
+                load(copied, selectedRole)
+            }
         } else {
             captureMessage = "拍照未完成，请重试"
         }
@@ -341,11 +387,10 @@ internal fun NewCaptureScreen(
         tags = metadata.tags
         difficulty = metadata.difficulty
         val sourceImages = buildList {
-            if (mode == EntryMode.AI) addAll(aiRecognitionImages) else photoQuestionImage?.let(::add)
+            if (mode == EntryMode.AI) addAll(aiRecognitionImages) else addAll(photoQuestionImages)
         }
         val sourceImagePaths = org.json.JSONArray().apply { sourceImages.forEach(::put) }.toString()
-        viewModel.save(
-            MistakeEntity(
+        val draft = MistakeEntity(
                 title = title.ifBlank { "未命名错题" },
                 questionText = question,
                 userAnswer = userAnswer,
@@ -364,7 +409,21 @@ internal fun NewCaptureScreen(
                 contentBlocks = if (mode == EntryMode.AI) contentBlocksJson else "",
                 answerImagePath = answerImage,
                 explanationImagePath = explanationImage
-            ),
+            )
+        val updateId = duplicateUpdateId
+        duplicateUpdateId = 0L
+        if (updateId > 0L) {
+            viewModel.updateExistingMistakeFromDuplicate(
+                existingId = updateId,
+                incoming = draft,
+                onSaved = { saving = false; showSaveSheet = false; onBack() },
+                onFailure = {
+                    saving = false
+                    captureMessage = "更新失败：${it.message ?: "请重试"}"
+                }
+            )
+        } else viewModel.save(
+            draft,
             onSaved = { saving = false; showSaveSheet = false; onBack() },
             onFailure = {
                 saving = false
@@ -472,7 +531,11 @@ internal fun NewCaptureScreen(
         StandaloneImageEditor(
             path,
             selectedRole.label,
-            onCancel = { editingPath = null; aiRecognitionEditingOriginalPath = null },
+            onCancel = {
+                editingPath = null
+                aiRecognitionEditingOriginalPath = null
+                photoEditingOriginalPath = null
+            },
             onConfirm = ::acceptProcessed
         )
         return
@@ -527,6 +590,31 @@ internal fun NewCaptureScreen(
                             color = MaterialTheme.colorScheme.error,
                             style = MaterialTheme.typography.bodySmall
                         )
+                    }
+                    if (result.uncertainItems.isNotEmpty()) {
+                        Text("仅以下识别项需要确认：", style = MaterialTheme.typography.labelMedium)
+                        androidx.compose.foundation.layout.FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            result.uncertainItems.take(8).forEach { item ->
+                                TijiTag(
+                                    "点此修正：${item.take(28)}",
+                                    modifier = Modifier.clickable {
+                                        title = result.title
+                                        question = cleanedQuestion
+                                        answer = cleanedAnswer
+                                        explanation = cleanedExplanation
+                                        aiFilled = true
+                                        pendingRecognition = null
+                                        viewModel.clearAiRecognition()
+                                        captureMessage = "识别结果已填入编辑区，请修正标记位置后保存"
+                                    },
+                                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                                    contentColor = MaterialTheme.colorScheme.onErrorContainer
+                                )
+                            }
+                        }
                     }
                     Text("题目", fontWeight = FontWeight.Bold)
                     MathText(
@@ -592,6 +680,49 @@ internal fun NewCaptureScreen(
         )
     }
 
+    if (showDuplicateDialog) {
+        val firstDuplicate = duplicateCandidates.firstOrNull()
+        TijiDialog(
+            onDismissRequest = { showDuplicateDialog = false },
+            title = { Text("发现可能重复的错题") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("题目文字或原图与已有记录一致。请选择处理方式，系统不会自动覆盖旧记录。")
+                    duplicateCandidates.take(3).forEach { candidate ->
+                        Text(candidate.title.ifBlank { "未命名错题" }, style = MaterialTheme.typography.labelLarge)
+                    }
+                }
+            },
+            confirmButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (firstDuplicate != null) {
+                        TijiButton(onClick = {
+                            duplicateUpdateId = firstDuplicate.id
+                            showDuplicateDialog = false
+                            showSaveSheet = true
+                        }) { Text("更新已有记录") }
+                    }
+                    TijiTextButton(onClick = {
+                        duplicateUpdateId = 0L
+                        showDuplicateDialog = false
+                        showSaveSheet = true
+                    }) { Text("另存为新题") }
+                }
+            },
+            dismissButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (firstDuplicate != null) {
+                        TijiTextButton(onClick = {
+                            showDuplicateDialog = false
+                            onOpenMistake(firstDuplicate.id)
+                        }) { Text("打开已有记录") }
+                    }
+                    TijiTextButton(onClick = { showDuplicateDialog = false }) { Text("取消") }
+                }
+            }
+        )
+    }
+
     EntryMode.entries.firstOrNull { it.name == pendingModeName }?.let { nextMode ->
         TijiDialog(
             onDismissRequest = { pendingModeName = "" },
@@ -611,9 +742,11 @@ internal fun NewCaptureScreen(
             com.tiji.mistakes.ui.design.TijiBottomActionBar {
                     TijiButton(
                         enabled = !saving && !aiRecognitionState.running && (mode == EntryMode.MANUAL && question.isNotBlank() ||
-                            (mode == EntryMode.PHOTO && photoQuestionImage != null) ||
+                            (mode == EntryMode.PHOTO && photoQuestionImages.isNotEmpty()) ||
                             (mode == EntryMode.AI && aiRecognitionImages.isNotEmpty() && aiFilled)),
-                        onClick = { showSaveSheet = true },
+            onClick = {
+                if (duplicateCandidates.isNotEmpty()) showDuplicateDialog = true else showSaveSheet = true
+            },
                         shape = TijiShapes.M,
                         modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
                     ) { Text(if (aiRecognitionState.running) "正在识别…" else if (saving) "正在保存…" else "保存错题") }
@@ -666,7 +799,7 @@ internal fun NewCaptureScreen(
             if (mode == EntryMode.PHOTO) {
                 item {
                     TijiPaperCard {
-                        if (photoQuestionImage == null) {
+                        if (photoQuestionImages.isEmpty()) {
                             TijiDropZone(
                                 title = "拍照或选择图片",
                                 subtitle = "支持拍照或从相册选择",
@@ -696,7 +829,26 @@ internal fun NewCaptureScreen(
                                 }
                             )
                         } else {
-                            ImagePreview(photoQuestionImage!!)
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                photoQuestionImages.forEachIndexed { index, path ->
+                                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                 Text("第 ${index + 1} 张", style = MaterialTheme.typography.labelMedium)
+                                         ImagePreview(path, onDelete = { removePhotoQuestionImage(path) })
+                                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
+                                             TijiTextButton(
+                                                 enabled = index > 0,
+                                                 onClick = { movePhotoQuestionImage(index, index - 1) }
+                                             ) { Text("上移") }
+                                             TijiTextButton(
+                                                 enabled = index < photoQuestionImages.lastIndex,
+                                                 onClick = { movePhotoQuestionImage(index, index + 1) }
+                                             ) { Text("下移") }
+                                             Spacer(Modifier.weight(1f))
+                                             TijiTextButton(onClick = { load(path, PhotoRole.QUESTION) }) { Text("裁剪/替换") }
+                                         }
+                                    }
+                                }
+                            }
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                                 TijiSecondaryButton(onClick = { selectedRole = PhotoRole.QUESTION; galleryLauncher.launch("image/*") }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 8.dp)) {
                                     Icon(Icons.Outlined.Image, contentDescription = null); Spacer(Modifier.size(5.dp)); Text("相册")

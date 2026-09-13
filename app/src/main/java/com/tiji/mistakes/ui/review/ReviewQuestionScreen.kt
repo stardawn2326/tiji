@@ -92,6 +92,9 @@ import com.tiji.mistakes.ui.image.ImagePreview
 import com.tiji.mistakes.ui.LocalTijiSemanticColors
 import com.tiji.mistakes.ui.math.MathText
 import com.tiji.mistakes.ui.MistakeViewModel
+import com.tiji.mistakes.service.AiAnswerDiagnosisStatus
+import com.tiji.mistakes.service.SecureKeyStore
+import com.tiji.mistakes.ui.solve.AiAnswerDiagnosisCard
 import com.tiji.mistakes.ui.normalizedSubject
 import com.tiji.mistakes.ui.design.TijiDimens
 import com.tiji.mistakes.ui.design.TijiStatusBadge
@@ -114,7 +117,10 @@ internal fun ReviewQuestionScreen(
     onRemovedFromPlan: (Long, () -> Unit) -> Unit,
     onReviewed: (Long, ReviewGrade) -> Unit,
     sessionKey: String? = null,
-    sessionContext: ReviewSessionContext = ReviewSessionContext()
+    sessionContext: ReviewSessionContext = ReviewSessionContext(),
+    aiEndpoint: String = "",
+    aiModel: String = "",
+    activeAiProfileId: String = ""
 ) {
     val fallbackSessionKey = remember(reviewIds, sessionContext) {
         buildString {
@@ -151,6 +157,7 @@ internal fun ReviewQuestionScreen(
     var loadError by remember { mutableStateOf<String?>(null) }
     var showAnswer by remember(currentId) { mutableStateOf(false) }
     var showExplanation by remember(currentId) { mutableStateOf(false) }
+    var learnerAnswer by remember(currentId) { mutableStateOf("") }
     var reviewMenuExpanded by remember(currentId) { mutableStateOf(false) }
     var reviewReasonExpanded by remember(currentId) { mutableStateOf(false) }
     var autoAdvancePending by remember(currentId) { mutableStateOf(false) }
@@ -158,6 +165,9 @@ internal fun ReviewQuestionScreen(
     var autoAdvanceJob by remember(currentId) { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val aiAnswerDiagnosis by viewModel.aiAnswerDiagnosis.collectAsStateWithLifecycle()
+    val secureKeyStore = remember { SecureKeyStore(context) }
+    val aiApiKey = remember(activeAiProfileId) { secureKeyStore.read(activeAiProfileId) }
     val reduceMotion = remember {
         runCatching {
             Settings.Global.getFloat(
@@ -201,6 +211,8 @@ internal fun ReviewQuestionScreen(
     val selectedGrade = focusedGrade ?: dailySelectedGrade
 
     LaunchedEffect(currentId) {
+        viewModel.clearAiAnswerDiagnosis()
+        learnerAnswer = ""
         mistake = null
         loadError = null
         if (currentId <= 0L) {
@@ -522,6 +534,64 @@ internal fun ReviewQuestionScreen(
                             compactVerticalSpacing = true
                         )
                         current.imagePath?.let { ImagePreview(it) }
+                    }
+                }
+                item {
+                    TijiPaperCard(contentPadding = 12.dp) {
+                        TijiSectionHeader("先写答案，再检查")
+                        androidx.compose.foundation.layout.Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            com.tiji.mistakes.ui.design.TijiMultilineField(
+                                value = learnerAnswer,
+                                onValueChange = { learnerAnswer = it },
+                                label = { Text("我的答案") },
+                                minLines = 3,
+                                maxLines = 8,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                TijiButton(
+                                    onClick = {
+                                        viewModel.startAiAnswerDiagnosis(
+                                            endpoint = aiEndpoint,
+                                            model = aiModel,
+                                            apiKey = aiApiKey,
+                                            question = current.questionText,
+                                            candidateSolution = listOf(current.answerText, current.explanation)
+                                                .filter(String::isNotBlank).joinToString("\n\n"),
+                                            userAnswer = learnerAnswer
+                                        )
+                                    },
+                                    enabled = learnerAnswer.isNotBlank() && !aiAnswerDiagnosis.running &&
+                                        aiEndpoint.isNotBlank() && aiModel.isNotBlank() && aiApiKey.isNotBlank(),
+                                    modifier = Modifier.weight(1f)
+                                ) { Text(if (aiAnswerDiagnosis.running) "检查中…" else "检查答案") }
+                                TijiTextButton(
+                                    onClick = { learnerAnswer = ""; viewModel.clearAiAnswerDiagnosis() },
+                                    enabled = learnerAnswer.isNotBlank() || aiAnswerDiagnosis.status != AiAnswerDiagnosisStatus.IDLE,
+                                    modifier = Modifier.weight(0.55f)
+                                ) { Text("清空") }
+                            }
+                            if (aiEndpoint.isBlank() || aiApiKey.isBlank()) {
+                                Text("请先在设置中配置 AI，才能检查答案。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            if (aiAnswerDiagnosis.status != AiAnswerDiagnosisStatus.IDLE) {
+                                AiAnswerDiagnosisCard(
+                                    state = aiAnswerDiagnosis,
+                                    onRetry = {
+                                        viewModel.startAiAnswerDiagnosis(
+                                            endpoint = aiEndpoint,
+                                            model = aiModel,
+                                            apiKey = aiApiKey,
+                                            question = current.questionText,
+                                            candidateSolution = listOf(current.answerText, current.explanation)
+                                                .filter(String::isNotBlank).joinToString("\n\n"),
+                                            userAnswer = learnerAnswer
+                                        )
+                                    },
+                                    onConfirmReason = { reason -> viewModel.persistAiAnswerDiagnosisReason(current.id, reason) }
+                                )
+                            }
+                        }
                     }
                 }
                 item {

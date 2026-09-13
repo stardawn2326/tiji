@@ -28,7 +28,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.rememberScrollState
 import com.tiji.mistakes.ui.design.TijiShapes
 import androidx.compose.foundation.verticalScroll
@@ -89,8 +88,6 @@ import com.tiji.mistakes.service.AiRecognitionMode
 import com.tiji.mistakes.service.AiSolveHistoryRecord
 import com.tiji.mistakes.service.AiSolveReliabilityMode
 import com.tiji.mistakes.service.AiSolveStatus
-import com.tiji.mistakes.service.AiSolutionStep
-import com.tiji.mistakes.service.AiStructuredSolutionV3Codec
 import com.tiji.mistakes.service.AiVerificationStatus
 import com.tiji.mistakes.service.ContentBlockKind
 import com.tiji.mistakes.service.ContentBlockRole
@@ -114,7 +111,6 @@ import com.tiji.mistakes.ui.common.streamingAiMeta
 import com.tiji.mistakes.ui.common.visibleAiSolution
 import com.tiji.mistakes.ui.design.TijiDropZone
 import com.tiji.mistakes.ui.design.TijiSectionHeader
-import com.tiji.mistakes.ui.design.TijiTag
 import com.tiji.mistakes.ui.editor.MistakeSaveMetadata
 import com.tiji.mistakes.ui.editor.MistakeSaveSheet
 import com.tiji.mistakes.ui.image.ImagePreview
@@ -165,40 +161,6 @@ internal fun AiSolutionSection(
             compactVerticalSpacing = true
         )
     }
-    }
-}
-
-@Composable
-internal fun AiTeachingStepCards(steps: List<AiSolutionStep>) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-        Text("核心步骤", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-        steps.forEachIndexed { index, step ->
-            TijiCard(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("步骤 ${index + 1}", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-                    if (step.text.isNotBlank()) {
-                        MathText(
-                            step.text,
-                            preserveReturnedLayout = true,
-                            compactVerticalSpacing = true
-                        )
-                    }
-                    if (step.reason.isNotBlank()) {
-                        Text("为什么这样做", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                        Text(step.reason, style = MaterialTheme.typography.bodySmall)
-                    }
-                    if (step.concepts.isNotEmpty()) {
-                        Text("知识点", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            items(step.concepts.distinct(), key = { it }) { concept -> TijiTag(concept) }
-                        }
-                    }
-                }
-            }
-        }
     }
 }
 

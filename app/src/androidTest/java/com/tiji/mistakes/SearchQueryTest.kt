@@ -63,7 +63,8 @@ class SearchQueryTest {
         val result = repository.observe("函数,OCR,x^2").first()
 
         assertEquals(listOf(activeId), result.map { it.id })
-        assertTrue(repository.observe("旧标签兼容").first().map { it.id }.contains(activeId))
+        assertTrue(repository.observe("旧标签兼容").first().isEmpty())
+        assertTrue(repository.observe("ocr text").first().isEmpty())
         assertEquals(listOf(activeId), repository.observe("100%_").first().map { it.id })
         assertEquals(listOf(activeId), repository.observe("\\student's").first().map { it.id })
         assertEquals(listOf(activeId), repository.observe("student's").first().map { it.id })

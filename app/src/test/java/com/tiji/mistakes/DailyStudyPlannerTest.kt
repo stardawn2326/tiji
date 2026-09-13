@@ -104,6 +104,18 @@ class DailyStudyPlannerTest {
         assertTrue(plan.orderedIds.isEmpty())
     }
 
+    @Test
+    fun overdueBacklogRotatesSubjectsWithinTheDailyLimit() {
+        val math1 = mistake(20L, mastery = 0, nextReviewAt = now - 40L, createdAt = 1L).copy(subject = "数学")
+        val math2 = mistake(21L, mastery = 0, nextReviewAt = now - 30L, createdAt = 2L).copy(subject = "数学")
+        val english = mistake(22L, mastery = 0, nextReviewAt = now - 20L, createdAt = 3L).copy(subject = "英语")
+
+        val plan = DailyStudyPlanner.plan(input(listOf(math1, math2, english), listOf(math1, math2, english), limit = 2))
+
+        assertEquals(2, plan.due.size)
+        assertTrue(plan.due.any { it == english.id })
+    }
+
     private fun input(
         active: List<MistakeEntity>,
         due: List<MistakeEntity>,

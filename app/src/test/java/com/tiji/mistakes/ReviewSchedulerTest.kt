@@ -1,6 +1,7 @@
 package com.tiji.mistakes
 
 import com.tiji.mistakes.data.MistakeEntity
+import com.tiji.mistakes.data.ReviewRecordEntity
 import com.tiji.mistakes.domain.ReviewGrade
 import com.tiji.mistakes.domain.ReviewScheduler
 import org.junit.Assert.assertEquals
@@ -43,6 +44,34 @@ class ReviewSchedulerTest {
         assertEquals("掌握", ReviewGrade.GOOD.label)
         assertEquals("熟练", ReviewGrade.EASY.label)
     }
+
+    @Test
+    fun repeatedForgettingKeepsTheNextSuccessfulReviewShort() {
+        val mistake = MistakeEntity(id = 9L, mastery = 2, lastReviewedAt = now - DAY, nextReviewAt = now)
+        val history = listOf(
+            record(3L, ReviewGrade.FORGOT),
+            record(2L, ReviewGrade.FORGOT)
+        )
+
+        val base = ReviewScheduler.preview(mistake, ReviewGrade.GOOD, now)
+        val adaptive = ReviewScheduler.preview(mistake, ReviewGrade.GOOD, history, now)
+
+        assertTrue(adaptive.intervalDays < base.intervalDays)
+        assertTrue(adaptive.intervalDays >= 1)
+    }
+
+    private fun record(reviewedAt: Long, grade: ReviewGrade) = ReviewRecordEntity(
+        id = reviewedAt,
+        mistakeId = 9L,
+        reviewedAt = reviewedAt,
+        grade = grade.name,
+        masteryBefore = 1,
+        masteryAfter = 0,
+        intervalBeforeDays = 1,
+        intervalAfterDays = 1,
+        previousNextReviewAt = reviewedAt,
+        nextReviewAt = reviewedAt
+    )
 
     private companion object { const val DAY = 24L * 60L * 60L * 1000L }
 }

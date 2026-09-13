@@ -422,7 +422,8 @@ internal fun TijiNavGraph(
                         onAiUploadConsent = { value -> scope.launch { preferences.setAiUploadConsent(value) } },
                         onActiveAiProfile = { id -> scope.launch { preferences.setActiveAiProfile(id, state.aiProfiles) } },
                          onAiInputMode = { value -> scope.launch { preferences.setAiCaptureInputMode(value.name) } },
-                        onOpenSettings = { navController.navigate(TijiRoutes.SETTINGS) }
+                        onOpenSettings = { navController.navigate(TijiRoutes.SETTINGS) },
+                        onOpenMistake = { id -> navController.navigate(TijiRoutes.detail(id)) }
                     )
                 }
                 composable(TijiRoutes.DETAIL_PATTERN) { entry ->
@@ -489,7 +490,10 @@ internal fun TijiNavGraph(
                                 if (session.plan.source == ReviewSessionSource.TODAY_PLAN) {
                                     scope.launch { preferences.recordReviewStatus(state.todayDate, questionId, grade.name) }
                                 }
-                            }
+                            },
+                            aiEndpoint = state.activeAiProfile.endpoint,
+                            aiModel = state.activeAiProfile.model,
+                            activeAiProfileId = state.activeAiProfileId
                         )
                     }
                 }

@@ -97,7 +97,7 @@ object DailyStudyPlanner {
             )
             .toList()
 
-        val selectedDue = dueIds.take(limit)
+        val selectedDue = fairTakeBySubject(dueIds, limit)
         val selectedDueIds = selectedDue.mapTo(mutableSetOf<Long>()) { it.id }
         val remainingBudget = (limit - selectedDue.size).coerceAtLeast(0)
         val remaining = active.filterNot { it.id in selectedDueIds }
@@ -116,19 +116,21 @@ object DailyStudyPlanner {
                 .thenBy { it.stableId }
                 .thenBy { it.id }
         )
-        val selectedWeak = weakCandidates.take(remainingBudget)
+        val selectedWeak = fairTakeBySubject(weakCandidates, remainingBudget)
         val selectedWeakIds = selectedWeak.mapTo(mutableSetOf<Long>()) { it.id }
         val optionalBudget = (remainingBudget - selectedWeak.size).coerceAtLeast(0)
-        val selectedOptional = remaining
+        val selectedOptional = fairTakeBySubject(
+            remaining
             .filterNot { it.id in selectedWeakIds }
             .sortedWith(
                 compareByDescending<MistakeEntity> { it.createdAt }
                     .thenBy { subjectRank(it) }
                     .thenBy { it.mastery.coerceIn(0, 3) }
-                    .thenBy { it.stableId }
-                    .thenBy { it.id }
-            )
-            .take(optionalBudget)
+                .thenBy { it.stableId }
+                .thenBy { it.id }
+            ),
+            optionalBudget
+        )
 
         val reasons = (selectedDue + selectedWeak + selectedOptional).associate { mistake ->
             mistake.id to reasonFor(
@@ -161,6 +163,32 @@ object DailyStudyPlanner {
         }
         .groupBy({ it.first }, { it.second })
         .mapValues { (_, values) -> values.sum() }
+
+    /**
+     * Round-robin only when a backlog spans multiple subjects. Each subject keeps
+     * its existing priority order, while one large subject cannot consume the
+     * entire daily allowance for every day in a row.
+     */
+    private fun fairTakeBySubject(items: List<MistakeEntity>, limit: Int): List<MistakeEntity> {
+        if (limit <= 0 || items.size <= limit) return items.take(limit.coerceAtLeast(0))
+        val groups = linkedMapOf<String, ArrayDeque<MistakeEntity>>()
+        items.forEach { mistake ->
+            val subject = mistake.subject.trim().ifBlank { "未分类" }
+            groups.getOrPut(subject) { ArrayDeque() }.addLast(mistake)
+        }
+        if (groups.size <= 1) return items.take(limit)
+        val result = mutableListOf<MistakeEntity>()
+        while (result.size < limit && groups.isNotEmpty()) {
+            val exhausted = mutableListOf<String>()
+            for ((subject, queue) in groups) {
+                queue.removeFirstOrNull()?.let(result::add)
+                if (queue.isEmpty()) exhausted += subject
+                if (result.size >= limit) break
+            }
+            exhausted.forEach(groups::remove)
+        }
+        return result
+    }
 
     private fun reasonFor(
         mistake: MistakeEntity,

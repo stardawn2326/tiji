@@ -12,6 +12,7 @@ import android.os.IBinder
 import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import org.json.JSONObject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -82,6 +83,11 @@ class AiSolveService : Service() {
         val correctionContext = command.getStringExtra(EXTRA_CORRECTION_CONTEXT)
         val recognitionCorrection = command.getStringExtra(EXTRA_RECOGNITION_CORRECTION)
         val correctionImagePaths = command.getStringArrayListExtra(EXTRA_CORRECTION_IMAGE_PATHS).orEmpty()
+        val previousCompleteText = command.getStringExtra(EXTRA_PREVIOUS_COMPLETE_TEXT).orEmpty()
+        val previousVerification = parsePersistedVerification(
+            command.getStringExtra(EXTRA_PREVIOUS_VERIFICATION)?.let { runCatching { JSONObject(it) }.getOrNull() }
+        )
+        val previousUpdatedAt = command.getLongExtra(EXTRA_PREVIOUS_UPDATED_AT, 0L)
         val sourceQuestion = question.takeIf { imagePaths.isEmpty() }
         val mode = command.getStringExtra(EXTRA_MODE)
             ?.let { raw -> runCatching { AiRecognitionMode.valueOf(raw) }.getOrNull() }
@@ -106,6 +112,9 @@ class AiSolveService : Service() {
                 imagePath = primaryImagePath,
                 imagePaths = imagePaths,
                 graphicImagePath = graphicImagePath,
+                previousCompleteText = previousCompleteText,
+                previousVerification = previousVerification,
+                previousUpdatedAt = previousUpdatedAt,
                 startedAt = now,
                 updatedAt = now
             )
@@ -119,21 +128,13 @@ class AiSolveService : Service() {
             var solveDurationMs = 0L
             var verifyDurationMs = 0L
             var repairDurationMs = 0L
-            fun diagnosticsSnapshot(candidate: String? = null): AiSolveDiagnostics {
-                val visibleCandidate = candidate?.takeIf(String::isNotBlank)
-                    ?: streamedAnswer.takeIf(String::isNotBlank)
-                    ?: stateStore.read().streamedText.takeIf(String::isNotBlank)
-                    ?: runningState.completeText.orEmpty()
-                val protocolVersion = detectSolutionProtocolVersion(visibleCandidate)
+            fun diagnosticsSnapshot(): AiSolveDiagnostics {
                 return AiSolveDiagnostics(
                     solveDurationMs = solveDurationMs.takeIf { it > 0L }
                         ?: (SystemClock.elapsedRealtime() - pipelineStartedAt).coerceAtLeast(0L),
                     verifyDurationMs = verifyDurationMs,
                     repairDurationMs = repairDurationMs,
-                    requestCount = requestCount,
-                    v3Success = protocolVersion == 3,
-                    v2Fallback = protocolVersion == 2,
-                    legacyFallback = protocolVersion < 2
+                    requestCount = requestCount
                 )
             }
             try {
@@ -360,9 +361,6 @@ class AiSolveService : Service() {
                             ?.takeIf(String::isNotBlank)
                             ?: error("视觉辅助未返回完整的题目识别，请重新解题")
                         AiRecognitionMode.VISION -> {
-                            val structuredV3Question = AiStructuredSolutionV3Codec.parse(complete)
-                                ?.questionText
-                                ?.takeIf(String::isNotBlank)
                             val structuredDirectQuestion = runCatching {
                                 aiService.parseDirectVisualQuestionSegments(complete)
                             }.getOrNull()
@@ -378,7 +376,6 @@ class AiSolveService : Service() {
                             structuredDirectQuestion
                                 ?: repairedDirectQuestion
                                 ?: parsedQuestion?.question?.takeIf(String::isNotBlank)
-                                ?: structuredV3Question
                                 ?: modelQuestion.takeIf(String::isNotBlank)
                                 ?: throw IllegalStateException("AI 未返回完整的题目识别，请重新解题")
                         }
@@ -456,26 +453,22 @@ class AiSolveService : Service() {
                 // evidence-based local detector above.
                 val displayQuestionBlocks = questionBlocks
                 val contentBlocks = QuestionContentBlockCodec.encode(displayQuestionBlocks)
-                val structuredV3 = AiStructuredSolutionV3Codec.parse(complete)
                 val uncertainItems = (
-                    structuredV3?.recognition?.uncertainItems.orEmpty() +
+                    runCatching { aiService.parseStructuredSolveRecognition(complete) }
+                        .getOrNull()?.uncertainItems.orEmpty() +
                         visualEvidence?.uncertainItems.orEmpty()
                     ).map(String::trim).filter(String::isNotBlank).distinct()
                 val recognitionWarning = listOf(
                     localOcrCorrection?.recognitionWarning.orEmpty(),
-                    structuredV3?.recognition?.warning.orEmpty()
+                    runCatching { aiService.parseStructuredSolveRecognition(complete) }
+                        .getOrNull()?.recognitionWarning.orEmpty()
                 ).firstOrNull(String::isNotBlank).orEmpty().ifBlank {
                     uncertainItems.takeIf { it.isNotEmpty() }?.let {
                         "有 ${it.size} 处识别结果建议确认：${it.joinToString("；")}".take(24_000)
                     }.orEmpty()
                 }
-                val persistedComplete = if (structuredV3 != null) {
-                    AiStructuredSolutionV3Codec.withVerification(complete, verification)
-                } else {
-                    complete
-                }
-                val solutionProtocolVersion = detectSolutionProtocolVersion(complete)
-                val diagnostics = diagnosticsSnapshot(complete)
+                val persistedComplete = complete
+                val diagnostics = diagnosticsSnapshot()
                 runningState = runningState.copy(
                     question = finalQuestion,
                     graphicImagePath = displayQuestionBlocks.firstOrNull()?.path,
@@ -483,7 +476,6 @@ class AiSolveService : Service() {
                     recognitionWarning = recognitionWarning,
                     uncertainItems = uncertainItems,
                     verification = verification,
-                    solutionProtocolVersion = solutionProtocolVersion,
                     diagnostics = diagnostics
                 )
                 if (complete.isBlank()) {
@@ -524,7 +516,7 @@ class AiSolveService : Service() {
                         progress = current.progress,
                         streamedText = "",
                         completeText = partial.takeIf(String::isNotBlank),
-                        diagnostics = diagnosticsSnapshot(partial),
+                        diagnostics = diagnosticsSnapshot(),
                         error = if (mode == AiRecognitionMode.LOCAL_OCR) {
                             "OCR+文本模型解题超时：模型响应时间过长，请检查网络或稍后重试"
                         } else if (mode == AiRecognitionMode.VISUAL_ASSISTED) {
@@ -550,7 +542,7 @@ class AiSolveService : Service() {
                         progress = current.progress,
                         streamedText = "",
                         completeText = partial.takeIf(String::isNotBlank),
-                        diagnostics = diagnosticsSnapshot(partial),
+                        diagnostics = diagnosticsSnapshot(),
                         error = error.message ?: error.javaClass.simpleName,
                         updatedAt = System.currentTimeMillis()
                     )
@@ -676,6 +668,9 @@ class AiSolveService : Service() {
         const val EXTRA_CORRECTION_CONTEXT = "correction_context"
         const val EXTRA_CORRECTION_IMAGE_PATHS = "correction_image_paths"
         const val EXTRA_RECOGNITION_CORRECTION = "recognition_correction"
+        const val EXTRA_PREVIOUS_COMPLETE_TEXT = "previous_complete_text"
+        const val EXTRA_PREVIOUS_VERIFICATION = "previous_verification"
+        const val EXTRA_PREVIOUS_UPDATED_AT = "previous_updated_at"
         private const val MAX_SOLVE_DURATION_MS = 300_000L
         private const val MAX_LOCAL_OCR_SOLVE_DURATION_MS = 360_000L
         private const val VERIFIER_TIMEOUT_MS = 120_000L
@@ -707,7 +702,10 @@ class AiSolveService : Service() {
             visualEndpoint: String? = null,
             visualModel: String? = null,
             visualApiKey: String? = null,
-            visualConfigurationId: String? = null
+            visualConfigurationId: String? = null,
+            previousCompleteText: String = "",
+            previousVerification: AiVerificationResult = AiVerificationResult(),
+            previousUpdatedAt: Long = 0L
         ): Intent = Intent(context, AiSolveService::class.java).apply {
             action = ACTION_START
             putExtra(EXTRA_REQUEST_ID, requestId)
@@ -727,6 +725,9 @@ class AiSolveService : Service() {
             putExtra(EXTRA_IMAGE_PATH, imagePath)
             putStringArrayListExtra(EXTRA_IMAGE_PATHS, ArrayList(imagePaths.filter(String::isNotBlank).distinct()))
             putExtra(EXTRA_GRAPHIC_IMAGE_PATH, graphicImagePath)
+            putExtra(EXTRA_PREVIOUS_COMPLETE_TEXT, previousCompleteText.take(24_000))
+            putExtra(EXTRA_PREVIOUS_VERIFICATION, encodeVerification(previousVerification).toString())
+            putExtra(EXTRA_PREVIOUS_UPDATED_AT, previousUpdatedAt)
             putExtra(EXTRA_MODE, mode.name)
             putExtra(EXTRA_RELIABILITY_MODE, reliabilityMode.name)
             correctionContext?.takeIf { it.isNotBlank() }?.let {

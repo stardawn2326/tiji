@@ -1,6 +1,7 @@
 package com.tiji.mistakes.domain
 
 import com.tiji.mistakes.data.MistakeEntity
+import com.tiji.mistakes.data.ReviewRecordEntity
 import java.util.Calendar
 import kotlin.math.roundToInt
 
@@ -36,8 +37,74 @@ object ReviewScheduler {
         )
     }
 
+    /**
+     * Applies a small, explainable adjustment from the learner's recent history.
+     * The base schedule remains unchanged for a new mistake or when no history is
+     * available; this keeps imported/legacy data predictable while preventing a
+     * repeatedly forgotten item from jumping straight to a long interval.
+     */
+    fun preview(
+        mistake: MistakeEntity,
+        grade: ReviewGrade,
+        recentHistory: List<ReviewRecordEntity>,
+        now: Long = System.currentTimeMillis()
+    ): ReviewPreview {
+        val base = preview(mistake, grade, now)
+        if (recentHistory.isEmpty()) return base
+        val history = recentHistory
+            .asSequence()
+            .filter { it.mistakeId == mistake.id }
+            .sortedWith(compareByDescending<ReviewRecordEntity> { it.reviewedAt }.thenByDescending { it.id })
+            .take(MAX_ADAPTIVE_HISTORY)
+            .toList()
+        if (history.isEmpty()) return base
+
+        val forgotStreak = history.takeWhile { it.grade == ReviewGrade.FORGOT.name }.size
+        val successStreak = history.takeWhile { it.grade == ReviewGrade.GOOD.name || it.grade == ReviewGrade.EASY.name }.size
+        val recentForgotCount = history.count { it.grade == ReviewGrade.FORGOT.name }
+        val latestScore = history.firstOrNull()?.let(::gradeScore) ?: 2
+        val overdueDays = overdueDays(mistake, now)
+        var factor = 1.0
+        when {
+            forgotStreak >= 2 || recentForgotCount >= 3 -> factor *= 0.60
+            forgotStreak == 1 -> factor *= 0.78
+        }
+        if (successStreak >= 4) {
+            factor *= 1.20
+        } else if (successStreak >= 2) {
+            factor *= 1.10
+        }
+        if (latestScore <= 1 && grade == ReviewGrade.GOOD) factor *= 0.85
+        if (overdueDays >= 7 && grade != ReviewGrade.EASY) factor *= 0.85
+
+        val interval = if (grade == ReviewGrade.FORGOT) {
+            1
+        } else {
+            (base.intervalDays * factor).roundToInt().coerceAtLeast(1)
+        }
+        return base.copy(
+            intervalDays = interval,
+            nextReviewAt = localMidnightAfter(now, interval)
+        )
+    }
+
     fun schedule(mistake: MistakeEntity, grade: ReviewGrade, now: Long = System.currentTimeMillis()): MistakeEntity {
         val preview = preview(mistake, grade, now)
+        return mistake.copy(
+            mastery = preview.masteryAfter,
+            reviewCount = mistake.reviewCount + 1,
+            lastReviewedAt = now,
+            nextReviewAt = preview.nextReviewAt
+        )
+    }
+
+    fun schedule(
+        mistake: MistakeEntity,
+        grade: ReviewGrade,
+        recentHistory: List<ReviewRecordEntity>,
+        now: Long = System.currentTimeMillis()
+    ): MistakeEntity {
+        val preview = preview(mistake, grade, recentHistory, now)
         return mistake.copy(
             mastery = preview.masteryAfter,
             reviewCount = mistake.reviewCount + 1,
@@ -63,5 +130,20 @@ object ReviewScheduler {
         add(Calendar.DAY_OF_YEAR, days)
     }.timeInMillis
 
+    private fun overdueDays(mistake: MistakeEntity, now: Long): Int {
+        val due = localMidnightAfter(mistake.nextReviewAt, 0)
+        val today = localMidnightAfter(now, 0)
+        return ((today - due).coerceAtLeast(0L) / DAY_MS).toInt()
+    }
+
+    private fun gradeScore(record: ReviewRecordEntity): Int = when (record.grade) {
+        ReviewGrade.FORGOT.name -> 0
+        ReviewGrade.HARD.name -> 1
+        ReviewGrade.GOOD.name -> 2
+        ReviewGrade.EASY.name -> 3
+        else -> 1
+    }
+
     private const val DAY_MS = 24L * 60L * 60L * 1000L
+    private const val MAX_ADAPTIVE_HISTORY = 8
 }

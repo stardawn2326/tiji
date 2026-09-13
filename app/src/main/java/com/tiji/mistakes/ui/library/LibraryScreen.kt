@@ -31,6 +31,7 @@ import androidx.compose.material.icons.outlined.AddAPhoto
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Search
 import com.tiji.mistakes.ui.design.TijiDialog
+import com.tiji.mistakes.ui.design.TijiButton
 import com.tiji.mistakes.ui.design.TijiMenu
 import com.tiji.mistakes.ui.design.TijiMenuItem
 import com.tiji.mistakes.ui.design.TijiChip
@@ -110,6 +111,12 @@ internal fun LibraryScreen(
     var selectionMode by remember { mutableStateOf(false) }
     var selectedIds by remember { mutableStateOf(emptySet<Long>()) }
     var showBatchDeleteDialog by remember { mutableStateOf(false) }
+    var showBatchEditDialog by remember { mutableStateOf(false) }
+    var batchSubject by remember { mutableStateOf("") }
+    var batchQuestionType by remember { mutableStateOf("") }
+    var batchTags by remember { mutableStateOf("") }
+    var batchDifficulty by remember { mutableStateOf<Int?>(null) }
+    var batchReviewPlan by remember { mutableStateOf<Boolean?>(null) }
     var showFilterDialog by remember { mutableStateOf(false) }
     var masteryFilter by remember { mutableStateOf<Int?>(null) }
     var difficultyFilter by remember { mutableStateOf<Int?>(null) }
@@ -430,6 +437,12 @@ internal fun LibraryScreen(
                             onClick = { openPdfOptions(selectedIds.toList()) }
                         )
                         TijiContextAction(
+                            label = "更多",
+                            enabled = selectedIds.isNotEmpty(),
+                            modifier = Modifier.weight(1f).testTag("library_batch_more"),
+                            onClick = { showBatchEditDialog = true }
+                        )
+                        TijiContextAction(
                             label = "删除",
                             enabled = selectedIds.isNotEmpty(),
                             modifier = Modifier.weight(1f).testTag("library_delete_selected"),
@@ -601,5 +614,54 @@ internal fun LibraryScreen(
             }
         }
         }
+    }
+
+    if (showBatchEditDialog) {
+        TijiDialog(
+            onDismissRequest = { showBatchEditDialog = false },
+            title = { Text("批量修改 ${selectedIds.size} 道错题") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("留空的字段保持原值；复习计划可选择是否统一修改。", style = MaterialTheme.typography.bodySmall)
+                    TijiTextField(batchSubject, { batchSubject = it }, label = { Text("科目") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    TijiTextField(batchQuestionType, { batchQuestionType = it }, label = { Text("题型") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    TijiTextField(batchTags, { batchTags = it }, label = { Text("标签") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        item { TijiChip(selected = batchDifficulty == null, onClick = { batchDifficulty = null }, label = { Text("难度不变") }) }
+                        (0..5).forEach { value ->
+                            item { TijiChip(selected = batchDifficulty == value, onClick = { batchDifficulty = value }, label = { Text(if (value == 0) "未评估" else "难度$value") }) }
+                        }
+                    }
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        item { TijiChip(selected = batchReviewPlan == null, onClick = { batchReviewPlan = null }, label = { Text("计划不变") }) }
+                        item { TijiChip(selected = batchReviewPlan == true, onClick = { batchReviewPlan = true }, label = { Text("加入计划") }) }
+                        item { TijiChip(selected = batchReviewPlan == false, onClick = { batchReviewPlan = false }, label = { Text("移出计划") }) }
+                    }
+                }
+            },
+            confirmButton = {
+                TijiButton(onClick = {
+                    viewModel.batchUpdateMistakes(
+                        ids = selectedIds,
+                        subject = batchSubject.takeIf(String::isNotBlank),
+                        questionType = batchQuestionType.takeIf(String::isNotBlank),
+                        tags = batchTags.takeIf(String::isNotBlank),
+                        difficulty = batchDifficulty,
+                        inReviewPlan = batchReviewPlan,
+                        onFinished = {
+                            showBatchEditDialog = false
+                            selectionMode = false
+                            selectedIds = emptySet()
+                            batchSubject = ""
+                            batchQuestionType = ""
+                            batchTags = ""
+                            batchDifficulty = null
+                            batchReviewPlan = null
+                        }
+                    )
+                }) { Text("应用修改") }
+            },
+            dismissButton = { TijiTextButton(onClick = { showBatchEditDialog = false }) { Text("取消") } }
+        )
     }
 }

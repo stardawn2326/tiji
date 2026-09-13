@@ -173,7 +173,8 @@ class MistakeRepository(private val database: AppDatabase) {
         now: Long = System.currentTimeMillis()
     ): ReviewRecordEntity = database.withTransaction {
         val before = requireNotNull(dao.findById(mistakeId)) { "错题不存在：$mistakeId" }
-        val preview = ReviewScheduler.preview(before, grade, now)
+        val recentHistory = database.reviewRecordDao().listByMistakeId(mistakeId)
+        val preview = ReviewScheduler.preview(before, grade, recentHistory, now)
         val after = before.copy(
             mastery = preview.masteryAfter,
             reviewCount = before.reviewCount + 1,

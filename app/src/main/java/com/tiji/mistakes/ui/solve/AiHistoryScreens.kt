@@ -89,8 +89,6 @@ import com.tiji.mistakes.service.AiRecognitionMode
 import com.tiji.mistakes.service.AiSolveHistoryRecord
 import com.tiji.mistakes.service.AiSolveReliabilityMode
 import com.tiji.mistakes.service.AiSolveStatus
-import com.tiji.mistakes.service.AiSolutionStep
-import com.tiji.mistakes.service.AiStructuredSolutionV3Codec
 import com.tiji.mistakes.service.AiVerificationStatus
 import com.tiji.mistakes.service.ContentBlockKind
 import com.tiji.mistakes.service.ContentBlockRole
