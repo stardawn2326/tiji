@@ -103,11 +103,18 @@
 
 ## GitHub 发布
 
-代码和本说明会一起提交到 `codex/ui-2.0-paper-blue`，推送目标固定为：
+代码和本说明已提交到 `codex/ui-2.0-paper-blue`，推送目标固定为：
 
 `https://github.com/stardawn2326/tiji.git`
 
-提交、远端分支 SHA、GitHub Actions run 和现有 PR #8 的最终状态在推送完成后补写到本节，并以远端 API/tree 核验为准。
+本轮功能代码提交头为 `0082fe3d558b44b49019a44fc5a8af20ebe92451`；远端分支已用 `git ls-remote` 核验包含该提交，后续文档回填提交仍在同一分支。
+
+最终 GitHub Actions：[`34750072722`](https://github.com/stardawn2326/tiji/actions/runs/34750072722)。
+
+- `Compile, test, lint and package`：success
+- `Android instrumentation (API 30)`：success
+
+现有 PR：[`#8`](https://github.com/stardawn2326/tiji/pull/8)，状态为 `OPEN`，head 为 `codex/ui-2.0-paper-blue`；PR 的两个检查均为 `SUCCESS`。
 
 ## 验收边界
 
