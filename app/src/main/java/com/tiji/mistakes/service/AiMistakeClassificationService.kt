@@ -14,6 +14,7 @@ import androidx.core.app.NotificationCompat
 import com.tiji.mistakes.data.AppDatabase
 import com.tiji.mistakes.data.KnowledgePointNormalizer
 import com.tiji.mistakes.data.MistakeRepository
+import com.tiji.mistakes.domain.Difficulty
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -25,12 +26,8 @@ import kotlinx.coroutines.withTimeout
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** New automatic classification writes only the four values represented by the editor. */
-internal fun normalizeClassificationDifficulty(value: Int): Int = when {
-    value <= 0 -> 0
-    value >= 4 -> 4
-    else -> value
-}
+/** New automatic classification writes only metadata represented by the editor. */
+internal fun normalizeClassificationDifficulty(value: Int): Int = Difficulty.normalize(value)
 
 /** Merges free-form labels using the same delimiter and case-insensitive rules as storage. */
 internal fun mergeTagText(existing: String, additions: Iterable<String>): String =

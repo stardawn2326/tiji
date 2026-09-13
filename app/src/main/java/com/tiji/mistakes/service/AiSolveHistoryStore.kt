@@ -67,7 +67,6 @@ internal fun deriveAiSolveHistoryTitle(state: PersistedAiSolveState): String {
         .trim()
         .takeIf(String::isNotBlank)
         ?: "未命名题目")
-        .take(24)
 }
 
 /** A completed AI solve that can be reopened without calling the model again. */
@@ -138,6 +137,7 @@ data class AiSolveHistoryRecord(
 class AiSolveHistoryStore(context: Context) {
     private val appContext = context.applicationContext
     private val preferences = appContext.getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE)
+    private val durableTextStore = DurableTextStore(appContext, FILE_NAME)
 
     private fun withOwnedImages(record: AiSolveHistoryRecord, onlyPaths: Set<String>? = null): Pair<AiSolveHistoryRecord, List<String>> {
         val originals = record.referencedImagePaths().filter { path -> onlyPaths == null || path in onlyPaths }
@@ -170,7 +170,7 @@ class AiSolveHistoryStore(context: Context) {
 
     @Synchronized
     fun read(): List<AiSolveHistoryRecord> {
-        val decoded = decode(preferences.getString(KEY_RECORDS, "[]"))
+        val decoded = decode(durableTextStore.read(SLOT_RECORDS) ?: preferences.getString(KEY_RECORDS, "[]"))
         val retained = trimAiSolveHistory(decoded)
         if (retained.size != decoded.size) {
             write(retained)
@@ -220,7 +220,7 @@ class AiSolveHistoryStore(context: Context) {
                 uncertainItems = state.uncertainItems,
                 verification = state.verification,
                 diagnostics = state.diagnostics,
-                chatMessages = chatMessages.takeLast(MAX_CHAT_MESSAGES)
+                chatMessages = chatMessages
             )
         val (ownedRecord, created) = withOwnedImages(rawRecord)
         val next = listOf(ownedRecord) + existing
@@ -263,8 +263,10 @@ class AiSolveHistoryStore(context: Context) {
     fun referencedImagePaths(): Set<String> = read().flatMap(AiSolveHistoryRecord::referencedImagePaths).toSet()
 
     private fun write(records: List<AiSolveHistoryRecord>) {
+        val serialized = JSONArray(trimAiSolveHistory(records).map { encode(it) }).toString()
+        durableTextStore.write(SLOT_RECORDS, serialized)
         val committed = preferences.edit()
-            .putString(KEY_RECORDS, JSONArray(trimAiSolveHistory(records).map { encode(it) }).toString())
+            .remove(KEY_RECORDS)
             .commit()
         check(committed) { "无法持久化 AI 解题记录" }
     }
@@ -297,8 +299,8 @@ class AiSolveHistoryStore(context: Context) {
             .put("requestCount", record.diagnostics.requestCount))
         .put("chatMessages", JSONArray(record.chatMessages.map { message ->
             JSONObject()
-                .put("prompt", message.prompt.take(MAX_CHAT_PROMPT_LENGTH))
-                .put("reply", message.reply.take(MAX_CHAT_REPLY_LENGTH))
+                .put("prompt", message.prompt)
+                .put("reply", message.reply)
                 .put("createdAt", message.createdAt)
                 .put("imagePaths", JSONArray(message.imagePaths.filter(String::isNotBlank).distinct()))
         }))
@@ -353,8 +355,8 @@ class AiSolveHistoryStore(context: Context) {
             val item = array.optJSONObject(index) ?: continue
             add(
                 AiChatMessage(
-                    prompt = item.optString("prompt").take(MAX_CHAT_PROMPT_LENGTH),
-                    reply = item.optString("reply").take(MAX_CHAT_REPLY_LENGTH),
+                    prompt = item.optString("prompt"),
+                    reply = item.optString("reply"),
                     createdAt = item.optLong("createdAt", 0L),
                     imagePaths = item.optJSONArray("imagePaths")?.let { paths ->
                         (0 until paths.length()).mapNotNull { pathIndex ->
@@ -364,7 +366,7 @@ class AiSolveHistoryStore(context: Context) {
                 )
             )
         }
-    }.takeLast(MAX_CHAT_MESSAGES)
+    }
 
     private fun readStringList(array: JSONArray?): List<String> = if (array == null) {
         emptyList()
@@ -386,8 +388,6 @@ class AiSolveHistoryStore(context: Context) {
     private companion object {
         const val FILE_NAME = "ai_solve_history"
         const val KEY_RECORDS = "records"
-        const val MAX_CHAT_MESSAGES = 30
-        const val MAX_CHAT_PROMPT_LENGTH = 2_000
-        const val MAX_CHAT_REPLY_LENGTH = 16_000
+        const val SLOT_RECORDS = "records"
     }
 }

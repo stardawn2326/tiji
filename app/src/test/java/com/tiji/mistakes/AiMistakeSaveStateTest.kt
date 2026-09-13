@@ -22,13 +22,13 @@ import org.junit.Test
 
 class AiMistakeSaveStateTest {
     @Test
-    fun newClassificationUsesFourDifficultyLevelsAndDeduplicatedTags() {
+    fun newClassificationUsesFiveDifficultyLevelsAndDeduplicatedTags() {
         assertEquals(0, normalizeClassificationDifficulty(-1))
         assertEquals(0, normalizeClassificationDifficulty(0))
         assertEquals(1, normalizeClassificationDifficulty(1))
         assertEquals(3, normalizeClassificationDifficulty(3))
         assertEquals(4, normalizeClassificationDifficulty(4))
-        assertEquals(4, normalizeClassificationDifficulty(5))
+        assertEquals(5, normalizeClassificationDifficulty(5))
         assertEquals("积分, 定积分", mergeTagText("积分；", listOf("积分", "定积分")))
     }
 
@@ -57,7 +57,7 @@ class AiMistakeSaveStateTest {
         assertEquals("计算题", decoded?.questionType)
         assertEquals(listOf("积分"), decoded?.tags)
         assertEquals(listOf("定积分"), decoded?.knowledgePoints)
-        assertEquals(4, decoded?.difficulty)
+        assertEquals(5, decoded?.difficulty)
     }
 
     @Test

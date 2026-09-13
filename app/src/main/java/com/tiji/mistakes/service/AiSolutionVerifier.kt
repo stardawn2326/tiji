@@ -32,10 +32,10 @@ class AiSolutionVerifier(
         没有明显矛盾时返回 status=PASS 且 issues=[]；有需要用户核对但不阻止保存的问题返回 WARNING；有明确错误、漏解或答案矛盾时返回 FAILED。不要返回“100%正确”。
 
         【原题】
-        ${question.trim().take(12_000)}
+        ${question.trim()}
 
         【候选解答】
-        ${candidateSolution.trim().take(24_000)}
+        ${candidateSolution.trim()}
     """.trimIndent()
 
     internal fun parseResponse(raw: String): AiVerificationResult {
@@ -150,16 +150,16 @@ class AiSolutionRepairer(
         }
         val prompt = """
             你是题迹的解题修正器。请基于原题、候选解答和独立检查问题，只进行一次完整修正。
-            保留正确的识题内容，但修正明确的计算、漏解、定义域或答案一致性问题。必须返回完整可展示解答，使用 TIJI_SOLUTION_V2 的 schemaVersion 2 结构；如果无法保证 V2 合法，则使用普通四分区文本。不要输出思考过程、修正说明、Markdown 代码围栏或协议外文字。
+            保留正确的识题内容，但修正明确的计算、漏解、定义域或答案一致性问题。必须返回完整可展示解答，并且只能使用 TIJI_SOLUTION_V2 的 schemaVersion 2 结构；如果无法保证 V2 合法，修正结果将被丢弃并保留原解答。不要输出思考过程、修正说明、Markdown 代码围栏或协议外文字。
 
             【原题】
-            ${question.trim().take(12_000)}
+            ${question.trim()}
 
             【候选解答】
-            ${candidateSolution.trim().take(24_000)}
+            ${candidateSolution.trim()}
 
             【独立检查问题】
-            ${issueText.take(4_000)}
+            $issueText
         """.trimIndent()
         return aiService.completeText(
             endpoint = endpoint,
@@ -173,8 +173,12 @@ class AiSolutionRepairer(
 
 internal fun isUsableAiSolution(value: String): Boolean {
     val trimmed = value.trim()
-    return trimmed.isNotBlank() && (
-            AiStructuredSolutionCodec.parse(trimmed) != null ||
-            listOf("题目识别", "解题思路", "逐步推导", "最终答案").count(trimmed::contains) >= 2
-        )
+    val solution = trimmed.takeIf(String::isNotBlank)?.let(AiStructuredSolutionCodec::parse)
+        ?: return false
+    return solution.sections.map { it.id } == listOf(
+        "recognition",
+        "approach",
+        "derivation",
+        "finalAnswer"
+    )
 }

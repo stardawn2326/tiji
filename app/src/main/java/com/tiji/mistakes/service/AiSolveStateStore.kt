@@ -96,12 +96,15 @@ internal fun extractRecognizedQuestionFromSolution(value: String): String {
 
 class AiSolveStateStore(context: Context) {
     private val preferences = context.getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE)
+    private val durableTextStore = DurableTextStore(context, FILE_NAME)
 
     fun read(): PersistedAiSolveState {
         val legacyRunning = preferences.getBoolean(KEY_RUNNING, false)
-        val completeText = preferences.getString(KEY_COMPLETE_TEXT, null)
+        val completeText = durableTextStore.read(SLOT_COMPLETE_TEXT)
+            ?: preferences.getString(KEY_COMPLETE_TEXT, null)
         val error = preferences.getString(KEY_ERROR, null)
-        val streamedText = preferences.getString(KEY_STREAMED_TEXT, "").orEmpty().cleanNullStream()
+        val streamedText = (durableTextStore.read(SLOT_STREAMED_TEXT)
+            ?: preferences.getString(KEY_STREAMED_TEXT, "").orEmpty()).cleanNullStream()
         val status = preferences.getString(KEY_STATUS, null)
             ?.let { raw -> runCatching { AiSolveStatus.valueOf(raw) }.getOrNull() }
             ?: when {
@@ -133,15 +136,18 @@ class AiSolveStateStore(context: Context) {
             progress = preferences.getFloat(KEY_PROGRESS, 0f).coerceIn(0f, 1f),
             streamedText = streamedText,
             completeText = completeText,
-            contentBlocks = preferences.getString(KEY_CONTENT_BLOCKS, "").orEmpty(),
-            recognitionWarning = preferences.getString(KEY_RECOGNITION_WARNING, "").orEmpty(),
+            contentBlocks = durableTextStore.read(SLOT_CONTENT_BLOCKS)
+                ?: preferences.getString(KEY_CONTENT_BLOCKS, "").orEmpty(),
+            recognitionWarning = durableTextStore.read(SLOT_RECOGNITION_WARNING)
+                ?: preferences.getString(KEY_RECOGNITION_WARNING, "").orEmpty(),
             uncertainItems = decodeStringList(preferences.getString(KEY_UNCERTAIN_ITEMS, null)),
             verification = parsePersistedVerification(
                 preferences.getString(KEY_VERIFICATION, null)?.let { raw ->
                     runCatching { JSONObject(raw) }.getOrNull()
                 }
             ),
-            previousCompleteText = preferences.getString(KEY_PREVIOUS_COMPLETE_TEXT, "").orEmpty(),
+            previousCompleteText = durableTextStore.read(SLOT_PREVIOUS_COMPLETE_TEXT)
+                ?: preferences.getString(KEY_PREVIOUS_COMPLETE_TEXT, "").orEmpty(),
             previousVerification = parsePersistedVerification(
                 preferences.getString(KEY_PREVIOUS_VERIFICATION, null)?.let { raw ->
                     runCatching { JSONObject(raw) }.getOrNull()
@@ -158,6 +164,11 @@ class AiSolveStateStore(context: Context) {
     }
 
     fun write(state: PersistedAiSolveState) {
+        durableTextStore.write(SLOT_STREAMED_TEXT, state.streamedText)
+        durableTextStore.write(SLOT_COMPLETE_TEXT, state.completeText.orEmpty())
+        durableTextStore.write(SLOT_CONTENT_BLOCKS, state.contentBlocks)
+        durableTextStore.write(SLOT_RECOGNITION_WARNING, state.recognitionWarning)
+        durableTextStore.write(SLOT_PREVIOUS_COMPLETE_TEXT, state.previousCompleteText)
         val editor = preferences.edit()
             .putLong(KEY_REQUEST_ID, state.requestId)
             .putString(KEY_SOLVE_RUN_ID, state.solveRunId)
@@ -175,13 +186,13 @@ class AiSolveStateStore(context: Context) {
             .putString(KEY_IMAGE_PATHS, JSONArray(state.imagePaths.filter(String::isNotBlank).distinct()).toString())
             .putString(KEY_GRAPHIC_IMAGE_PATH, state.graphicImagePath)
             .putFloat(KEY_PROGRESS, state.progress.coerceIn(0f, 1f))
-            .putString(KEY_STREAMED_TEXT, state.streamedText.take(MAX_TEXT_LENGTH))
-            .putString(KEY_COMPLETE_TEXT, state.completeText?.take(MAX_TEXT_LENGTH))
-            .putString(KEY_CONTENT_BLOCKS, state.contentBlocks.take(MAX_CONTENT_BLOCKS_LENGTH))
-            .putString(KEY_RECOGNITION_WARNING, state.recognitionWarning.take(MAX_TEXT_LENGTH))
+            .remove(KEY_STREAMED_TEXT)
+            .remove(KEY_COMPLETE_TEXT)
+            .remove(KEY_CONTENT_BLOCKS)
+            .remove(KEY_RECOGNITION_WARNING)
             .putString(KEY_UNCERTAIN_ITEMS, JSONArray(state.uncertainItems.filter(String::isNotBlank).distinct()).toString())
             .putString(KEY_VERIFICATION, encodeVerification(state.verification).toString())
-            .putString(KEY_PREVIOUS_COMPLETE_TEXT, state.previousCompleteText.take(MAX_TEXT_LENGTH))
+            .remove(KEY_PREVIOUS_COMPLETE_TEXT)
             .putString(KEY_PREVIOUS_VERIFICATION, encodeVerification(state.previousVerification).toString())
             .putLong(KEY_PREVIOUS_UPDATED_AT, state.previousUpdatedAt)
             .putString(KEY_DIAGNOSTICS, encodeDiagnostics(state.diagnostics).toString())
@@ -207,6 +218,7 @@ class AiSolveStateStore(context: Context) {
     @SuppressLint("ApplySharedPref")
     fun clear() {
         // commit() is intentional: closing the task must not leave a stale RUNNING flag.
+        durableTextStore.clear()
         preferences.edit().clear().commit()
     }
 
@@ -262,8 +274,11 @@ class AiSolveStateStore(context: Context) {
         const val KEY_ERROR = "error"
         const val KEY_STARTED_AT = "started_at"
         const val KEY_UPDATED_AT = "updated_at"
-        const val MAX_TEXT_LENGTH = 24_000
-        const val MAX_CONTENT_BLOCKS_LENGTH = 24_000
+        const val SLOT_STREAMED_TEXT = "streamed"
+        const val SLOT_COMPLETE_TEXT = "complete"
+        const val SLOT_CONTENT_BLOCKS = "content_blocks"
+        const val SLOT_RECOGNITION_WARNING = "recognition_warning"
+        const val SLOT_PREVIOUS_COMPLETE_TEXT = "previous_complete"
 
         private fun parseDiagnostics(raw: String?): AiSolveDiagnostics = runCatching {
             val json = JSONObject(raw ?: return@runCatching AiSolveDiagnostics())

@@ -38,7 +38,7 @@ data class AiMistakeSaveState(
     val model: String = "",
     /** Prompt snapshot used when classification starts before local save. */
     val classificationSource: String = "",
-    /** Compact JSON representation of the four classifier-owned metadata fields. */
+    /** Compact JSON representation of classifier-owned metadata. */
     val classificationJson: String = ""
 ) {
     val running: Boolean
@@ -86,6 +86,10 @@ class AiMistakeSaveStore(context: Context) {
         val array = JSONArray()
         states.forEach { array.put(encode(it)) }
         preferences.edit().putString(KEY_ITEMS, array.toString()).apply()
+    }
+
+    fun clear() = synchronized(LOCK) {
+        preferences.edit().clear().commit()
     }
 
     fun recoverInterruptedTasks(now: Long = System.currentTimeMillis()) = synchronized(LOCK) {

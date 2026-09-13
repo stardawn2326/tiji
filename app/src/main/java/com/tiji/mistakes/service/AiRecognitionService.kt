@@ -10,6 +10,7 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.util.Log
 import com.tiji.mistakes.BuildConfig
+import com.tiji.mistakes.domain.Difficulty
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -43,7 +44,7 @@ internal class OcrDiagnosticStore(
         runCatching {
             val root = if (file.isFile) JSONObject(file.readText(Charsets.UTF_8)) else JSONObject()
             root.put("updatedAt", System.currentTimeMillis())
-                .put(phase, text.take(50_000))
+                .put(phase, text)
             file.parentFile?.mkdirs()
             val temporary = File(file.parentFile, "${file.name}.tmp")
             temporary.writeText(root.toString(), Charsets.UTF_8)
@@ -224,7 +225,7 @@ class AiRecognitionStateStore(context: Context) {
             questionType = json.optString("questionType"),
             knowledgePoints = arrayValues("knowledgePoints"),
             tags = arrayValues("tags"),
-            difficulty = json.optInt("difficulty", 0).coerceIn(0, 5),
+            difficulty = Difficulty.normalize(json.optInt("difficulty", 0)),
             visibleTextLines = arrayValues("visibleTextLines"),
             diagramEvidence = json.optString("diagramEvidence"),
             recognitionWarning = json.optString("recognitionWarning"),

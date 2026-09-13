@@ -77,49 +77,59 @@ internal fun finishAiChatWithAvailableContent(
 
 class AiChatStateStore(context: Context) {
     private val preferences = context.getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE)
+    private val durableTextStore = DurableTextStore(context, FILE_NAME)
 
     fun read(): PersistedAiChatState = PersistedAiChatState(
         requestId = preferences.getLong(KEY_REQUEST_ID, 0L),
         running = preferences.getBoolean(KEY_RUNNING, false),
-        currentPrompt = preferences.getString(KEY_CURRENT_PROMPT, "").orEmpty(),
+        currentPrompt = durableTextStore.read(SLOT_CURRENT_PROMPT)
+            ?: preferences.getString(KEY_CURRENT_PROMPT, "").orEmpty(),
         progress = preferences.getFloat(KEY_PROGRESS, 0f),
-        streamedText = preferences.getString(KEY_STREAMED_TEXT, "").orEmpty(),
+        streamedText = durableTextStore.read(SLOT_STREAMED_TEXT)
+            ?: preferences.getString(KEY_STREAMED_TEXT, "").orEmpty(),
         currentImagePaths = readPaths(preferences.getString(KEY_CURRENT_IMAGE_PATHS, null)),
-        lastPrompt = preferences.getString(KEY_LAST_PROMPT, "").orEmpty(),
+        lastPrompt = durableTextStore.read(SLOT_LAST_PROMPT)
+            ?: preferences.getString(KEY_LAST_PROMPT, "").orEmpty(),
         lastImagePaths = readPaths(preferences.getString(KEY_LAST_IMAGE_PATHS, null)),
         status = preferences.getString(KEY_STATUS, "IDLE").orEmpty(),
-        messages = readMessages(preferences.getString(KEY_MESSAGES, null)),
+        messages = readMessages(durableTextStore.read(SLOT_MESSAGES)
+            ?: preferences.getString(KEY_MESSAGES, null)),
         error = preferences.getString(KEY_ERROR, null)
     )
 
     fun write(state: PersistedAiChatState) {
         val messages = JSONArray().apply {
-            state.messages.takeLast(MAX_MESSAGES).forEach { message ->
+            state.messages.forEach { message ->
                 put(
                     JSONObject()
-                        .put("prompt", message.prompt.take(MAX_PROMPT_LENGTH))
-                        .put("reply", message.reply.take(MAX_REPLY_LENGTH))
+                        .put("prompt", message.prompt)
+                        .put("reply", message.reply)
                         .put("createdAt", message.createdAt)
                         .put("imagePaths", JSONArray(message.imagePaths.filter(String::isNotBlank).distinct()))
                 )
             }
         }
+        durableTextStore.write(SLOT_CURRENT_PROMPT, state.currentPrompt)
+        durableTextStore.write(SLOT_STREAMED_TEXT, state.streamedText)
+        durableTextStore.write(SLOT_LAST_PROMPT, state.lastPrompt)
+        durableTextStore.write(SLOT_MESSAGES, messages.toString())
         preferences.edit()
             .putLong(KEY_REQUEST_ID, state.requestId)
             .putBoolean(KEY_RUNNING, state.running)
-            .putString(KEY_CURRENT_PROMPT, state.currentPrompt.take(MAX_PROMPT_LENGTH))
+            .remove(KEY_CURRENT_PROMPT)
             .putFloat(KEY_PROGRESS, state.progress.coerceIn(0f, 1f))
-            .putString(KEY_STREAMED_TEXT, state.streamedText.take(MAX_REPLY_LENGTH))
+            .remove(KEY_STREAMED_TEXT)
             .putString(KEY_CURRENT_IMAGE_PATHS, JSONArray(state.currentImagePaths.filter(String::isNotBlank).distinct()).toString())
-            .putString(KEY_LAST_PROMPT, state.lastPrompt.take(MAX_PROMPT_LENGTH))
+            .remove(KEY_LAST_PROMPT)
             .putString(KEY_LAST_IMAGE_PATHS, JSONArray(state.lastImagePaths.filter(String::isNotBlank).distinct()).toString())
             .putString(KEY_STATUS, state.status)
-            .putString(KEY_MESSAGES, messages.toString())
+            .remove(KEY_MESSAGES)
             .putString(KEY_ERROR, state.error)
             .apply()
     }
 
     fun clear() {
+        durableTextStore.clear()
         preferences.edit().clear().apply()
     }
 
@@ -160,8 +170,9 @@ class AiChatStateStore(context: Context) {
         const val KEY_STATUS = "status"
         const val KEY_MESSAGES = "messages"
         const val KEY_ERROR = "error"
-        const val MAX_MESSAGES = 30
-        const val MAX_PROMPT_LENGTH = 2_000
-        const val MAX_REPLY_LENGTH = 16_000
+        const val SLOT_CURRENT_PROMPT = "current_prompt"
+        const val SLOT_STREAMED_TEXT = "streamed"
+        const val SLOT_LAST_PROMPT = "last_prompt"
+        const val SLOT_MESSAGES = "messages"
     }
 }

@@ -70,7 +70,7 @@ class AiFollowUpService : Service() {
                 error = null
             )
             stateStore.write(initial)
-            val conversation = previous.messages.takeLast(10).joinToString("\n\n") { message ->
+            val conversation = previous.messages.joinToString("\n\n") { message ->
                 "用户：${message.prompt}\nAI：${followUpReplyForDisplay(message.reply)}"
             }
             var streamedChars = 0
@@ -92,7 +92,7 @@ class AiFollowUpService : Service() {
                             current.copy(
                                 progress = (0.30f + (streamedChars / RESPONSE_ESTIMATE_CHARS.toFloat()).coerceIn(0f, 1f) * 0.65f)
                                     .coerceAtMost(0.95f),
-                                streamedText = (current.streamedText + delta).takeLast(MAX_STREAMED_TEXT_LENGTH),
+                                streamedText = current.streamedText + delta,
                                 error = null
                             )
                         )
@@ -203,7 +203,6 @@ class AiFollowUpService : Service() {
         const val EXTRA_GRAPHIC_IMAGE_PATH = "graphic_image_path"
         const val EXTRA_FOLLOW_UP_IMAGE_PATHS = "follow_up_image_paths"
         private const val RESPONSE_ESTIMATE_CHARS = 4_000
-        private const val MAX_STREAMED_TEXT_LENGTH = 24_000
         private const val FOLLOW_UP_TIMEOUT_MS = 180_000L
         private const val ACTION_CANCEL = "com.tiji.mistakes.action.CANCEL_AI_FOLLOW_UP"
 
@@ -224,7 +223,7 @@ class AiFollowUpService : Service() {
             putExtra(EXTRA_ENDPOINT, endpoint)
             putExtra(EXTRA_MODEL, model)
             putExtra(EXTRA_API_KEY, apiKey)
-            putExtra(EXTRA_CONTEXT, baseContext.take(24_000))
+            putExtra(EXTRA_CONTEXT, baseContext)
             putExtra(EXTRA_PROMPT, prompt)
             putExtra(EXTRA_IMAGE_PATH, imagePath)
             putStringArrayListExtra(EXTRA_SOURCE_IMAGE_PATHS, ArrayList(sourceImagePaths.filter(String::isNotBlank).distinct()))

@@ -3,6 +3,7 @@ package com.tiji.mistakes.ui.common
 import com.tiji.mistakes.service.AiDrawingRenderer
 import com.tiji.mistakes.service.AiStructuredSolutionCodec
 import com.tiji.mistakes.service.stripAiProtocolForDisplay
+import com.tiji.mistakes.domain.Difficulty
 import org.json.JSONObject
 
 internal data class StreamingAiMeta(
@@ -44,7 +45,7 @@ internal fun streamingAiMeta(value: String): StreamingAiMeta? {
     return runCatching {
         val json = JSONObject(value.substring(jsonStart, jsonEnd))
         StreamingAiMeta(
-            difficulty = json.optInt("difficulty", 0).coerceIn(0, 5),
+            difficulty = Difficulty.normalize(json.optInt("difficulty", 0)),
             subject = json.optString("subject").trim(),
             questionType = json.optString("questionType").trim(),
             title = json.optString("title").trim()

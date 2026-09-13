@@ -7,6 +7,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import com.tiji.mistakes.domain.Difficulty
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -751,7 +752,7 @@ private val AI_STRUCTURED_SOLUTION_RULE = """
     recognition 必须逐字保留原题可见内容，不得概括、改写、补写或删减。只调整题目自身的结构：原题包含多个小题时，在第二个及后续小题编号前使用一个 lineBreak，使 (1)(2)、①②、（Ⅰ）（Ⅱ）等小题各自起行；小题编号必须与该小题正文保持在同一行。不得把屏幕宽度造成的折行写成 lineBreak。
     approach、derivation、finalAnswer 按实际解答自然返回，不要求按题目小题拆分，也不要为了排版重新组织、改写或重复已经生成的文字。
     segments 只允许 text、math、block、lineBreak、paragraphBreak、blank。中文正文、编号、列表标签和标点使用 text；普通单行公式使用 math；矩阵、方程组、分段函数、独立公式和多行推导使用一个完整 block。不要使用 Markdown 的 #、**、``` 或列表语法表达排版。
-    如果你无法保证 schemaVersion 2 JSON 完整、合法且包含四个 section，禁止输出残缺 JSON；改用旧版四分区文本结构，严格依次输出“题目识别”“解题思路”“逐步推导”“最终答案”四个标题及完整正文。旧版回退中不要输出 TIJI_SOLUTION_V2 标记、JSON、schemaVersion、sections 或 segments。
+    如果你无法保证 schemaVersion 2 JSON 完整、合法且包含四个 section，禁止输出旧版四分区文本、残缺 JSON 或任何协议外文字；本次结果将由应用保留上一版并显示校验警告。
     math/block 的 latex 字段不带 $、$$、\\(、\\)、\\[、\\] 定界符。JSON 中 LaTeX 命令的反斜杠必须正确转义；矩阵和 aligned 的每个 LaTeX 行分隔必须在 JSON 字符串中编码为四个反斜杠字符。不要把多行数学结构拆成多个 text/math，也不要用物理换行代替结构片段。
 """.trimIndent()
 
@@ -990,7 +991,7 @@ internal fun buildSupplementalTextInstruction(supplementalText: String?): String
         """
         用户补充说明（仅用于理解题意和解题，不是原题来源）：
         <user_supplement>
-        ${it.take(12_000)}
+        $it
         </user_supplement>
         补充说明不得写入内部题目标记、题目 segments 或 recognition，不得覆盖图片或 OCR 中的原题；仅可用于消歧、补充被裁掉的条件或明确用户的解题要求。
         """.trimIndent()
@@ -1002,7 +1003,7 @@ internal fun buildRecognitionCorrectionInstruction(recognitionCorrection: String
 
         学习者已经明确修正了题目识别结果。以下内容只作为题目文字的修正依据：
         <recognition_correction>
-        ${it.take(12_000)}
+        $it
         </recognition_correction>
         重新识别时必须优先采用这段修正后的题目文字，同时结合原图或 OCR 核对未修改部分；不要把标签、说明或修正过程写入题目识别，也不要擅自改动学习者没有明确修正的条件、选项、符号或公式。
         """.trimIndent()
@@ -1101,7 +1102,7 @@ class AiVisionService internal constructor(
             logInfo(TAG, "vision_solve_start model=${model.take(80)} images=${visualPaths.size}")
             val content: Any = if (visualPaths.isNotEmpty()) {
                 val instructionWithTextSource = if (!question.isNullOrBlank()) {
-                    "$instruction\n\n原题文字：\n${question.take(12_000)}"
+                    "$instruction\n\n原题文字：\n$question"
                 } else instruction
                 JSONArray().put(JSONObject().put("type", "text").put("text", instructionWithTextSource)).also { parts ->
                     visualPaths.forEachIndexed { index, path ->
@@ -1190,7 +1191,7 @@ class AiVisionService internal constructor(
                     JSONArray().put(
                         JSONObject()
                             .put("role", "user")
-                            .put("content", prompt.take(36_000))
+                            .put("content", prompt)
                     )
                 )
             applyDeepSeekTextOptions(body, endpoint, model)
@@ -1403,7 +1404,7 @@ class AiVisionService internal constructor(
         如果题目上下文含图，必须结合输入图片中的图形、标注、坐标、刻度、单位和图例回答；不要假装已经识别不存在的图形。
 
         已有题目与解答：
-        ${context.take(24_000)}
+        $context
 
         用户追问：
         $prompt
@@ -1420,7 +1421,7 @@ class AiVisionService internal constructor(
             val prompt = """
                 根据下面已经完成的解题内容提取错题分类元数据。不要重新解题，不要改写或补充题目、答案、解析。
                 只返回 JSON，字段只能是：subject, questionType, knowledgePoints, tags, difficulty。
-                difficulty 为 1 到 4，knowledgePoints 和 tags 为字符串数组。
+                difficulty 为 1 到 5，knowledgePoints 和 tags 为字符串数组。
                 subject 和 questionType 必须填写，绝不能省略、返回空字符串或改成嵌套对象；无法确定时分别填写“其他”和“其他题型”。
                 返回格式示例：{"subject":"数学","questionType":"计算题","knowledgePoints":["定积分"],"tags":["积分"],"difficulty":3}
 
@@ -1826,7 +1827,7 @@ $retryInstruction
                 $ocrText
                 坐标排序后的可见 OCR 文本结束
                 ${orderedText.takeIf { it.isNotBlank() }?.let { "\n完整坐标排序 OCR 文档（包含图形区域，图形文字只能作为隐藏证据）：\n$it\n" }.orEmpty()}
-                ${rawOcrTrace.takeIf { it.isNotBlank() }?.let { "\n原始 OCR 文字框与公式候选（仅用于重建，不得照抄为题干）：\n${it.take(24_000)}\n" }.orEmpty()}
+                ${rawOcrTrace.takeIf { it.isNotBlank() }?.let { "\n原始 OCR 文字框与公式候选（仅用于重建，不得照抄为题干）：\n$it\n" }.orEmpty()}
                 ${formulaCandidates.takeIf { it.isNotEmpty() }?.joinToString("\n")?.let { "\n公式 OCR 候选：\n$it\n" }.orEmpty()}
             """.trimIndent()
             val body = JSONObject()
@@ -2022,7 +2023,7 @@ $retryInstruction
             messages.put(
                 JSONObject()
                     .put("role", "assistant")
-                    .put("content", first.partialContent.take(MAX_CONTINUATION_CONTEXT))
+                    .put("content", first.partialContent)
             )
             messages.put(
                 JSONObject()
@@ -2036,9 +2037,7 @@ $retryInstruction
             try {
                 first.partialContent + streamRequest(endpoint, apiKey, continuationBody, onDelta)
             } catch (second: AiOutputLimitException) {
-                throw AiOutputLimitException(
-                    (first.partialContent + second.partialContent).take(MAX_CONTINUATION_RESULT)
-                )
+                throw AiOutputLimitException(first.partialContent + second.partialContent)
             }
         }
     }
@@ -2189,9 +2188,9 @@ $retryInstruction
                 questionType = stringValue("questionType", "question_type", "type", "题型", "题目类型").trim(),
                 knowledgePoints = listValue("knowledgePoints", "knowledge_points", "知识点"),
                 tags = listValue("tags", "标签"),
-                difficulty = (json.optInt("difficulty", 0).takeIf { it > 0 }
+                difficulty = Difficulty.normalize(json.optInt("difficulty", 0).takeIf { it > 0 }
                     ?: metadata?.optInt("difficulty", 0)?.takeIf { it > 0 }
-                    ?: 0).coerceIn(0, 5),
+                    ?: 0),
                 graphicSpecs = parseGraphicSpecs(json),
                 visibleTextLines = visibleTextLines.ifEmpty {
                     canonicalQuestionSegments
@@ -2419,7 +2418,7 @@ $retryInstruction
 
         fun metadataText(key: String, fallback: String): String =
             metadata?.optString(key).orEmpty().trim().ifBlank { fallback }
-        val metadataDifficulty = metadata?.optInt("difficulty", 0)?.coerceIn(0, 5) ?: 0
+        val metadataDifficulty = metadata?.optInt("difficulty", 0)?.let(Difficulty::normalize) ?: 0
         val graphicSpecs = metadata?.let(::parseGraphicSpecs).orEmpty().ifEmpty { parsed.graphicSpecs }
         val metadataFormulas = metadata?.let { jsonItems(it, "formulas", "formulaCandidates") }.orEmpty()
         val metadataUncertainItems = metadata?.let { jsonItems(it, "uncertainItems", "uncertain") }.orEmpty()
@@ -2563,8 +2562,8 @@ $retryInstruction
         val questionType = section("questionType")
         val difficulty = section("难度")
             .toIntOrNull()
-            ?.coerceIn(0, 5)
-            ?: Regex("(?m)难度\\s*[:：]?\\s*([1-5])").find(cleaned)?.groupValues?.getOrNull(1)?.toIntOrNull()?.coerceIn(0, 5)
+            ?.let(Difficulty::normalize)
+            ?: Regex("(?m)难度\\s*[:：]?\\s*([1-5])").find(cleaned)?.groupValues?.getOrNull(1)?.toIntOrNull()?.let(Difficulty::normalize)
             ?: 0
         val fallbackQuestion = if (question.isBlank() && matches.isEmpty()) {
             Regex("(?im)^(?:答案|最终答案|解题思路|逐步推导|解析|解答|解|证明|分析|过程|answer|explanation)\\s*[:：]?")
@@ -2675,11 +2674,6 @@ $retryInstruction
 
     companion object {
         private const val TAG = "AiVisionService"
-        private const val MAX_CONTINUATION_CONTEXT = 24_000
-        private const val MAX_CONTINUATION_RESULT = 48_000
-        private const val MAX_CLASSIFICATION_SOURCE_CHARS = 18_000
-        private const val CLASSIFICATION_SOURCE_HEAD_CHARS = 12_000
-        private const val CLASSIFICATION_SOURCE_TAIL_CHARS = 6_000
         // A real 64x64 PNG with a visible "OK" marker. Some vision providers reject
         // 1x1 images before model inference, so the smoke test must satisfy normal
         // image-dimension constraints and verify a fixed response marker.

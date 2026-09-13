@@ -34,6 +34,21 @@ class AiDuplicateDetectorTest {
     }
 
     @Test
+    fun duplicateMatchReportsTextEvidence() {
+        val matches = MistakeDuplicateService.findMatches(
+            question = "求函数 f(x) 的极限。",
+            sourceImagePaths = emptyList(),
+            existing = listOf(MistakeEntity(id = 21L, questionText = "求函数 f(x) 的极限"))
+        )
+
+        assertEquals(21L, matches.single().mistakeId)
+        assertEquals(
+            setOf(MistakeDuplicateService.DuplicateReason.TEXT_MATCH),
+            matches.single().reasons
+        )
+    }
+
+    @Test
     fun explicitUpdateKeepsReviewAndUneditedMetadata() {
         val existing = MistakeEntity(
             id = 12L,

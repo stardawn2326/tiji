@@ -194,7 +194,7 @@ class AiSolveService : Service() {
                 var complete = withTimeout(solveTimeout) {
                     suspend fun onDelta(delta: String) {
                         streamedChars += delta.length
-                        streamedAnswer = (streamedAnswer + delta).takeLast(MAX_STREAMED_TEXT_LENGTH)
+                        streamedAnswer += delta
                         responseProgress = (0.30f + (streamedChars / RESPONSE_ESTIMATE_CHARS.toFloat()).coerceIn(0f, 1f) * 0.65f)
                             .coerceAtMost(0.95f)
                         val nowElapsed = SystemClock.elapsedRealtime()
@@ -248,6 +248,12 @@ class AiSolveService : Service() {
                 // hide a response the provider already returned.
                 streamedAnswer = complete
                 Log.i(TAG, "solve_response_complete request=$requestId elapsedMs=${SystemClock.elapsedRealtime() - pipelineStartedAt} chars=${complete.length}")
+                // A new solve is only publishable when the provider returned
+                // the frozen V2 protocol. Keeping a legacy/four-section answer
+                // here would make downstream parsing invent or lose fields.
+                if (!isUsableAiSolution(complete)) {
+                    throw IllegalStateException("AI 未返回合法 TIJI_SOLUTION_V2 解答")
+                }
 
                 var verification = if (reliabilityMode == AiSolveReliabilityMode.FAST) {
                     AiVerificationResult.unavailable("快速模式未执行独立一致性检查")
@@ -464,7 +470,7 @@ class AiSolveService : Service() {
                         .getOrNull()?.recognitionWarning.orEmpty()
                 ).firstOrNull(String::isNotBlank).orEmpty().ifBlank {
                     uncertainItems.takeIf { it.isNotEmpty() }?.let {
-                        "有 ${it.size} 处识别结果建议确认：${it.joinToString("；")}".take(24_000)
+                        "有 ${it.size} 处识别结果建议确认：${it.joinToString("；")}"
                     }.orEmpty()
                 }
                 val persistedComplete = complete
@@ -675,10 +681,6 @@ class AiSolveService : Service() {
         private const val MAX_LOCAL_OCR_SOLVE_DURATION_MS = 360_000L
         private const val VERIFIER_TIMEOUT_MS = 120_000L
         private const val RESPONSE_ESTIMATE_CHARS = 4_000
-        private const val MAX_STREAMED_TEXT_LENGTH = 24_000
-        private const val MAX_CORRECTION_CONTEXT_LENGTH = 24_000
-        private const val MAX_RECOGNITION_CORRECTION_LENGTH = 12_000
-        private const val MAX_SUPPLEMENTAL_TEXT_LENGTH = 12_000
         private const val STREAM_PROGRESS_PERSIST_INTERVAL_MS = 250L
 
         fun createIntent(
@@ -720,21 +722,21 @@ class AiSolveService : Service() {
             visualConfigurationId?.let { putExtra(EXTRA_VISUAL_CONFIGURATION_ID, it) }
             putExtra(EXTRA_QUESTION, question)
             supplementalText?.trim()?.takeIf { it.isNotBlank() }?.let {
-                putExtra(EXTRA_SUPPLEMENTAL_TEXT, it.take(MAX_SUPPLEMENTAL_TEXT_LENGTH))
+                putExtra(EXTRA_SUPPLEMENTAL_TEXT, it)
             }
             putExtra(EXTRA_IMAGE_PATH, imagePath)
             putStringArrayListExtra(EXTRA_IMAGE_PATHS, ArrayList(imagePaths.filter(String::isNotBlank).distinct()))
             putExtra(EXTRA_GRAPHIC_IMAGE_PATH, graphicImagePath)
-            putExtra(EXTRA_PREVIOUS_COMPLETE_TEXT, previousCompleteText.take(24_000))
+            putExtra(EXTRA_PREVIOUS_COMPLETE_TEXT, previousCompleteText)
             putExtra(EXTRA_PREVIOUS_VERIFICATION, encodeVerification(previousVerification).toString())
             putExtra(EXTRA_PREVIOUS_UPDATED_AT, previousUpdatedAt)
             putExtra(EXTRA_MODE, mode.name)
             putExtra(EXTRA_RELIABILITY_MODE, reliabilityMode.name)
             correctionContext?.takeIf { it.isNotBlank() }?.let {
-                putExtra(EXTRA_CORRECTION_CONTEXT, it.take(MAX_CORRECTION_CONTEXT_LENGTH))
+                putExtra(EXTRA_CORRECTION_CONTEXT, it)
             }
             recognitionCorrection?.trim()?.takeIf { it.isNotBlank() }?.let {
-                putExtra(EXTRA_RECOGNITION_CORRECTION, it.take(MAX_RECOGNITION_CORRECTION_LENGTH))
+                putExtra(EXTRA_RECOGNITION_CORRECTION, it)
             }
             putStringArrayListExtra(
                 EXTRA_CORRECTION_IMAGE_PATHS,

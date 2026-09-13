@@ -3,6 +3,7 @@ package com.tiji.mistakes.domain.ai
 import com.tiji.mistakes.data.KnowledgePointNormalizer
 import com.tiji.mistakes.data.MistakeEntity
 import com.tiji.mistakes.domain.ReviewScheduler
+import com.tiji.mistakes.domain.Difficulty
 import com.tiji.mistakes.service.AiStructuredSolutionCodec
 import org.json.JSONArray
 
@@ -69,7 +70,7 @@ object AiSolvedMistakeDraftMapper {
             subject = subject,
             questionType = questionType,
             tags = tags,
-            difficulty = resolvedDifficulty.coerceIn(0, 5),
+            difficulty = Difficulty.normalize(resolvedDifficulty),
             includeSourceImageInPdf = input.includeSourceImageInPdf,
             imagePath = input.imagePath,
             sourceImagePaths = JSONArray(input.sourceImagePaths.filter(String::isNotBlank).distinct()).toString(),

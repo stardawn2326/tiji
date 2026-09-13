@@ -2,6 +2,9 @@ package com.tiji.mistakes
 
 import com.tiji.mistakes.service.AiSolutionVerifier
 import com.tiji.mistakes.service.AiVerificationStatus
+import com.tiji.mistakes.service.TIJI_SOLUTION_V2_END
+import com.tiji.mistakes.service.TIJI_SOLUTION_V2_START
+import com.tiji.mistakes.service.isUsableAiSolution
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -34,5 +37,18 @@ class AiSolutionVerifierTest {
         val prompt = verifier.buildPrompt("求 1+1", "答案是 2")
         assertTrue(prompt.contains("不要返回“100%正确”"))
         assertTrue(prompt.contains("独立解题一致性检查器"))
+    }
+
+    @Test
+    fun onlyCompleteV2SolutionsArePublishable() {
+        val valid = """
+            $TIJI_SOLUTION_V2_START
+            {"schemaVersion":2,"sections":[{"id":"recognition","segments":[{"type":"text","text":"题目"}]},{"id":"approach","segments":[{"type":"text","text":"方法"}]},{"id":"derivation","segments":[{"type":"text","text":"推导"}]},{"id":"finalAnswer","segments":[{"type":"text","text":"答案"}]}]}
+            $TIJI_SOLUTION_V2_END
+        """.trimIndent()
+
+        assertTrue(isUsableAiSolution(valid))
+        assertTrue(!isUsableAiSolution("题目识别\n题解\n最终答案"))
+        assertTrue(!isUsableAiSolution("$TIJI_SOLUTION_V2_START {\"schemaVersion\":2} $TIJI_SOLUTION_V2_END"))
     }
 }
