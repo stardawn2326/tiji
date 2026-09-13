@@ -87,13 +87,14 @@ PR：[#8](https://github.com/stardawn2326/tiji/pull/8)，保持 OPEN，不合并
 `https://github.com/stardawn2326/tiji.git`
 
 - 本轮源码和测试提交：`d61e436a4d56e3a750577099ea6d6e58e11e9e17`。
-- 后续仅文档同步提交为 `fe58655b18a4436bd26e9876b5c3d839ed243d5e` 和 `632db308124f469a5904f6ef4f8e0ba9fba8112c`；远程 `refs/heads/codex/ui-2.0-paper-blue` 已核验指向最终 head `632db308124f469a5904f6ef4f8e0ba9fba8112c`。推送只更新该分支，没有写入其他仓库或分支。
+- 后续仅文档同步提交为 `fe58655b18a4436bd26e9876b5c3d839ed243d5e`、`632db308124f469a5904f6ef4f8e0ba9fba8112c` 和 `aa77c116ff762d30482fa1b5a7134067f4d07456`；最近一次包含应用代码和已验证文档的远端 head 为 `aa77c116ff762d30482fa1b5a7134067f4d07456`。推送只更新 `codex/ui-2.0-paper-blue`，没有写入其他仓库或分支。
 - GitHub Actions run：[`34756680107`](https://github.com/stardawn2326/tiji/actions/runs/34756680107)，head 为 `d61e436a4d56e3a750577099ea6d6e58e11e9e17`。
   - [`Compile, test, lint and package`](https://github.com/stardawn2326/tiji/actions/runs/34756680107/job/103722134760)：success。
 - [`Android instrumentation (API 30)`](https://github.com/stardawn2326/tiji/actions/runs/34756680107/job/103722134899)：success。
 - 最终 head 的 run [`34757005443`](https://github.com/stardawn2326/tiji/actions/runs/34757005443) 已完成；compile/package job [`103723727705`](https://github.com/stardawn2326/tiji/actions/runs/34757005443/job/103723727705) 与 API30 instrumentation job [`103723726544`](https://github.com/stardawn2326/tiji/actions/runs/34757005443/job/103723726544) 在失败重试后均 success。首次尝试仅出现一次模拟器触控节点注入瞬态失败，重试通过，源码未变。
+- 文档同步后的 head `aa77c116ff762d30482fa1b5a7134067f4d07456` 对应 run [`34757583351`](https://github.com/stardawn2326/tiji/actions/runs/34757583351)，compile/package job [`103724532754`](https://github.com/stardawn2326/tiji/actions/runs/34757583351/job/103724532754) 与 API30 instrumentation job [`103724532876`](https://github.com/stardawn2326/tiji/actions/runs/34757583351/job/103724532876) 均 success。
 - PR [`#8`](https://github.com/stardawn2326/tiji/pull/8) 仍为 OPEN，head `codex/ui-2.0-paper-blue`，未执行合并。
-- 两次文档同步不改变应用代码；最终 head 的检查复用了同一份已验证源码。
+- 后续本说明仅做 docs-only 同步并使用 `[skip ci]`，不改变应用代码；应用代码的最近一次 head 已由上述 run 完整验证。
 
 ## 6. 验收边界
 
