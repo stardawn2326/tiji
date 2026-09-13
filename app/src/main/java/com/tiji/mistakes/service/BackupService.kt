@@ -13,6 +13,7 @@ import com.tiji.mistakes.data.MistakeKnowledgePointCrossRef
 import com.tiji.mistakes.data.MistakeRepository
 import com.tiji.mistakes.data.ReviewRecordEntity
 import com.tiji.mistakes.domain.ReviewGrade
+import com.tiji.mistakes.domain.Difficulty
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -241,8 +242,13 @@ object BackupService {
         database: AppDatabase,
         preferences: AppPreferences? = null
     ): Result<BackupImportResult> = withContext(Dispatchers.IO) {
-        runCatching {
+        val stagingDirectory = File(context.filesDir, "staging/import_${UUID.randomUUID()}")
+        val stagedImages = linkedMapOf<String, StagedImportImage>()
+        val createdImagePaths = mutableSetOf<String>()
+        val previousReferencedImagePaths = MistakeRepository(database).allReferencedImagePaths()
+        val result = runCatching {
             val payload = parsePayload(readArchive(context, uri))
+            stagePayloadImages(context, payload, stagingDirectory, stagedImages)
             val dao = database.mistakeDao()
             val reviewDao = database.reviewRecordDao()
             val knowledgePointDao = database.knowledgePointDao()
@@ -282,9 +288,10 @@ object BackupService {
                         if (entry == null) {
                             return existingPath.takeIf { mode == BackupImportMode.MERGE }
                         }
-                        val bytes = payload.entries[entry] ?: return null
+                        val staged = stagedImages[stagedImageKey(incoming.stableId, role, entry)]
+                            ?: return null
                         copiedImages += 1
-                        return storeImportedImage(context, incoming.stableId, role, entry, bytes)
+                        return staged.target.absolutePath
                     }
 
                     val importedQuestionImages = record.questionImageEntries.mapIndexedNotNull { index, entry ->
@@ -423,7 +430,21 @@ object BackupService {
                     }
                 }
                 knowledgePointDao.deleteOrphans()
+
+                // DataStore settings are committed before leaving the Room
+                // transaction. If this import fails, Room rolls back together
+                // with the settings write instead of leaving two stores out of sync.
+                preferences?.importBackupJson(
+                    payload.preferences,
+                    importedStableToLocalId,
+                    replace = mode == BackupImportMode.REPLACE
+                )
             }
+
+            // Only after the Room transaction commits do staged files become
+            // visible in the managed image directory. A failed transaction
+            // therefore cannot leave import_* files behind.
+            promoteStagedImages(stagedImages.values, createdImagePaths, stagingDirectory)
 
             if (payload.preview.schemaVersion < SCHEMA_VERSION && importedStableToLocalId.isNotEmpty()) {
                 MistakeRepository(database).syncKnowledgePointsForMistakes(importedStableToLocalId.values)
@@ -431,13 +452,21 @@ object BackupService {
 
             MistakeRepository(database).sanitizeKnowledgePointParents()
 
-            preferences?.importBackupJson(
-                payload.preferences,
-                importedStableToLocalId,
-                replace = mode == BackupImportMode.REPLACE
-            )
             BackupImportResult(inserted, updated, skipped, copiedImages)
         }
+        stagingDirectory.deleteRecursively()
+        if (result.isSuccess) {
+            val currentReferencedImagePaths = MistakeRepository(database).allReferencedImagePaths()
+            ImageStorage.deletePrivateFiles(
+                context,
+                previousReferencedImagePaths.filterNot { it in currentReferencedImagePaths }
+            )
+        } else {
+            // Room rolls back rows inside withTransaction; remove only files this
+            // attempt created so the pre-import archive remains intact.
+            ImageStorage.deletePrivateFiles(context, createdImagePaths)
+        }
+        result
     }
 
     private fun parsePayload(entries: Map<String, ByteArray>, strictImages: Boolean = true): BackupPayload {
@@ -573,7 +602,7 @@ object BackupService {
             subject = json.optString("subject", "未分类"),
             questionType = json.optString("questionType", "未分类"),
             tags = json.optString("tags"),
-            difficulty = json.optInt("difficulty", 0).coerceIn(0, 5),
+            difficulty = Difficulty.normalize(json.optInt("difficulty", 0)),
             includeSourceImageInPdf = json.optBoolean("includeSourceImageInPdf", true),
             mastery = json.optInt("mastery", 0),
             ocrText = json.optString("ocrText"),
@@ -763,25 +792,116 @@ object BackupService {
         return output.toByteArray()
     }
 
-    private fun storeImportedImage(
+    /** Staged image state; the target path is what the committed row will own. */
+    private data class StagedImportImage(
+        val target: File,
+        val staged: File?
+    )
+
+    /** Copies every referenced archive image into app-private staging before Room changes. */
+    private fun stagePayloadImages(
+        context: Context,
+        payload: BackupPayload,
+        stagingDirectory: File,
+        stagedImages: MutableMap<String, StagedImportImage>
+    ) {
+        stagingDirectory.mkdirs()
+        payload.records.forEach { record ->
+            val stableId = record.entity.stableId
+            fun stage(entry: String?, role: String) {
+                if (entry == null) return
+                val key = stagedImageKey(stableId, role, entry)
+                if (key in stagedImages) return
+                val bytes = payload.entries[entry] ?: error("备份缺少图片文件：$entry")
+                stagedImages[key] = stageImportedImage(
+                    context = context,
+                    stableId = stableId,
+                    role = role,
+                    entry = entry,
+                    bytes = bytes,
+                    stagingDirectory = stagingDirectory,
+                    sequence = stagedImages.size
+                )
+            }
+            record.questionImageEntries.forEachIndexed { index, entry -> stage(entry, "question-$index") }
+            stage(record.questionImageEntry, "question")
+            stage(record.answerImageEntry, "answer")
+            stage(record.explanationImageEntry, "explanation")
+            record.contentBlockEntries.forEach { block -> stage(block.entry, "block-${block.order}") }
+        }
+    }
+
+    private fun stageImportedImage(
         context: Context,
         stableId: String,
         role: String,
         entry: String,
-        bytes: ByteArray
-    ): String {
-        val extension = entry.substringAfterLast('.', "jpg").lowercase().takeIf { it in setOf("jpg", "jpeg", "png", "webp") } ?: "jpg"
+        bytes: ByteArray,
+        stagingDirectory: File,
+        sequence: Int
+    ): StagedImportImage {
+        val extension = entry.substringAfterLast('.', "jpg").lowercase()
+            .takeIf { it in setOf("jpg", "jpeg", "png", "webp", "heic", "heif") } ?: "jpg"
         val digest = MessageDigest.getInstance("SHA-256").digest(bytes).take(6).joinToString("") { "%02x".format(it) }
         val directory = File(context.filesDir, "images").apply { mkdirs() }
         val target = File(directory, "import_${safeStableId(stableId)}_${role}_$digest.$extension")
-        if (!target.isFile || target.length() != bytes.size.toLong()) {
-            val temporary = File(directory, "${target.name}.tmp")
-            temporary.outputStream().use { it.write(bytes) }
-            if (target.exists()) target.delete()
-            check(temporary.renameTo(target)) { "无法保存备份图片" }
+        if (target.isFile && target.length() == bytes.size.toLong()) {
+            return StagedImportImage(target = target, staged = null)
         }
-        return target.absolutePath
+        val staged = File(stagingDirectory, "${sequence}_${target.name}.tmp")
+        staged.outputStream().use { it.write(bytes) }
+        check(staged.length() == bytes.size.toLong()) { "无法写入备份图片暂存文件" }
+        return StagedImportImage(target = target, staged = staged)
     }
+
+    private fun promoteStagedImages(
+        images: Collection<StagedImportImage>,
+        createdImagePaths: MutableSet<String>,
+        rollbackDirectory: File
+    ) {
+        data class PromotionJournal(val target: File, val previous: File?)
+        val journal = mutableListOf<PromotionJournal>()
+        try {
+            images.forEachIndexed { index, image ->
+                val staged = image.staged ?: return@forEachIndexed
+                image.target.parentFile?.mkdirs()
+                val previous = image.target.takeIf(File::isFile)?.let { target ->
+                    File(rollbackDirectory, "previous_${index}_${target.name}").also {
+                        target.copyTo(it, overwrite = true)
+                    }
+                }
+                val entry = PromotionJournal(image.target, previous)
+                journal += entry
+                val incoming = File(image.target.parentFile, ".${image.target.name}.incoming")
+                incoming.delete()
+                staged.copyTo(incoming, overwrite = true)
+                if (image.target.exists() && !image.target.delete()) {
+                    error("无法替换备份图片")
+                }
+                if (!incoming.renameTo(image.target)) {
+                    incoming.copyTo(image.target, overwrite = true)
+                    check(incoming.delete()) { "无法完成备份图片迁移" }
+                }
+                check(staged.delete()) { "无法清理备份图片暂存文件" }
+            }
+            createdImagePaths += journal.map { it.target.absolutePath }
+        } catch (error: Throwable) {
+            // Restore every target touched by this promotion, including the
+            // target currently being moved when a rename/copy fails halfway.
+            journal.asReversed().forEach { entry ->
+                runCatching {
+                    entry.target.delete()
+                    entry.previous?.takeIf(File::isFile)?.copyTo(entry.target, overwrite = true)
+                }
+                File(entry.target.parentFile, ".${entry.target.name}.incoming").delete()
+            }
+            createdImagePaths.clear()
+            throw error
+        }
+    }
+
+    private fun stagedImageKey(stableId: String, role: String, entry: String): String =
+        "$stableId\u001f$role\u001f$entry"
 
     private fun fingerprint(mistake: MistakeEntity): String = listOf(
         mistake.title.trim().lowercase(),
