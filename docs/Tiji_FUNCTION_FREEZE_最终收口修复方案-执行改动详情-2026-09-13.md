@@ -86,13 +86,14 @@ PR：[#8](https://github.com/stardawn2326/tiji/pull/8)，保持 OPEN，不合并
 
 `https://github.com/stardawn2326/tiji.git`
 
-- 本轮源码、测试和本说明提交：`d61e436a4d56e3a750577099ea6d6e58e11e9e17`。
-- 远程 `refs/heads/codex/ui-2.0-paper-blue` 已核验指向同一 SHA；推送只更新该分支，没有写入其他仓库或分支。
+- 本轮源码和测试提交：`d61e436a4d56e3a750577099ea6d6e58e11e9e17`。
+- 后续仅文档同步提交为 `fe58655b18a4436bd26e9876b5c3d839ed243d5e` 和 `632db308124f469a5904f6ef4f8e0ba9fba8112c`；远程 `refs/heads/codex/ui-2.0-paper-blue` 已核验指向最终 head `632db308124f469a5904f6ef4f8e0ba9fba8112c`。推送只更新该分支，没有写入其他仓库或分支。
 - GitHub Actions run：[`34756680107`](https://github.com/stardawn2326/tiji/actions/runs/34756680107)，head 为 `d61e436a4d56e3a750577099ea6d6e58e11e9e17`。
   - [`Compile, test, lint and package`](https://github.com/stardawn2326/tiji/actions/runs/34756680107/job/103722134760)：success。
 - [`Android instrumentation (API 30)`](https://github.com/stardawn2326/tiji/actions/runs/34756680107/job/103722134899)：success。
+- 最终 head 的 run [`34757005443`](https://github.com/stardawn2326/tiji/actions/runs/34757005443) 已完成；compile/package job [`103723727705`](https://github.com/stardawn2326/tiji/actions/runs/34757005443/job/103723727705) 与 API30 instrumentation job [`103723726544`](https://github.com/stardawn2326/tiji/actions/runs/34757005443/job/103723726544) 在失败重试后均 success。首次尝试仅出现一次模拟器触控节点注入瞬态失败，重试通过，源码未变。
 - PR [`#8`](https://github.com/stardawn2326/tiji/pull/8) 仍为 OPEN，head `codex/ui-2.0-paper-blue`，未执行合并。
-- `fe58655` 之后的文档同步不改变应用代码；当前 head 的检查仍复用同一份已验证源码。
+- 两次文档同步不改变应用代码；最终 head 的检查复用了同一份已验证源码。
 
 ## 6. 验收边界
 
