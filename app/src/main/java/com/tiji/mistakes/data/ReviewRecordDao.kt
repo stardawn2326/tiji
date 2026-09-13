@@ -80,6 +80,14 @@ interface ReviewRecordDao {
         nextReviewAt: Long
     ): ReviewRecordEntity?
 
+    /** Guards a second tap that reaches the repository before Compose can disable the action. */
+    @Query(
+        """SELECT * FROM review_records
+            WHERE mistakeId = :mistakeId AND grade = :grade AND reviewedAt >= :from
+            ORDER BY reviewedAt DESC, id DESC LIMIT 1"""
+    )
+    suspend fun findRecentByGrade(mistakeId: Long, grade: String, from: Long): ReviewRecordEntity?
+
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insert(record: ReviewRecordEntity): Long
 

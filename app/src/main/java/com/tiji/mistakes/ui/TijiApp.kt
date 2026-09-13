@@ -88,7 +88,6 @@ fun TijiApp() {
     val reviewPlanEnabled by preferences.reviewPlanEnabled.collectAsStateWithLifecycle(false)
     val randomReview by preferences.randomReview.collectAsStateWithLifecycle(false)
     val reviewCheckIns by preferences.reviewCheckIns.collectAsStateWithLifecycle(emptySet())
-    val reviewMastery by preferences.reviewMastery.collectAsStateWithLifecycle(emptyMap())
     val reviewPlanSnapshots by preferences.reviewPlanSnapshots.collectAsStateWithLifecycle(emptyMap())
     val mistakes by viewModel.mistakes.collectAsStateWithLifecycle()
     val allMistakes by viewModel.allMistakes.collectAsStateWithLifecycle()
@@ -102,6 +101,7 @@ fun TijiApp() {
     val dueMistakes by viewModel.dueMistakes.collectAsStateWithLifecycle()
     val dueCount by viewModel.dueCount.collectAsStateWithLifecycle()
     val recentReviewRecords by viewModel.recentReviewRecords.collectAsStateWithLifecycle()
+    val reviewRecords by viewModel.allReviewRecords.collectAsStateWithLifecycle()
     val knowledgePoints by viewModel.knowledgePoints.collectAsStateWithLifecycle()
     val knowledgePointLinks by viewModel.knowledgePointLinks.collectAsStateWithLifecycle()
     val reviewAnalytics = remember(recentReviewRecords) { ReviewAnalytics.summarize(recentReviewRecords) }
@@ -184,7 +184,7 @@ fun TijiApp() {
         weaknessInsights = weaknessInsights,
         dailyStudyPlan = dailyStudyPlan,
         reviewPlanSnapshots = reviewPlanSnapshots,
-        reviewMastery = reviewMastery,
+        reviewRecords = reviewRecords,
         reviewCheckIns = reviewCheckIns,
         reviewPlanEnabled = reviewPlanEnabled,
         dailyReviewLimit = dailyReviewLimit,

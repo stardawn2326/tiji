@@ -74,9 +74,11 @@ import com.tiji.mistakes.ui.design.TijiContextAction
 import com.tiji.mistakes.ui.common.difficultyFilterLabel
 import com.tiji.mistakes.ui.common.difficultyMatchesFilter
 import com.tiji.mistakes.ui.common.difficultyOptions
+import com.tiji.mistakes.ui.common.difficultyLabel
 import com.tiji.mistakes.ui.common.discardPdfPreview
 import com.tiji.mistakes.ui.common.launchDurablePdfExport
-import com.tiji.mistakes.ui.common.masteryLabel
+import com.tiji.mistakes.ui.common.reviewStatusFilterLabel
+import com.tiji.mistakes.domain.ReviewGrade
 import com.tiji.mistakes.ui.common.MistakeOrder
 import com.tiji.mistakes.ui.common.PdfPreviewDialog
 import com.tiji.mistakes.ui.common.PdfPreviewLoadingDialog
@@ -189,10 +191,16 @@ internal fun LibraryScreen(
         }
     }
     val visibleItems = remember(mistakeItems, order, selectedSubject, masteryFilter, difficultyFilter) {
+        val selectedMastery = masteryFilter
         val filtered = mistakeItems.filter { item ->
             val mistake = item.mistake
+            val reviewStatusMatches = when (selectedMastery) {
+                null -> true
+                0 -> item.latestReviewGrade == null
+                else -> item.latestReviewGrade == ReviewGrade.entries.getOrNull(selectedMastery - 1)
+            }
             (selectedSubject == null || normalizedSubject(mistake.subject) == selectedSubject) &&
-                (masteryFilter == null || mistake.mastery == masteryFilter) &&
+                reviewStatusMatches &&
                 difficultyMatchesFilter(mistake.difficulty, difficultyFilter)
         }
         when(order) {
@@ -348,7 +356,7 @@ internal fun LibraryScreen(
             title = { Text("筛选错题") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("掌握状态", style = MaterialTheme.typography.titleSmall)
+                    Text("复习状态", style = MaterialTheme.typography.titleSmall)
                     LazyRow(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.testTag("library_mastery_options")
@@ -356,7 +364,7 @@ internal fun LibraryScreen(
                         item {
                             TijiChip(selected = masteryFilter == null, onClick = { masteryFilter = null }, label = { Text("全部") })
                         }
-                        items(listOf(0 to "未掌握", 1 to "复习中", 2 to "基本掌握", 3 to "已掌握")) { (value, label) ->
+                        items((0..4).map { it to reviewStatusFilterLabel(it) }) { (value, label) ->
                             TijiChip(
                                 selected = masteryFilter == value,
                                 onClick = { masteryFilter = value },
@@ -522,7 +530,7 @@ internal fun LibraryScreen(
                         selected = masteryFilter != null,
                         onClick = { showFilterDialog = true },
                         modifier = Modifier.heightIn(min = 48.dp).testTag("library_mastery_filter"),
-                        label = { Text(masteryFilter?.let(::masteryLabel) ?: "掌握状态") }
+                        label = { Text(masteryFilter?.let(::reviewStatusFilterLabel) ?: "复习状态") }
                     )
                 }
                 item {
@@ -638,7 +646,13 @@ internal fun LibraryScreen(
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         item { TijiChip(selected = batchDifficulty == null, onClick = { batchDifficulty = null }, label = { Text("难度不变") }) }
                         (0..5).forEach { value ->
-                            item { TijiChip(selected = batchDifficulty == value, onClick = { batchDifficulty = value }, label = { Text(if (value == 0) "未评估" else "难度$value") }) }
+                            item {
+                                TijiChip(
+                                    selected = batchDifficulty == value,
+                                    onClick = { batchDifficulty = value },
+                                    label = { Text(if (value == 0) "未评估" else difficultyLabel(value)) }
+                                )
+                            }
                         }
                     }
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {

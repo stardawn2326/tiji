@@ -5,6 +5,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import com.tiji.mistakes.domain.ReviewScheduler
 import com.tiji.mistakes.domain.ReviewGrade
+import com.tiji.mistakes.domain.Difficulty
+import com.tiji.mistakes.domain.ReviewScheduler.shouldRemainInReviewPlan
 import com.tiji.mistakes.domain.time.LearningCalendar
 import com.tiji.mistakes.service.AiRecognitionResult
 import com.tiji.mistakes.service.QuestionContentBlockCodec
@@ -29,6 +31,10 @@ class MistakeRepository(private val database: AppDatabase) {
     fun observeDueCount(now: Long): Flow<Int> = dao.observeDueCount(now)
     fun observeReviewRecordsSince(from: Long): Flow<List<ReviewRecordEntity>> =
         database.reviewRecordDao().observeSince(from)
+
+    /** Full review history exposed to calendar and other fact-source consumers. */
+    fun observeAllReviewRecords(): Flow<List<ReviewRecordEntity>> =
+        database.reviewRecordDao().observeAll()
 
     fun observeReviewRecordsForMistake(mistakeId: Long, limit: Int = 5): Flow<List<ReviewRecordEntity>> =
         database.reviewRecordDao().observeLatestForMistake(mistakeId, limit.coerceAtLeast(1))
@@ -87,7 +93,10 @@ class MistakeRepository(private val database: AppDatabase) {
     suspend fun find(id: Long): MistakeEntity? = dao.findById(id)
     suspend fun save(mistake: MistakeEntity, preserveReviewPlan: Boolean = false): Long {
         val now = System.currentTimeMillis()
-        val prepared = mistake.copy(updatedAt = now).let {
+        val prepared = mistake.copy(
+            difficulty = Difficulty.normalize(mistake.difficulty),
+            updatedAt = now
+        ).let {
             if (it.id == 0L && !preserveReviewPlan) {
                 it.copy(inReviewPlan = true, nextReviewAt = ReviewScheduler.nextLocalMidnight(now))
             } else {
@@ -198,6 +207,11 @@ class MistakeRepository(private val database: AppDatabase) {
         now: Long = System.currentTimeMillis()
     ): ReviewRecordEntity = database.withTransaction {
         val before = requireNotNull(dao.findById(mistakeId)) { "错题不存在：$mistakeId" }
+        database.reviewRecordDao().findRecentByGrade(
+            mistakeId = mistakeId,
+            grade = grade.name,
+            from = now - REVIEW_TAP_DEBOUNCE_MS
+        )?.let { return@withTransaction it }
         val recentHistory = database.reviewRecordDao().listByMistakeId(mistakeId)
         val preview = ReviewScheduler.preview(before, grade, recentHistory, now)
         val after = before.copy(
@@ -205,7 +219,7 @@ class MistakeRepository(private val database: AppDatabase) {
             reviewCount = before.reviewCount + 1,
             lastReviewedAt = now,
             nextReviewAt = preview.nextReviewAt,
-            inReviewPlan = preview.masteryAfter < 3,
+            inReviewPlan = shouldRemainInReviewPlan(grade),
             updatedAt = now
         )
         dao.update(after)
@@ -323,11 +337,18 @@ class MistakeRepository(private val database: AppDatabase) {
         addAll(decodePaths(mistake.sourceImagePaths))
         mistake.answerImagePath?.takeIf(String::isNotBlank)?.let(::add)
         mistake.explanationImagePath?.takeIf(String::isNotBlank)?.let(::add)
-        addAll(QuestionContentBlockCodec.decode(mistake.contentBlocks).map { it.path })
+        QuestionContentBlockCodec.decode(mistake.contentBlocks).forEach { block ->
+            block.path.takeIf(String::isNotBlank)?.let(::add)
+            block.sourcePath?.takeIf(String::isNotBlank)?.let(::add)
+        }
     }.distinct()
 
     private fun decodePaths(raw: String): List<String> = runCatching {
         val array = JSONArray(raw.ifBlank { "[]" })
         (0 until array.length()).mapNotNull { array.optString(it).takeIf(String::isNotBlank) }
     }.getOrDefault(emptyList())
+
+    private companion object {
+        const val REVIEW_TAP_DEBOUNCE_MS = 1_500L
+    }
 }

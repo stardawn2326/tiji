@@ -25,9 +25,12 @@ class MistakeProgressSummaryTest {
         assertEquals(4, summary.total)
         assertEquals(2, summary.reviewed)
         assertEquals(0.5f, summary.reviewRate)
+        assertEquals(2, summary.mastered)
+        assertEquals(0.5f, summary.masteryRate)
         assertEquals(listOf("数学", "未分类", "英语"), summary.bySubject.map { it.subject })
         assertEquals(listOf(2, 1, 1), summary.bySubject.map { it.total })
         assertEquals(listOf(1, 0, 1), summary.bySubject.map { it.reviewed })
+        assertEquals(listOf(1, 0, 1), summary.bySubject.map { it.mastered })
     }
 
     @Test
@@ -37,6 +40,8 @@ class MistakeProgressSummaryTest {
         assertEquals(0, summary.total)
         assertEquals(0, summary.reviewed)
         assertTrue(summary.reviewRate == 0f)
+        assertTrue(summary.masteryRate == 0f)
+        assertEquals(0, summary.mastered)
         assertTrue(summary.bySubject.isEmpty())
     }
 }

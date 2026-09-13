@@ -198,7 +198,7 @@ internal fun DifficultyPicker(difficulty: Int, onDifficulty: (Int) -> Unit) {
         Text("难度", style = MaterialTheme.typography.labelLarge)
         TijiSegmentedControl(
             options = difficultyOptions.map { it.first },
-            selected = difficultyPickerValue(difficulty).takeIf { it in 1..4 },
+            selected = difficultyPickerValue(difficulty).takeIf { it in 1..5 },
             onSelected = onDifficulty,
             label = ::difficultyLabel
         )

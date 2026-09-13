@@ -15,6 +15,9 @@ data class ReviewPreview(
 )
 
 object ReviewScheduler {
+    /** Only the explicit 熟练 grade leaves the automatic review plan. */
+    fun shouldRemainInReviewPlan(grade: ReviewGrade): Boolean = grade != ReviewGrade.EASY
+
     fun nextLocalMidnight(now: Long = System.currentTimeMillis()): Long = localMidnightAfter(now, 1)
 
     fun preview(
@@ -95,7 +98,7 @@ object ReviewScheduler {
             reviewCount = mistake.reviewCount + 1,
             lastReviewedAt = now,
             nextReviewAt = preview.nextReviewAt,
-            inReviewPlan = preview.masteryAfter < 3
+            inReviewPlan = shouldRemainInReviewPlan(grade)
         )
     }
 
@@ -111,7 +114,7 @@ object ReviewScheduler {
             reviewCount = mistake.reviewCount + 1,
             lastReviewedAt = now,
             nextReviewAt = preview.nextReviewAt,
-            inReviewPlan = preview.masteryAfter < 3
+            inReviewPlan = shouldRemainInReviewPlan(grade)
         )
     }
 

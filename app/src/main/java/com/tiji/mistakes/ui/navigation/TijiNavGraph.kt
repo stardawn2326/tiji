@@ -10,7 +10,9 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.NavHost
@@ -20,6 +22,7 @@ import com.tiji.mistakes.data.AiVisualProfile
 import com.tiji.mistakes.data.AppPreferences
 import com.tiji.mistakes.data.MistakeEntity
 import com.tiji.mistakes.service.OcrModelManager
+import com.tiji.mistakes.service.SecureKeyStore
 import com.tiji.mistakes.ui.capture.NewCaptureScreen
 import com.tiji.mistakes.ui.detail.DetailScreen
 import com.tiji.mistakes.ui.home.HomeScreen
@@ -45,6 +48,7 @@ import com.tiji.mistakes.ui.settings.VisualAssistConfigScreen
 import com.tiji.mistakes.ui.solve.AiChatHistoryScreen
 import com.tiji.mistakes.ui.solve.AiSolveHistoryScreen
 import com.tiji.mistakes.ui.solve.AiSolveScreen
+import com.tiji.mistakes.ui.common.reviewDateKey
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -62,7 +66,13 @@ internal fun TijiNavGraph(
     state: TijiNavGraphState,
     onLibrarySubject: (String?) -> Unit
 ) {
+    val context = LocalContext.current
     val activeReviewSession by viewModel.reviewSession.collectAsStateWithLifecycle()
+    val reviewRecordsByDate = remember(state.reviewRecords) {
+        state.reviewRecords
+            .groupBy { reviewDateKey(it.reviewedAt) }
+            .mapValues { (_, records) -> records.associate { it.mistakeId to it.grade } }
+    }
     NavHost(
                 navController,
                 startDestination = TijiRoutes.HOME,
@@ -125,7 +135,7 @@ internal fun TijiNavGraph(
                         progressSummary = state.progressSummary,
                         dueCount = state.dueCount,
                         reviewTotal = state.reviewPlanSnapshots[state.todayDate].orEmpty().size.takeIf { it > 0 } ?: state.dueCount,
-                        reviewCompleted = state.reviewMastery[state.todayDate].orEmpty().keys.count { id -> id in state.reviewPlanSnapshots[state.todayDate].orEmpty() },
+                        reviewCompleted = reviewRecordsByDate[state.todayDate].orEmpty().keys.count { id -> id in state.reviewPlanSnapshots[state.todayDate].orEmpty() },
                         resetScrollToken = state.homeVisitToken,
                         onNavigate = navController::navigate,
                         onSubject = { subject ->
@@ -165,7 +175,7 @@ internal fun TijiNavGraph(
                         viewModel = viewModel,
                         exportOriginalImagesOnly = !state.aiExcludeSourceImageByDefault,
                         reviewPlanEnabled = state.reviewPlanEnabled,
-                        reviewStatuses = state.reviewMastery[state.todayDate].orEmpty(),
+                        reviewStatuses = reviewRecordsByDate[state.todayDate].orEmpty(),
                         savedPlanIds = state.reviewPlanSnapshots[state.todayDate],
                         checkedInToday = state.todayDate in state.reviewCheckIns,
                         onSavePlanSnapshot = { date, ids -> scope.launch { preferences.ensureReviewPlanSnapshot(date, ids) } },
@@ -286,6 +296,8 @@ internal fun TijiNavGraph(
                         onOpenVisualAssistConfig = { textProfileId -> navController.navigate(TijiRoutes.visualConfig(textProfileId)) },
                         onDeleteAiProfile = { id ->
                             val previousProfiles = state.aiProfiles
+                            val previousVisualProfiles = state.aiVisualProfiles
+                            val previousVisualBindings = state.aiVisualBindings
                             val remainingProfiles = previousProfiles.filterNot { it.id == id }
                             val fallback = remainingProfiles.firstOrNull()
                                 ?: AiProfile(AppPreferences.DEFAULT_PROFILE_ID, "默认 AI", AppPreferences.DEFAULT_ENDPOINT, AppPreferences.DEFAULT_MODEL)
@@ -303,6 +315,7 @@ internal fun TijiNavGraph(
                                 if (result == SnackbarResult.ActionPerformed) {
                                     preferences.setAiProfiles(previousProfiles)
                                     preferences.setActiveAiProfile(state.activeAiProfileId, previousProfiles)
+                                    preferences.restoreAiVisualState(previousVisualProfiles, previousVisualBindings)
                                     snackbarHostState.showSnackbar("已撤回删除", duration = SnackbarDuration.Short)
                                 }
                             }
@@ -331,7 +344,7 @@ internal fun TijiNavGraph(
                             scope.launch { preferences.setAiExcludeSourceImageByDefault(value) }
                         },
                         backgroundScope = scope,
-                        onResetData = { onFinished ->
+                        onClearLearningData = { onFinished ->
                             scope.launch {
                                 runCatching {
                                     viewModel.resetAllData()
@@ -340,6 +353,19 @@ internal fun TijiNavGraph(
                                     onFinished(null)
                                 }.onFailure { error ->
                                     onFinished("重置失败：${error.message ?: "未知错误"}")
+                                }
+                            }
+                        },
+                        onFactoryReset = { onFinished ->
+                            scope.launch {
+                                runCatching {
+                                    viewModel.resetAllData()
+                                    preferences.clearAll()
+                                    SecureKeyStore(context).clearAll()
+                                }.onSuccess {
+                                    onFinished(null)
+                                }.onFailure { error ->
+                                    onFinished("恢复出厂失败：${error.message ?: "未知错误"}")
                                 }
                             }
                         },
@@ -480,18 +506,14 @@ internal fun TijiNavGraph(
                                     onDone()
                                 }
                             },
-                            onReviewed = { questionId, grade ->
-                                if (session.plan.source == ReviewSessionSource.TODAY_PLAN) {
-                                    scope.launch { preferences.recordReviewStatus(state.todayDate, questionId, grade.name) }
-                                }
-                            },
+                            onReviewed = { _, _ -> },
                         )
                     }
                 }
                 composable(TijiRoutes.REVIEW_CALENDAR) {
                     ReviewCalendarScreen(
                         mistakes = state.mistakes,
-                        reviewRecords = state.reviewMastery,
+                        reviewRecords = reviewRecordsByDate,
                         checkedInDates = state.reviewCheckIns,
                         todayDate = state.todayDate,
                         todayQuestionIds = state.reviewPlanSnapshots[state.todayDate].orEmpty(),

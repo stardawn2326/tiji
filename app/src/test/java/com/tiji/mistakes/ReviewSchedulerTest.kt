@@ -32,6 +32,14 @@ class ReviewSchedulerTest {
     }
 
     @Test
+    fun onlyEasyLeavesTheAutomaticReviewPlan() {
+        assertTrue(ReviewScheduler.shouldRemainInReviewPlan(ReviewGrade.FORGOT))
+        assertTrue(ReviewScheduler.shouldRemainInReviewPlan(ReviewGrade.HARD))
+        assertTrue(ReviewScheduler.shouldRemainInReviewPlan(ReviewGrade.GOOD))
+        assertTrue(!ReviewScheduler.shouldRemainInReviewPlan(ReviewGrade.EASY))
+    }
+
+    @Test
     fun firstReviewPreviewUsesSchedulerIntervals() {
         val mistake = MistakeEntity(mastery = 0, lastReviewedAt = null, nextReviewAt = now)
 

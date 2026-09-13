@@ -14,6 +14,8 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.tiji.mistakes.data.AppDatabase
 import com.tiji.mistakes.data.MistakeRepository
+import com.tiji.mistakes.data.ReviewRecordEntity
+import com.tiji.mistakes.domain.ReviewGrade
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Before
@@ -53,7 +55,8 @@ class LibraryFilterTest {
                 tags = "数列",
                 questionText = "写出数列的递推关系。",
                 note = "递推关系",
-                inReviewPlan = false
+                inReviewPlan = false,
+                reviewCount = 1
             )
             fixtureIds += UiTestFixtures.insert(
                 context = context,
@@ -64,7 +67,35 @@ class LibraryFilterTest {
                 tags = "电场",
                 questionText = "求点电荷附近的电场强度。",
                 note = "电场公式",
-                inReviewPlan = false
+                inReviewPlan = false,
+                reviewCount = 1
+            )
+            val now = System.currentTimeMillis()
+            AppDatabase.get(context).reviewRecordDao().insert(
+                ReviewRecordEntity(
+                    mistakeId = fixtureIds[1],
+                    reviewedAt = now - 2_000L,
+                    grade = ReviewGrade.GOOD.name,
+                    masteryBefore = 2,
+                    masteryAfter = 3,
+                    intervalBeforeDays = 1,
+                    intervalAfterDays = 2,
+                    previousNextReviewAt = now,
+                    nextReviewAt = now + 2L * 24L * 60L * 60L * 1_000L
+                )
+            )
+            AppDatabase.get(context).reviewRecordDao().insert(
+                ReviewRecordEntity(
+                    mistakeId = fixtureIds[2],
+                    reviewedAt = now - 1_000L,
+                    grade = ReviewGrade.HARD.name,
+                    masteryBefore = 1,
+                    masteryAfter = 2,
+                    intervalBeforeDays = 1,
+                    intervalAfterDays = 1,
+                    previousNextReviewAt = now,
+                    nextReviewAt = now + 24L * 60L * 60L * 1_000L
+                )
             )
             MistakeRepository(AppDatabase.get(context)).backfillLegacyTags()
         }
