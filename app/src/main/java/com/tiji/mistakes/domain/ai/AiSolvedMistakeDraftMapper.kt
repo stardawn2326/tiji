@@ -39,8 +39,11 @@ object AiSolvedMistakeDraftMapper {
             structured?.derivationText,
             input.explanation
         ).mapNotNull { it?.takeIf(String::isNotBlank) }.distinct().joinToString("\n\n")
-        val subject = learning?.subject.orEmpty().ifBlank { input.subject }.ifBlank { "未分类" }
-        val questionType = learning?.questionType.orEmpty().ifBlank { input.questionType }.ifBlank { "未分类" }
+        // Values from the save sheet are the learner's explicit choices. Structured V3 metadata
+        // remains the fallback for untouched fields, so a late classifier result cannot undo an
+        // edit made immediately before saving.
+        val subject = input.subject.ifBlank { learning?.subject.orEmpty() }.ifBlank { "未分类" }
+        val questionType = input.questionType.ifBlank { learning?.questionType.orEmpty() }.ifBlank { "未分类" }
         val tags = (
             KnowledgePointNormalizer.parseTags(input.tags) + learning?.knowledgePoints.orEmpty()
             )
@@ -58,9 +61,10 @@ object AiSolvedMistakeDraftMapper {
         } else {
             input.now
         }
-        val resolvedDifficulty = learning?.difficulty
-            ?.takeIf { it in 1..5 }
-            ?: input.difficulty
+        val resolvedDifficulty = input.difficulty
+            .takeIf { it in 1..5 }
+            ?: learning?.difficulty?.takeIf { it in 1..5 }
+            ?: 0
         return MistakeEntity(
             id = 0L,
             title = input.title.ifBlank { "AI 解题记录" },

@@ -91,7 +91,6 @@ import com.tiji.mistakes.service.AiSolveReliabilityMode
 import com.tiji.mistakes.service.AiSolveStatus
 import com.tiji.mistakes.service.AiSolutionStep
 import com.tiji.mistakes.service.AiStructuredSolutionV3Codec
-import com.tiji.mistakes.service.AiVisionService
 import com.tiji.mistakes.service.ContentBlockKind
 import com.tiji.mistakes.service.ContentBlockRole
 import com.tiji.mistakes.service.followUpReplyForDisplay
@@ -104,6 +103,7 @@ import com.tiji.mistakes.service.PersistedAiChatState
 import com.tiji.mistakes.service.QuestionContentBlockCodec
 import com.tiji.mistakes.service.SecureKeyStore
 import com.tiji.mistakes.service.buildStructuredCorrectionContext
+import com.tiji.mistakes.service.decodeAiMistakeClassification
 import com.tiji.mistakes.service.isSolveCorrectionPrompt
 import com.tiji.mistakes.service.shouldOfferAiSettings
 import com.tiji.mistakes.ui.capture.AiInputMode
@@ -129,7 +129,6 @@ import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
 
 @Composable
 internal fun AiSolveScreen(
@@ -185,7 +184,7 @@ internal fun AiSolveScreen(
     var showRecognitionEditor by rememberSaveable { mutableStateOf(false) }
     var showSaveSheet by rememberSaveable { mutableStateOf(false) }
     var saveMetadataLoading by rememberSaveable { mutableStateOf(false) }
-    var saveMetadataToken by rememberSaveable { mutableIntStateOf(0) }
+    var saveMetadataTaskId by rememberSaveable { mutableStateOf<String?>(null) }
     var saveMetadataEditedFields by remember { mutableStateOf(emptySet<MistakeSaveField>()) }
     var userAnswerDraft by rememberSaveable { mutableStateOf("") }
     var errorReason by rememberSaveable { mutableStateOf("") }
@@ -420,6 +419,47 @@ internal fun AiSolveScreen(
         }
     }
 
+    // The classifier is owned by the durable foreground service. Polling through the ViewModel
+    // lets a result that wins the race with Save fill only untouched fields in this sheet.
+    LaunchedEffect(
+        saveMetadataTaskId,
+        aiMistakeSaveState.taskId,
+        aiMistakeSaveState.phase,
+        aiMistakeSaveState.classificationJson,
+        aiSolveState.requestId
+    ) {
+        val taskId = saveMetadataTaskId ?: return@LaunchedEffect
+        if (aiMistakeSaveState.taskId != taskId || aiMistakeSaveState.requestId != aiSolveState.requestId) {
+            return@LaunchedEffect
+        }
+        saveMetadataLoading = aiMistakeSaveState.phase == com.tiji.mistakes.service.AiMistakeSavePhase.CLASSIFICATION_PENDING ||
+            aiMistakeSaveState.phase == com.tiji.mistakes.service.AiMistakeSavePhase.CLASSIFYING_PRE_SAVE ||
+            aiMistakeSaveState.phase == com.tiji.mistakes.service.AiMistakeSavePhase.CLASSIFYING
+        val classification = decodeAiMistakeClassification(aiMistakeSaveState.classificationJson)
+        if (classification != null &&
+            (aiMistakeSaveState.phase == com.tiji.mistakes.service.AiMistakeSavePhase.CLASSIFICATION_READY ||
+                aiMistakeSaveState.phase == com.tiji.mistakes.service.AiMistakeSavePhase.CLASSIFICATION_COMPLETED)
+        ) {
+            if (MistakeSaveField.SUBJECT !in saveMetadataEditedFields && subject.isBlank()) {
+                subject = classification.subject
+            }
+            if (MistakeSaveField.QUESTION_TYPE !in saveMetadataEditedFields && questionType.isBlank()) {
+                questionType = classification.questionType
+            }
+            if (MistakeSaveField.TAGS !in saveMetadataEditedFields && tags.isBlank()) {
+                tags = mergeTagText("", classification.tags + classification.knowledgePoints)
+            }
+            if (MistakeSaveField.DIFFICULTY !in saveMetadataEditedFields && difficulty == 0) {
+                difficulty = normalizeClassificationDifficulty(classification.difficulty)
+            }
+            message = "分类已带入保存表单，可继续修改。"
+            saveMetadataLoading = false
+        } else if (aiMistakeSaveState.phase == com.tiji.mistakes.service.AiMistakeSavePhase.CLASSIFICATION_FAILED) {
+            message = "自动分类暂不可用，可在保存表单中手动补充。"
+            saveMetadataLoading = false
+        }
+    }
+
     fun selectImage(path: String?) {
         if (path != null) {
             imagePath = path
@@ -566,59 +606,32 @@ internal fun AiSolveScreen(
     }
 
     fun openSaveSheetWithClassification() {
-        val token = saveMetadataToken + 1
-        saveMetadataToken = token
         saveMetadataEditedFields = emptySet()
         val apiKey = secureStore.read(activeAiProfileId)
         showSaveSheet = true
+        saveMetadataTaskId = null
         if (completeSolution.isBlank() || apiKey.isBlank()) {
             saveMetadataLoading = false
             return
         }
-        saveMetadataLoading = true
-        message = "正在根据当前解题内容整理分类…"
         val solvedContent = buildString {
             append("题目：\n")
             append(question)
             append("\n\n解答：\n")
             append(visibleAiSolution(completeSolution))
         }
-        scope.launch {
-            val result = withTimeoutOrNull(20_000L) {
-                withContext(Dispatchers.IO) {
-                    AiVisionService().analyzeSolvedContent(
-                        endpoint = aiEndpoint,
-                        model = aiModel,
-                        apiKey = apiKey,
-                        solvedContent = solvedContent
-                    )
-                }
-            } ?: Result.failure(IllegalStateException("分类请求超时"))
-            if (saveMetadataToken != token) return@launch
-            result.onSuccess { classification ->
-                if (MistakeSaveField.SUBJECT !in saveMetadataEditedFields && subject.isBlank()) {
-                    subject = classification.subject.trim()
-                }
-                if (MistakeSaveField.QUESTION_TYPE !in saveMetadataEditedFields && questionType.isBlank()) {
-                    questionType = classification.questionType.trim()
-                }
-                if (MistakeSaveField.TAGS !in saveMetadataEditedFields && tags.isBlank()) {
-                    tags = mergeTagText("", classification.tags + classification.knowledgePoints)
-                }
-                if (MistakeSaveField.DIFFICULTY !in saveMetadataEditedFields && difficulty == 0) {
-                    difficulty = normalizeClassificationDifficulty(classification.difficulty)
-                }
-                message = "分类已带入保存表单，可继续修改。"
-            }.onFailure { error ->
-                message = "自动分类暂不可用，可在保存表单中手动补充：${error.message ?: "未知错误"}"
-            }
-            saveMetadataLoading = false
-        }
+        saveMetadataTaskId = viewModel.beginAiMistakeClassification(
+            requestId = aiSolveState.requestId,
+            configurationId = activeAiProfileId,
+            endpoint = aiEndpoint,
+            model = aiModel,
+            solvedContent = solvedContent
+        )
+        saveMetadataLoading = saveMetadataTaskId != null
     }
 
     fun persistSolvedMistake(metadata: MistakeSaveMetadata) {
         if (aiMistakeSaveState.running) return
-        saveMetadataToken += 1
         saveMetadataLoading = false
         savedMessage = ""
         subject = metadata.subject
@@ -648,10 +661,13 @@ internal fun AiSolveScreen(
             )
         )
         showSaveSheet = false
+        val classificationTaskId = saveMetadataTaskId
+        saveMetadataTaskId = null
         viewModel.saveAiMistake(
             draft = draft,
             requestId = aiSolveState.requestId,
-            preserveReviewPlan = true
+            preserveReviewPlan = true,
+            classificationTaskId = classificationTaskId
         )
     }
 
@@ -801,8 +817,8 @@ internal fun AiSolveScreen(
             ),
             onDismiss = {
                 if (!aiMistakeSaveState.running) {
-                    saveMetadataToken += 1
                     saveMetadataLoading = false
+                    saveMetadataTaskId = null
                     saveMetadataEditedFields = emptySet()
                     showSaveSheet = false
                 }

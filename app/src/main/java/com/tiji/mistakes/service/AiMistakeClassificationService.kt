@@ -22,6 +22,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
+import org.json.JSONArray
+import org.json.JSONObject
 
 /** New automatic classification writes only the four values represented by the editor. */
 internal fun normalizeClassificationDifficulty(value: Int): Int = when {
@@ -59,6 +61,63 @@ internal fun mergeClassificationMetadata(
     )
 }
 
+/**
+ * Persists only the metadata that the automatic classifier owns. Solved content is deliberately
+ * excluded so a result that completes while the save sheet is open cannot replace the learner's
+ * question, answer, explanation, or notes.
+ */
+internal fun encodeAiMistakeClassification(classification: AiRecognitionResult): String =
+    JSONObject().apply {
+        put("subject", classification.subject)
+        put("questionType", classification.questionType)
+        put("difficulty", normalizeClassificationDifficulty(classification.difficulty))
+        put("tags", JSONArray().apply { classification.tags.forEach(::put) })
+        put("knowledgePoints", JSONArray().apply { classification.knowledgePoints.forEach(::put) })
+    }.toString()
+
+/** Decodes the durable pre-save result used to fill the editor or bind a saved row. */
+internal fun decodeAiMistakeClassification(raw: String): AiRecognitionResult? = runCatching {
+    if (raw.isBlank()) return@runCatching null
+    val json = JSONObject(raw)
+    fun readStrings(key: String): List<String> {
+        val values = json.optJSONArray(key) ?: return emptyList()
+        return (0 until values.length()).mapNotNull { values.optString(it).trim().takeIf(String::isNotBlank) }
+    }
+    AiRecognitionResult(
+        title = "",
+        question = "",
+        answer = "",
+        explanation = "",
+        subject = json.optString("subject").trim(),
+        questionType = json.optString("questionType").trim(),
+        knowledgePoints = readStrings("knowledgePoints"),
+        tags = readStrings("tags"),
+        difficulty = normalizeClassificationDifficulty(json.optInt("difficulty", 0))
+    )
+}.getOrNull()
+
+/**
+ * Finishes the same task whether or not local save has supplied a mistake id yet. Keeping this
+ * transition pure makes the two timing paths (result-first and save-first) easy to regression test.
+ */
+internal fun completedAiClassificationState(
+    state: AiMistakeSaveState,
+    classification: AiRecognitionResult,
+    now: Long = System.currentTimeMillis()
+): AiMistakeSaveState = state.copy(
+    phase = if (state.mistakeId == null) {
+        AiMistakeSavePhase.CLASSIFICATION_READY
+    } else {
+        AiMistakeSavePhase.CLASSIFICATION_COMPLETED
+    },
+    completedAt = now,
+    success = true,
+    message = if (state.mistakeId == null) "分类已完成，可继续保存" else "自动分类完成",
+    canRetry = false,
+    classificationJson = encodeAiMistakeClassification(classification),
+    read = false
+)
+
 /** Runs classification independently from the AI solve screen lifecycle. */
 class AiMistakeClassificationService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -80,7 +139,7 @@ class AiMistakeClassificationService : Service() {
             if (jobs[taskId]?.isActive == true) return START_REDELIVER_INTENT
         }
         runCatching { startAsForeground() }.onFailure { error ->
-            taskStore.find(taskId)?.takeIf { it.mistakeId != null }?.let { state ->
+            taskStore.find(taskId)?.let { state ->
                 persistFailure(state, "后台分类服务启动失败：${error.message ?: error.javaClass.simpleName}")
             }
             stopSelf(startId)
@@ -95,31 +154,23 @@ class AiMistakeClassificationService : Service() {
     private suspend fun runTask(taskId: String, startId: Int) {
         val saved = taskStore.find(taskId) ?: return stopSelf(startId)
         if (saved.terminal) return stopSelf(startId)
+        val preSave = saved.mistakeId == null
         val running = saved.copy(
-            phase = AiMistakeSavePhase.CLASSIFYING,
+            phase = if (preSave) AiMistakeSavePhase.CLASSIFYING_PRE_SAVE else AiMistakeSavePhase.CLASSIFYING,
             completedAt = 0L,
             success = null,
-            message = "已保存，正在补充分类",
+            message = if (preSave) "正在整理错题分类" else "已保存，正在补充分类",
             canRetry = false,
             read = false
         )
         taskStore.upsert(running)
         try {
-            val mistakeId = running.mistakeId ?: error("已保存错题编号丢失")
-            val mistake = repository.find(mistakeId) ?: error("已保存的错题不存在")
             val apiKey = SecureKeyStore(this).read(running.configurationId)
             require(apiKey.isNotBlank()) { "当前 AI 配置未找到 API Key" }
-            val source = buildString {
-                append("【题目识别】\n")
-                append(mistake.questionText.ifBlank { "（无题目文字）" })
-                if (mistake.answerText.isNotBlank()) {
-                    append("\n\n【已有答案】\n")
-                    append(mistake.answerText)
-                }
-                if (mistake.explanation.isNotBlank()) {
-                    append("\n\n【已有解题内容】\n")
-                    append(mistake.explanation)
-                }
+            val source = running.classificationSource.ifBlank {
+                val mistakeId = running.mistakeId ?: error("分类题目内容丢失")
+                val mistake = repository.find(mistakeId) ?: error("已保存的错题不存在")
+                buildClassificationSource(mistake)
             }
             val classification = withTimeout(CLASSIFICATION_TIMEOUT_MS) {
                 AiVisionService().analyzeSolvedContent(
@@ -129,20 +180,18 @@ class AiMistakeClassificationService : Service() {
                     solvedContent = source
                 )
             }.getOrThrow()
-            // The pre-request snapshot is used only to build the prompt. The
-            // repository re-reads the latest row before merging so a learner
-            // edit made while the classifier was waiting cannot be overwritten.
-            repository.applyAiClassification(mistakeId, classification)
-            taskStore.upsert(
-                running.copy(
-                    phase = AiMistakeSavePhase.CLASSIFICATION_COMPLETED,
-                    completedAt = System.currentTimeMillis(),
-                    success = true,
-                    message = "自动分类完成",
-                    canRetry = false,
-                    read = false
-                )
-            )
+            // A save can finish while the network request is in flight. Re-read the durable
+            // state before binding: if an id is now present, merge into that exact row; if not,
+            // keep one result ready for the sheet/save operation. This is the single request's
+            // hand-off point and prevents a second classification call.
+            val latest = taskStore.find(taskId) ?: running
+            val mistakeId = latest.mistakeId
+            if (mistakeId != null) {
+                repository.applyAiClassification(mistakeId, classification)
+                taskStore.upsert(completedAiClassificationState(latest, classification))
+            } else {
+                taskStore.upsert(completedAiClassificationState(latest, classification))
+            }
         } catch (timeout: kotlinx.coroutines.TimeoutCancellationException) {
             Log.e(TAG, "classification_timeout task=$taskId", timeout)
             persistFailure(running, "分类请求超时")
@@ -158,17 +207,33 @@ class AiMistakeClassificationService : Service() {
     }
 
     private fun persistFailure(state: AiMistakeSaveState, diagnostic: String) {
+        // Preserve a mistake id that may have been bound while the request was in flight.
+        val latest = taskStore.find(state.taskId) ?: state
+        val bound = latest.mistakeId != null
         taskStore.upsert(
-            state.copy(
+            latest.copy(
                 phase = AiMistakeSavePhase.CLASSIFICATION_FAILED,
                 completedAt = System.currentTimeMillis(),
                 success = false,
-                message = "错题已保存，自动分类失败",
+                message = if (bound) "错题已保存，自动分类失败" else "自动分类失败，可手动填写",
                 diagnostic = diagnostic.take(MAX_DIAGNOSTIC_LENGTH),
-                canRetry = true,
+                canRetry = bound,
                 read = false
             )
         )
+    }
+
+    private fun buildClassificationSource(mistake: com.tiji.mistakes.data.MistakeEntity): String = buildString {
+        append("【题目识别】\n")
+        append(mistake.questionText.ifBlank { "（无题目文字）" })
+        if (mistake.answerText.isNotBlank()) {
+            append("\n\n【已有答案】\n")
+            append(mistake.answerText)
+        }
+        if (mistake.explanation.isNotBlank()) {
+            append("\n\n【已有解题内容】\n")
+            append(mistake.explanation)
+        }
     }
 
     private fun startAsForeground() {

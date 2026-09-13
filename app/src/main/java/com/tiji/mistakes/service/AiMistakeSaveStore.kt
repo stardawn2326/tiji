@@ -6,10 +6,16 @@ import org.json.JSONObject
 
 enum class AiMistakeSavePhase {
     IDLE,
+    /** The classification request is queued before a mistake id exists. */
+    CLASSIFICATION_PENDING,
     SAVING,
     SAVED,
     LOCAL_SAVED,
+    /** The classifier is running against the solve sheet before local save. */
+    CLASSIFYING_PRE_SAVE,
     CLASSIFYING,
+    /** A pre-save classification finished and is waiting to be bound to a row. */
+    CLASSIFICATION_READY,
     CLASSIFICATION_COMPLETED,
     CLASSIFICATION_FAILED,
     SAVE_FAILED
@@ -29,7 +35,11 @@ data class AiMistakeSaveState(
     val canRetry: Boolean = false,
     val configurationId: String = "",
     val endpoint: String = "",
-    val model: String = ""
+    val model: String = "",
+    /** Prompt snapshot used when classification starts before local save. */
+    val classificationSource: String = "",
+    /** Compact JSON representation of the four classifier-owned metadata fields. */
+    val classificationJson: String = ""
 ) {
     val running: Boolean
         get() = phase == AiMistakeSavePhase.SAVING ||
@@ -38,38 +48,37 @@ data class AiMistakeSaveState(
 
     val terminal: Boolean
         get() = phase == AiMistakeSavePhase.LOCAL_SAVED ||
+            phase == AiMistakeSavePhase.CLASSIFICATION_READY ||
             phase == AiMistakeSavePhase.CLASSIFICATION_COMPLETED ||
             phase == AiMistakeSavePhase.CLASSIFICATION_FAILED ||
             phase == AiMistakeSavePhase.SAVE_FAILED
 }
 
-/** Durable state for local save; classification remains available for legacy retry compatibility. */
+/** Durable state shared by the save flow and its pre/post-save classification task. */
 class AiMistakeSaveStore(context: Context) {
     private val preferences = context.getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE)
 
-    @Synchronized
-    fun readAll(): List<AiMistakeSaveState> {
+    fun readAll(): List<AiMistakeSaveState> = synchronized(LOCK) {
         val raw = preferences.getString(KEY_ITEMS, "[]") ?: "[]"
         val array = runCatching { JSONArray(raw) }.getOrDefault(JSONArray())
-        return (0 until array.length()).mapNotNull { index ->
+        (0 until array.length()).mapNotNull { index ->
             parse(array.optJSONObject(index))
         }
     }
 
-    @Synchronized
-    fun find(taskId: String): AiMistakeSaveState? =
+    fun find(taskId: String): AiMistakeSaveState? = synchronized(LOCK) {
         readAll().firstOrNull { it.taskId == taskId }
+    }
 
-    @Synchronized
-    fun findByRequestId(requestId: Long): AiMistakeSaveState? =
+    fun findByRequestId(requestId: Long): AiMistakeSaveState? = synchronized(LOCK) {
         readAll().filter { it.requestId == requestId }.maxByOrNull { it.startedAt }
+    }
 
-    @Synchronized
-    fun latestForUi(): AiMistakeSaveState? =
+    fun latestForUi(): AiMistakeSaveState? = synchronized(LOCK) {
         readAll().maxByOrNull { maxOf(it.startedAt, it.completedAt) }
+    }
 
-    @Synchronized
-    fun upsert(state: AiMistakeSaveState) {
+    fun upsert(state: AiMistakeSaveState) = synchronized(LOCK) {
         val states = readAll().filterNot { it.taskId == state.taskId }.toMutableList()
         states += state
         states.sortBy { it.startedAt }
@@ -79,18 +88,25 @@ class AiMistakeSaveStore(context: Context) {
         preferences.edit().putString(KEY_ITEMS, array.toString()).apply()
     }
 
-    @Synchronized
-    fun recoverInterruptedTasks(now: Long = System.currentTimeMillis()) {
+    fun recoverInterruptedTasks(now: Long = System.currentTimeMillis()) = synchronized(LOCK) {
         readAll().forEach { state ->
-            if (!state.running || now - state.startedAt < STALE_AFTER_MS) return@forEach
+            val preSaveClassification = state.phase == AiMistakeSavePhase.CLASSIFYING_PRE_SAVE
+            if ((!state.running && !preSaveClassification) || now - state.startedAt < STALE_AFTER_MS) return@forEach
+            val preSaveWithoutRow = state.mistakeId == null && preSaveClassification
             upsert(
                 state.copy(
-                    phase = if (state.mistakeId == null) AiMistakeSavePhase.SAVE_FAILED
-                    else AiMistakeSavePhase.CLASSIFICATION_FAILED,
+                    phase = if (preSaveWithoutRow || state.mistakeId != null) {
+                        AiMistakeSavePhase.CLASSIFICATION_FAILED
+                    } else {
+                        AiMistakeSavePhase.SAVE_FAILED
+                    },
                     completedAt = now,
                     success = false,
-                    message = if (state.mistakeId == null) "保存失败：后台保存任务被中断"
-                    else "错题已保存，自动分类失败",
+                    message = when {
+                        preSaveWithoutRow -> "自动分类失败，可手动填写"
+                        state.mistakeId == null -> "保存失败：后台保存任务被中断"
+                        else -> "错题已保存，自动分类失败"
+                    },
                     diagnostic = "分类任务未在规定时间内完成",
                     canRetry = state.mistakeId != null,
                     read = false
@@ -114,6 +130,8 @@ class AiMistakeSaveStore(context: Context) {
         .put("configurationId", state.configurationId)
         .put("endpoint", state.endpoint)
         .put("model", state.model)
+        .put("classificationSource", state.classificationSource)
+        .put("classificationJson", state.classificationJson)
 
     private fun parse(json: JSONObject?): AiMistakeSaveState? = json?.let {
         val taskId = it.optString("taskId").trim().takeIf(String::isNotBlank) ?: return@let null
@@ -133,11 +151,14 @@ class AiMistakeSaveStore(context: Context) {
             canRetry = it.optBoolean("canRetry", false),
             configurationId = it.optString("configurationId"),
             endpoint = it.optString("endpoint"),
-            model = it.optString("model")
+            model = it.optString("model"),
+            classificationSource = it.optString("classificationSource"),
+            classificationJson = it.optString("classificationJson")
         )
     }
 
     companion object {
+        private val LOCK = Any()
         private const val FILE_NAME = "ai_mistake_save_state"
         private const val KEY_ITEMS = "items"
         private const val MAX_ITEMS = 20

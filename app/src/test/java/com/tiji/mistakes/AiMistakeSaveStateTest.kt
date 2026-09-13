@@ -4,6 +4,8 @@ import com.tiji.mistakes.data.MistakeEntity
 import com.tiji.mistakes.service.AiRecognitionResult
 import com.tiji.mistakes.service.AiMistakeSavePhase
 import com.tiji.mistakes.service.AiMistakeSaveState
+import com.tiji.mistakes.service.decodeAiMistakeClassification
+import com.tiji.mistakes.service.completedAiClassificationState
 import com.tiji.mistakes.service.mergeClassificationMetadata
 import com.tiji.mistakes.service.mergeTagText
 import com.tiji.mistakes.service.normalizeClassificationDifficulty
@@ -36,11 +38,71 @@ class AiMistakeSaveStateTest {
     fun savingAndClassificationAreRunningButTerminalResultsAreNot() {
         assertTrue(AiMistakeSaveState("saving", 1L, phase = AiMistakeSavePhase.SAVING).running)
         assertTrue(AiMistakeSaveState("classifying", 1L, phase = AiMistakeSavePhase.CLASSIFYING).running)
+        assertFalse(AiMistakeSaveState("pre-save", 1L, phase = AiMistakeSavePhase.CLASSIFYING_PRE_SAVE).running)
+        assertFalse(AiMistakeSaveState("ready", 1L, phase = AiMistakeSavePhase.CLASSIFICATION_READY).running)
         assertFalse(AiMistakeSaveState("local", 1L, phase = AiMistakeSavePhase.LOCAL_SAVED).running)
         assertTrue(AiMistakeSaveState("local", 1L, phase = AiMistakeSavePhase.LOCAL_SAVED).terminal)
         assertFalse(AiMistakeSaveState("completed", 1L, phase = AiMistakeSavePhase.CLASSIFICATION_COMPLETED).running)
         assertTrue(AiMistakeSaveState("completed", 1L, phase = AiMistakeSavePhase.CLASSIFICATION_COMPLETED).terminal)
         assertTrue(AiMistakeSaveState("failed", 1L, phase = AiMistakeSavePhase.CLASSIFICATION_FAILED).terminal)
+    }
+
+    @Test
+    fun preSaveClassificationResultCanBeStoredForImmediateSaveBinding() {
+        val classification = AiRecognitionResult(
+            title = "",
+            question = "",
+            answer = "",
+            explanation = "",
+            subject = "数学",
+            questionType = "计算题",
+            knowledgePoints = listOf("定积分"),
+            tags = listOf("积分"),
+            difficulty = 5
+        )
+        val state = AiMistakeSaveState(
+            taskId = "pre-save",
+            requestId = 11L,
+            phase = AiMistakeSavePhase.CLASSIFYING_PRE_SAVE
+        )
+        val ready = completedAiClassificationState(state, classification, now = 100L)
+        assertEquals(AiMistakeSavePhase.CLASSIFICATION_READY, ready.phase)
+        assertEquals(100L, ready.completedAt)
+        val decoded = decodeAiMistakeClassification(ready.classificationJson)
+        assertEquals("数学", decoded?.subject)
+        assertEquals("计算题", decoded?.questionType)
+        assertEquals(listOf("积分"), decoded?.tags)
+        assertEquals(listOf("定积分"), decoded?.knowledgePoints)
+        assertEquals(4, decoded?.difficulty)
+    }
+
+    @Test
+    fun saveFirstClassificationCompletionBindsTheSameTaskToTheSavedRow() {
+        val state = AiMistakeSaveState(
+            taskId = "single-request",
+            requestId = 12L,
+            mistakeId = 42L,
+            phase = AiMistakeSavePhase.CLASSIFYING
+        )
+        val completed = completedAiClassificationState(
+            state,
+            AiRecognitionResult(
+                title = "",
+                question = "",
+                answer = "",
+                explanation = "",
+                subject = "物理",
+                questionType = "选择题",
+                knowledgePoints = listOf("力学"),
+                tags = listOf("受力"),
+                difficulty = 3
+            ),
+            now = 200L
+        )
+        assertEquals("single-request", completed.taskId)
+        assertEquals(42L, completed.mistakeId)
+        assertEquals(AiMistakeSavePhase.CLASSIFICATION_COMPLETED, completed.phase)
+        assertEquals(200L, completed.completedAt)
     }
 
     @Test
@@ -163,6 +225,34 @@ class AiMistakeSaveStateTest {
         assertEquals(3, draft.difficulty)
         assertFalse(draft.inReviewPlan)
         assertTrue(draft.note.contains("先约分"))
+    }
+
+    @Test
+    fun saveSheetMetadataOverridesStructuredLearningMetadata() {
+        val solution = AiStructuredSolutionV3(
+            recognition = AiSolutionRecognition(listOf(QuestionSegment("text", "求极限"))),
+            solution = AiSolutionBody(finalAnswer = listOf(QuestionSegment("text", "1"))),
+            learning = com.tiji.mistakes.service.AiLearningMetadata(
+                subject = "数学",
+                questionType = "计算题",
+                difficulty = 2
+            )
+        )
+        val draft = AiSolvedMistakeDraftMapper.map(
+            AiSolvedMistakeDraftInput(
+                rawSolution = AiStructuredSolutionV3Codec.encode(solution),
+                title = "极限题",
+                question = "求极限",
+                answer = "1",
+                explanation = "",
+                subject = "物理",
+                questionType = "证明题",
+                difficulty = 4
+            )
+        )
+        assertEquals("物理", draft.subject)
+        assertEquals("证明题", draft.questionType)
+        assertEquals(4, draft.difficulty)
     }
 
     @Test

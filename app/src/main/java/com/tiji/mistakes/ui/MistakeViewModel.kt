@@ -32,6 +32,7 @@ import com.tiji.mistakes.service.AiRecognitionMode
 import com.tiji.mistakes.service.AiRecognitionService
 import com.tiji.mistakes.service.AiRecognitionState
 import com.tiji.mistakes.service.AiRecognitionStateStore
+import com.tiji.mistakes.service.decodeAiMistakeClassification
 import com.tiji.mistakes.service.AiSolveHistoryRecord
 import com.tiji.mistakes.service.AiSolveHistoryStore
 import com.tiji.mistakes.service.AiSolveRuntime
@@ -1007,22 +1008,83 @@ class MistakeViewModel(
         }
     }
 
-    /** Saves the solved draft locally. Metadata classification remains available for legacy retry compatibility. */
+    /**
+     * Starts the one classification request associated with a save sheet. The service can finish
+     * before a row exists (the result is persisted for the sheet) or after the local save (the
+     * result is merged into the bound mistake id).
+     */
+    fun beginAiMistakeClassification(
+        requestId: Long,
+        configurationId: String,
+        endpoint: String,
+        model: String,
+        solvedContent: String
+    ): String? {
+        if (solvedContent.isBlank() || configurationId.isBlank()) return null
+        val taskId = UUID.randomUUID().toString()
+        val pending = AiMistakeSaveState(
+            taskId = taskId,
+            requestId = requestId,
+            phase = AiMistakeSavePhase.CLASSIFICATION_PENDING,
+            startedAt = System.currentTimeMillis(),
+            message = "正在根据当前解题内容整理分类…",
+            configurationId = configurationId,
+            endpoint = endpoint,
+            model = model,
+            classificationSource = solvedContent,
+            read = false
+        )
+        aiMistakeSaveStore.upsert(pending)
+        _aiMistakeSave.value = pending
+        runCatching {
+            ContextCompat.startForegroundService(
+                getApplication(),
+                AiMistakeClassificationService.createIntent(getApplication(), taskId)
+            )
+        }.onFailure { error ->
+            val failed = pending.copy(
+                phase = AiMistakeSavePhase.CLASSIFICATION_FAILED,
+                completedAt = System.currentTimeMillis(),
+                success = false,
+                message = "自动分类暂不可用，可手动补充",
+                diagnostic = (error.message ?: error.javaClass.simpleName).take(240),
+                canRetry = false,
+                read = false
+            )
+            aiMistakeSaveStore.upsert(failed)
+            _aiMistakeSave.value = failed
+        }
+        return taskId
+    }
+
+    /** Saves the solved draft locally and binds any already-running classification task. */
     fun saveAiMistake(
         draft: MistakeEntity,
         requestId: Long = 0L,
-        preserveReviewPlan: Boolean = false
+        preserveReviewPlan: Boolean = false,
+        classificationTaskId: String? = null
     ) {
         if (_aiMistakeSave.value.running) return
         // Every completed click creates a new mistake record, including when
         // the same solved question is intentionally added more than once.
-        val taskId = UUID.randomUUID().toString()
-        val startedAt = System.currentTimeMillis()
-        val saving = AiMistakeSaveState(
+        val now = System.currentTimeMillis()
+        val existing = classificationTaskId?.let(aiMistakeSaveStore::find)
+        val taskId = existing?.taskId ?: UUID.randomUUID().toString()
+        val saving = (existing ?: AiMistakeSaveState(
             taskId = taskId,
             requestId = requestId,
+            startedAt = now,
+            read = false
+        )).copy(
+            requestId = requestId,
+            mistakeId = null,
             phase = AiMistakeSavePhase.SAVING,
-            startedAt = startedAt,
+            startedAt = existing?.startedAt?.takeIf { it > 0L } ?: now,
+            completedAt = 0L,
+            success = null,
+            message = "正在保存到错题库…",
+            diagnostic = "",
+            canRetry = false,
             read = false
         )
         aiMistakeSaveStore.upsert(saving)
@@ -1037,14 +1099,49 @@ class MistakeViewModel(
                 )
                 ownedCopies = copiedPaths
                 val id = repository.save(ownedDraft, preserveReviewPlan = preserveReviewPlan)
-                val saved = saving.copy(
-                    mistakeId = id,
-                    phase = AiMistakeSavePhase.LOCAL_SAVED,
-                    completedAt = System.currentTimeMillis(),
-                    message = "已保存到错题库",
-                    success = true,
-                    read = false
-                )
+                // The service may have completed while the images were copied. Re-read its
+                // result and apply it exactly once to the newly-created row. If it is still in
+                // flight, bind the id so the service applies the same result when it returns.
+                val latest = aiMistakeSaveStore.find(taskId) ?: saving
+                val classification = decodeAiMistakeClassification(latest.classificationJson)
+                val saved = if (classification != null) {
+                    val alreadyAppliedByService = latest.mistakeId == id &&
+                        latest.phase == AiMistakeSavePhase.CLASSIFICATION_COMPLETED
+                    if (!alreadyAppliedByService) {
+                        repository.applyAiClassification(id, classification)
+                    }
+                    latest.copy(
+                        mistakeId = id,
+                        phase = AiMistakeSavePhase.CLASSIFICATION_COMPLETED,
+                        completedAt = System.currentTimeMillis(),
+                        message = "已保存并完成自动分类",
+                        success = true,
+                        canRetry = false,
+                        read = false
+                    )
+                } else {
+                    val waitingForClassification = latest.phase == AiMistakeSavePhase.CLASSIFICATION_PENDING ||
+                        latest.phase == AiMistakeSavePhase.CLASSIFYING_PRE_SAVE ||
+                        (latest.phase == AiMistakeSavePhase.SAVING && latest.classificationSource.isNotBlank())
+                    val failedBeforeSave = latest.phase == AiMistakeSavePhase.CLASSIFICATION_FAILED
+                    latest.copy(
+                        mistakeId = id,
+                        phase = when {
+                            waitingForClassification -> AiMistakeSavePhase.CLASSIFYING
+                            failedBeforeSave -> AiMistakeSavePhase.CLASSIFICATION_FAILED
+                            else -> AiMistakeSavePhase.LOCAL_SAVED
+                        },
+                        completedAt = if (waitingForClassification) 0L else System.currentTimeMillis(),
+                        message = when {
+                            waitingForClassification -> "已保存，正在补充分类"
+                            failedBeforeSave -> "已保存到错题库，自动分类失败"
+                            else -> "已保存到错题库"
+                        },
+                        success = true,
+                        canRetry = failedBeforeSave,
+                        read = false
+                    )
+                }
                 aiMistakeSaveStore.upsert(saved)
                 _aiMistakeSave.value = saved
             } catch (error: Throwable) {
