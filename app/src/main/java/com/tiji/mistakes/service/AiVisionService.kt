@@ -752,7 +752,7 @@ private val AI_STRUCTURED_SOLUTION_RULE = """
     recognition 必须逐字保留原题可见内容，不得概括、改写、补写或删减。只调整题目自身的结构：原题包含多个小题时，在第二个及后续小题编号前使用一个 lineBreak，使 (1)(2)、①②、（Ⅰ）（Ⅱ）等小题各自起行；小题编号必须与该小题正文保持在同一行。不得把屏幕宽度造成的折行写成 lineBreak。
     approach、derivation、finalAnswer 按实际解答自然返回，不要求按题目小题拆分，也不要为了排版重新组织、改写或重复已经生成的文字。
     segments 只允许 text、math、block、lineBreak、paragraphBreak、blank。中文正文、编号、列表标签和标点使用 text；普通单行公式使用 math；矩阵、方程组、分段函数、独立公式和多行推导使用一个完整 block。不要使用 Markdown 的 #、**、``` 或列表语法表达排版。
-    如果你无法保证 schemaVersion 2 JSON 完整、合法且包含四个 section，禁止输出残缺 JSON，不得改用旧版四分区文本或任何协议外文字；本次结果将由应用保留上一版并显示校验警告。
+    如果你无法保证 schemaVersion 2 JSON 完整、合法且包含四个 section，禁止输出残缺 JSON，不得改用旧版四分区文本结构或任何协议外文字；本次结果将由应用保留上一版并显示校验警告。
     math/block 的 latex 字段不带 $、$$、\\(、\\)、\\[、\\] 定界符。JSON 中 LaTeX 命令的反斜杠必须正确转义；矩阵和 aligned 的每个 LaTeX 行分隔必须在 JSON 字符串中编码为四个反斜杠字符。不要把多行数学结构拆成多个 text/math，也不要用物理换行代替结构片段。
 """.trimIndent()
 
