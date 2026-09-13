@@ -13,6 +13,7 @@ import com.tiji.mistakes.service.BackupImportPhase
 import com.tiji.mistakes.service.BackupJournalReadStatus
 import com.tiji.mistakes.service.BackupRecoveryAction
 import com.tiji.mistakes.service.BackupService
+import com.tiji.mistakes.service.ImageStorage
 import java.io.File
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
@@ -153,6 +154,54 @@ class BackupImportCoordinatorTest {
                 assertFalse(rollback.exists())
                 assertEquals(null, coordinator.read())
                 assertFalse(database.backupImportCommitMarkerDao().isCommitted(importId))
+            }
+        }
+    }
+
+    @Test
+    fun imageCrashMatrixRetainsOnlyCommittedReferences() = runBlocking {
+        val coordinator = BackupImportCoordinator(context)
+        val modes = listOf(BackupImportMode.MERGE, BackupImportMode.REPLACE)
+        val phases = BackupImportPhase.values().toList()
+        val imageDirectory = File(context.filesDir, "images").apply { mkdirs() }
+        var caseIndex = 0
+
+        modes.forEach { mode ->
+            phases.forEach { phase ->
+                val index = caseIndex++
+                val importId = "image-matrix-$index"
+                val staging = File(context.filesDir, "image-matrix-staging-$index").apply { mkdirs() }
+                val rollback = File(context.filesDir, "image-matrix-rollback-$index").apply { mkdirs() }
+                val referenced = File(imageDirectory, "$importId.heic").apply { writeBytes(byteArrayOf(1, 2, 3)) }
+                val orphan = File(imageDirectory, "$importId-unused.heif").apply { writeBytes(byteArrayOf(4, 5, 6)) }
+                val roomCommitted = phase.ordinal >= BackupImportPhase.FILES_PUBLISHED.ordinal
+
+                coordinator.begin(mode, staging, rollback, importId = importId)
+                coordinator.advance(phase, createdImagePaths = listOf(referenced.absolutePath, orphan.absolutePath))
+                if (roomCommitted) {
+                    database.mistakeDao().upsert(
+                        MistakeEntity(
+                            stableId = "image-matrix-mistake-$index",
+                            imagePath = referenced.absolutePath
+                        )
+                    )
+                    database.backupImportCommitMarkerDao().markCommitted(importId, mode.name, 1L)
+                }
+
+                val action = BackupService.recoverPendingImport(context, database, null)
+                assertEquals(
+                    if (roomCommitted) BackupRecoveryAction.CLEANED_COMMITTED
+                    else BackupRecoveryAction.CLEANED_BEFORE_COMMIT,
+                    action
+                )
+                assertEquals(roomCommitted, referenced.isFile)
+                assertFalse(orphan.exists())
+                assertFalse(staging.exists())
+                assertFalse(rollback.exists())
+                assertFalse(database.backupImportCommitMarkerDao().isCommitted(importId))
+
+                database.mistakeDao().deleteAll()
+                ImageStorage.deletePrivateFiles(context, listOf(referenced.absolutePath, orphan.absolutePath))
             }
         }
     }
