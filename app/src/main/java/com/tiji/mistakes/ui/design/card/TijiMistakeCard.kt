@@ -9,8 +9,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.Spacer
 import com.tiji.mistakes.ui.design.TijiCheckbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -66,7 +64,14 @@ internal fun TijiMistakeCard(
                             contentColor = MaterialTheme.colorScheme.onPrimaryContainer
                         )
                     }
-                    TijiStatusBadge(mistake.mastery)
+                    TijiStatusBadge(
+                        mastery = mistake.mastery,
+                        label = when {
+                            mistake.mastery >= 3 -> "已掌握"
+                            mistake.reviewCount > 0 -> "复习${mistake.reviewCount}次"
+                            else -> "未复习"
+                        }
+                    )
                 }
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TijiTag(difficultyLabel(mistake.difficulty))
@@ -100,12 +105,6 @@ internal fun TijiMistakeCard(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        "${mistake.reviewCount} 次复习",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(Modifier.size(8.dp))
                     Text(
                         formatLocalDate(mistake.updatedAt),
                         style = MaterialTheme.typography.labelSmall,

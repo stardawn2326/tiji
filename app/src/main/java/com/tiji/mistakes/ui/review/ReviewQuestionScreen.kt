@@ -83,6 +83,7 @@ import com.tiji.mistakes.domain.ReviewSessionContext
 import com.tiji.mistakes.domain.ReviewSessionSource
 import com.tiji.mistakes.domain.time.LearningCalendar
 import com.tiji.mistakes.ui.design.TijiPageHeader
+import com.tiji.mistakes.ui.design.TijiDialog
 import com.tiji.mistakes.ui.common.formatLocalDate
 import com.tiji.mistakes.ui.common.reviewGradeUiLabel
 import com.tiji.mistakes.ui.common.reviewIntervalLabel
@@ -92,9 +93,6 @@ import com.tiji.mistakes.ui.image.ImagePreview
 import com.tiji.mistakes.ui.LocalTijiSemanticColors
 import com.tiji.mistakes.ui.math.MathText
 import com.tiji.mistakes.ui.MistakeViewModel
-import com.tiji.mistakes.service.AiAnswerDiagnosisStatus
-import com.tiji.mistakes.service.SecureKeyStore
-import com.tiji.mistakes.ui.solve.AiAnswerDiagnosisCard
 import com.tiji.mistakes.ui.normalizedSubject
 import com.tiji.mistakes.ui.design.TijiDimens
 import com.tiji.mistakes.ui.design.TijiStatusBadge
@@ -117,10 +115,7 @@ internal fun ReviewQuestionScreen(
     onRemovedFromPlan: (Long, () -> Unit) -> Unit,
     onReviewed: (Long, ReviewGrade) -> Unit,
     sessionKey: String? = null,
-    sessionContext: ReviewSessionContext = ReviewSessionContext(),
-    aiEndpoint: String = "",
-    aiModel: String = "",
-    activeAiProfileId: String = ""
+    sessionContext: ReviewSessionContext = ReviewSessionContext()
 ) {
     val fallbackSessionKey = remember(reviewIds, sessionContext) {
         buildString {
@@ -156,8 +151,8 @@ internal fun ReviewQuestionScreen(
     var mistake by remember { mutableStateOf<MistakeEntity?>(null) }
     var loadError by remember { mutableStateOf<String?>(null) }
     var showAnswer by remember(currentId) { mutableStateOf(false) }
-    var showExplanation by remember(currentId) { mutableStateOf(false) }
-    var learnerAnswer by remember(currentId) { mutableStateOf("") }
+    var showMasteryConfirm by remember(currentId) { mutableStateOf(false) }
+    var pendingMasteryGrade by remember(currentId) { mutableStateOf<ReviewGrade?>(null) }
     var reviewMenuExpanded by remember(currentId) { mutableStateOf(false) }
     var reviewReasonExpanded by remember(currentId) { mutableStateOf(false) }
     var autoAdvancePending by remember(currentId) { mutableStateOf(false) }
@@ -165,9 +160,6 @@ internal fun ReviewQuestionScreen(
     var autoAdvanceJob by remember(currentId) { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
-    val aiAnswerDiagnosis by viewModel.aiAnswerDiagnosis.collectAsStateWithLifecycle()
-    val secureKeyStore = remember { SecureKeyStore(context) }
-    val aiApiKey = remember(activeAiProfileId) { secureKeyStore.read(activeAiProfileId) }
     val reduceMotion = remember {
         runCatching {
             Settings.Global.getFloat(
@@ -211,14 +203,22 @@ internal fun ReviewQuestionScreen(
     val selectedGrade = focusedGrade ?: dailySelectedGrade
 
     LaunchedEffect(currentId) {
-        viewModel.clearAiAnswerDiagnosis()
-        learnerAnswer = ""
         mistake = null
         loadError = null
         if (currentId <= 0L) {
             loadError = "错题编号无效"
         } else {
-            viewModel.find(currentId, onLoaded = { mistake = it }, onError = { loadError = it.message ?: "无法读取错题" })
+            viewModel.find(
+                currentId,
+                onLoaded = { loaded ->
+                    if (loaded == null || loaded.deletedAt != null || loaded.archived) {
+                        loadError = "这道题已从复习范围移除"
+                    } else {
+                        mistake = loaded
+                    }
+                },
+                onError = { loadError = it.message ?: "无法读取错题" }
+            )
         }
     }
     LaunchedEffect(currentId, mistake != null) {
@@ -273,6 +273,15 @@ internal fun ReviewQuestionScreen(
             questionOffset.animateTo(0f, travelSpec)
         } finally {
             navigationAnimating = false
+        }
+    }
+    LaunchedEffect(currentId, loadError, isUnifiedSession, effectiveReviewIds) {
+        if (isUnifiedSession && loadError != null && effectiveReviewIds.isNotEmpty()) {
+            if (currentIndex < effectiveReviewIds.lastIndex) {
+                navigateQuestion(1, cancelAutoAdvance = false)
+            } else {
+                completeFocusedSession()
+            }
         }
     }
     val progressLabel = if (effectiveReviewIds.isEmpty() || currentIndex < 0) "复习" else "${currentIndex + 1} / ${effectiveReviewIds.size}"
@@ -330,6 +339,14 @@ internal fun ReviewQuestionScreen(
             reviewSubmitting = false
         } else {
             reviewJob.invokeOnCompletion { reviewSubmitting = false }
+        }
+    }
+    fun requestReview(grade: ReviewGrade) {
+        if (grade == ReviewGrade.EASY) {
+            pendingMasteryGrade = grade
+            showMasteryConfirm = true
+        } else {
+            submitReview(grade)
         }
     }
     val showSummary = isUnifiedSession && focusedSession?.summaryVisible == true
@@ -537,66 +554,8 @@ internal fun ReviewQuestionScreen(
                     }
                 }
                 item {
-                    TijiPaperCard(contentPadding = 12.dp) {
-                        TijiSectionHeader("先写答案，再检查")
-                        androidx.compose.foundation.layout.Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            com.tiji.mistakes.ui.design.TijiMultilineField(
-                                value = learnerAnswer,
-                                onValueChange = { learnerAnswer = it },
-                                label = { Text("我的答案") },
-                                minLines = 3,
-                                maxLines = 8,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                                TijiButton(
-                                    onClick = {
-                                        viewModel.startAiAnswerDiagnosis(
-                                            endpoint = aiEndpoint,
-                                            model = aiModel,
-                                            apiKey = aiApiKey,
-                                            question = current.questionText,
-                                            candidateSolution = listOf(current.answerText, current.explanation)
-                                                .filter(String::isNotBlank).joinToString("\n\n"),
-                                            userAnswer = learnerAnswer
-                                        )
-                                    },
-                                    enabled = learnerAnswer.isNotBlank() && !aiAnswerDiagnosis.running &&
-                                        aiEndpoint.isNotBlank() && aiModel.isNotBlank() && aiApiKey.isNotBlank(),
-                                    modifier = Modifier.weight(1f)
-                                ) { Text(if (aiAnswerDiagnosis.running) "检查中…" else "检查答案") }
-                                TijiTextButton(
-                                    onClick = { learnerAnswer = ""; viewModel.clearAiAnswerDiagnosis() },
-                                    enabled = learnerAnswer.isNotBlank() || aiAnswerDiagnosis.status != AiAnswerDiagnosisStatus.IDLE,
-                                    modifier = Modifier.weight(0.55f)
-                                ) { Text("清空") }
-                            }
-                            if (aiEndpoint.isBlank() || aiApiKey.isBlank()) {
-                                Text("请先在设置中配置 AI，才能检查答案。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            if (aiAnswerDiagnosis.status != AiAnswerDiagnosisStatus.IDLE) {
-                                AiAnswerDiagnosisCard(
-                                    state = aiAnswerDiagnosis,
-                                    onRetry = {
-                                        viewModel.startAiAnswerDiagnosis(
-                                            endpoint = aiEndpoint,
-                                            model = aiModel,
-                                            apiKey = aiApiKey,
-                                            question = current.questionText,
-                                            candidateSolution = listOf(current.answerText, current.explanation)
-                                                .filter(String::isNotBlank).joinToString("\n\n"),
-                                            userAnswer = learnerAnswer
-                                        )
-                                    },
-                                    onConfirmReason = { reason -> viewModel.persistAiAnswerDiagnosisReason(current.id, reason) }
-                                )
-                            }
-                        }
-                    }
-                }
-                item {
                     TijiButton(
-                        onClick = { showAnswer = true; showExplanation = true },
+                        onClick = { showAnswer = true },
                         enabled = !showAnswer,
                         colors = ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.primaryContainer,
@@ -623,7 +582,7 @@ internal fun ReviewQuestionScreen(
                         }
                     }
                 }
-                if (showExplanation) {
+                if (showAnswer) {
                     if (current.explanationImagePath != null) item {
                         TijiPaperCard {
                             TijiSectionHeader("解析图片")
@@ -643,8 +602,8 @@ internal fun ReviewQuestionScreen(
                             androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp), maxItemsInEachRow = 2, modifier = Modifier.fillMaxWidth()) {
                                 ReviewGrade.values().forEach { grade ->
                                     val selected = selectedGrade == grade
-                                    val preview = remember(current.id, grade) {
-                                        ReviewScheduler.preview(current, grade)
+                                    val preview = remember(current.id, grade, currentReviewHistory) {
+                                        ReviewScheduler.preview(current, grade, currentReviewHistory)
                                     }
                                     val gradeColor = when (grade) {
                                         ReviewGrade.FORGOT -> MaterialTheme.colorScheme.error
@@ -653,7 +612,7 @@ internal fun ReviewQuestionScreen(
                                         ReviewGrade.EASY -> semanticColors.reviewEasy
                                     }
                                         TijiCard(
-                                            onClick = { submitReview(grade) },
+                                            onClick = { requestReview(grade) },
                                         enabled = !reviewSubmitting && !autoAdvancePending && (selectedGrade == null || selected),
                                         colors = CardDefaults.cardColors(
                                             containerColor = if (selected) gradeColor.copy(alpha = 0.16f) else gradeColor.copy(alpha = 0.07f)
@@ -722,6 +681,34 @@ internal fun ReviewQuestionScreen(
                 }
             }
         }
+    }
+    if (showMasteryConfirm) {
+        TijiDialog(
+            onDismissRequest = {
+                showMasteryConfirm = false
+                pendingMasteryGrade = null
+            },
+            title = { Text("确认已掌握？") },
+            text = { Text("确认后会记录为“熟练”，并从自动的每日复习队列移出；之后仍可手动加入明日复习。") },
+            confirmButton = {
+                TijiButton(
+                    onClick = {
+                        val grade = pendingMasteryGrade
+                        showMasteryConfirm = false
+                        pendingMasteryGrade = null
+                        if (grade != null) submitReview(grade)
+                    }
+                ) { Text("确认已掌握") }
+            },
+            dismissButton = {
+                TijiTextButton(
+                    onClick = {
+                        showMasteryConfirm = false
+                        pendingMasteryGrade = null
+                    }
+                ) { Text("取消") }
+            }
+        )
     }
 }
 }

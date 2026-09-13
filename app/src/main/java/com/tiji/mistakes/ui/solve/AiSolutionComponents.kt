@@ -40,12 +40,9 @@ import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Image
 import com.tiji.mistakes.ui.design.TijiDialog
 import com.tiji.mistakes.ui.design.TijiButton
-import com.tiji.mistakes.ui.design.TijiCard
-import androidx.compose.material3.CardDefaults
 import com.tiji.mistakes.ui.design.TijiChip
 import androidx.compose.material3.Icon
 import com.tiji.mistakes.ui.design.TijiIconButton
-import com.tiji.mistakes.ui.design.TijiProgress
 import androidx.compose.material3.MaterialTheme
 import com.tiji.mistakes.ui.design.TijiSecondaryButton
 import com.tiji.mistakes.ui.design.TijiTextField
@@ -80,9 +77,6 @@ import com.tiji.mistakes.domain.ai.AiDuplicateDetector
 import com.tiji.mistakes.domain.ai.AiSolvedMistakeDraftInput
 import com.tiji.mistakes.domain.ai.AiSolvedMistakeDraftMapper
 import com.tiji.mistakes.service.AiChatMessage
-import com.tiji.mistakes.service.AiAnswerDiagnosisState
-import com.tiji.mistakes.service.AiAnswerDiagnosisStatus
-import com.tiji.mistakes.service.AiAnswerVerdict
 import com.tiji.mistakes.service.AiProviderPreset
 import com.tiji.mistakes.service.AiRecognitionMode
 import com.tiji.mistakes.service.AiSolveHistoryRecord
@@ -162,76 +156,6 @@ internal fun AiSolutionSection(
         )
     }
     }
-}
-
-@Composable
-internal fun AiAnswerDiagnosisCard(
-    state: AiAnswerDiagnosisState,
-    onRetry: () -> Unit,
-    onConfirmReason: (String) -> Unit
-) {
-    val result = state.result
-    val containerColor = when (result?.verdict) {
-        AiAnswerVerdict.CORRECT -> MaterialTheme.colorScheme.primaryContainer
-        AiAnswerVerdict.PARTIALLY_CORRECT -> MaterialTheme.colorScheme.primaryContainer
-        AiAnswerVerdict.INCORRECT -> MaterialTheme.colorScheme.errorContainer
-        AiAnswerVerdict.UNCERTAIN, null -> MaterialTheme.colorScheme.surfaceVariant
-    }
-    val contentColor = when (result?.verdict) {
-        AiAnswerVerdict.CORRECT -> MaterialTheme.colorScheme.onPrimaryContainer
-        AiAnswerVerdict.PARTIALLY_CORRECT -> MaterialTheme.colorScheme.onPrimaryContainer
-        AiAnswerVerdict.INCORRECT -> MaterialTheme.colorScheme.onErrorContainer
-        AiAnswerVerdict.UNCERTAIN, null -> MaterialTheme.colorScheme.onSurfaceVariant
-    }
-    TijiCard(
-        colors = CardDefaults.cardColors(containerColor = containerColor),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("答案诊断", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = contentColor)
-            when (state.status) {
-                AiAnswerDiagnosisStatus.RUNNING -> {
-                    TijiProgress(modifier = Modifier.fillMaxWidth())
-                    Text("正在比较题目、参考解答和你的答案…", color = contentColor)
-                }
-                AiAnswerDiagnosisStatus.FAILED -> {
-                    Text("答案诊断失败：${state.error ?: "暂时无法完成检查"}", color = contentColor)
-                    TijiSecondaryButton(onClick = onRetry, modifier = Modifier.heightIn(min = 48.dp)) { Text("重试诊断") }
-                }
-                AiAnswerDiagnosisStatus.COMPLETED -> {
-                    if (result != null) {
-                        Text(answerVerdictLabel(result.verdict), color = contentColor, fontWeight = FontWeight.Bold)
-                        if (result.firstErrorStep.isNotBlank()) {
-                            Text("第一个疑点：${result.firstErrorStep}", style = MaterialTheme.typography.bodySmall, color = contentColor)
-                        }
-                        Text(result.explanation, color = contentColor)
-                        if (result.correction.isNotBlank()) {
-                            Text("建议修正：${result.correction}", style = MaterialTheme.typography.bodySmall, color = contentColor)
-                        }
-                        if (result.suggestedErrorReason.isNotBlank()) {
-                            Text(
-                                "可能错因：${result.suggestedErrorReason}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = contentColor
-                            )
-                            TijiSecondaryButton(
-                                onClick = { onConfirmReason(result.suggestedErrorReason) },
-                                modifier = Modifier.heightIn(min = 48.dp)
-                            ) { Text("确认并用于错因") }
-                        }
-                    }
-                }
-                AiAnswerDiagnosisStatus.IDLE -> Unit
-            }
-        }
-    }
-}
-
-private fun answerVerdictLabel(verdict: AiAnswerVerdict): String = when (verdict) {
-    AiAnswerVerdict.CORRECT -> "判断：答案正确"
-    AiAnswerVerdict.PARTIALLY_CORRECT -> "判断：前面正确，后续需要修正"
-    AiAnswerVerdict.INCORRECT -> "判断：答案存在关键错误"
-    AiAnswerVerdict.UNCERTAIN -> "判断：暂时无法确定，请结合原题核对"
 }
 
 @Composable

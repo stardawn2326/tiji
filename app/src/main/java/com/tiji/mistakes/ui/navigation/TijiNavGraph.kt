@@ -122,7 +122,7 @@ internal fun TijiNavGraph(
             ) {
                 composable(TijiRoutes.HOME) {
                     HomeScreen(
-                        mistakes = state.allMistakes,
+                        progressSummary = state.progressSummary,
                         dueCount = state.dueCount,
                         reviewTotal = state.reviewPlanSnapshots[state.todayDate].orEmpty().size.takeIf { it > 0 } ?: state.dueCount,
                         reviewCompleted = state.reviewMastery[state.todayDate].orEmpty().keys.count { id -> id in state.reviewPlanSnapshots[state.todayDate].orEmpty() },
@@ -144,20 +144,13 @@ internal fun TijiNavGraph(
                         exportOriginalImagesOnly = !state.aiExcludeSourceImageByDefault,
                         onOpen = { navController.navigate(TijiRoutes.detail(it)) },
                         onCreate = { navController.navigate(TijiRoutes.CAPTURE) },
-                        onStartSelectedReview = { selectedIds ->
+                        onAddSelectedToTomorrow = { selectedIds ->
                             val activeIds = state.mistakes.mapTo(mutableSetOf()) { it.id }
                             val validIds = selectedIds.filter { it in activeIds }.distinct()
                             if (validIds.isEmpty()) {
                                 scope.launch { snackbarHostState.showSnackbar("所选错题已不可用，请重新选择") }
                             } else {
-                                val plan = ReviewSessionPlan(
-                                    sessionKey = viewModel.newReviewSessionId(),
-                                    source = ReviewSessionSource.LIBRARY_SELECTION,
-                                    reviewIds = validIds,
-                                    returnDestination = TijiRoutes.LIBRARY
-                                )
-                                viewModel.startReviewSession(plan)
-                                navController.navigate(TijiRoutes.reviewSession(plan.sessionId))
+                                viewModel.addMistakesToTomorrow(validIds)
                             }
                         }
                     )
@@ -491,9 +484,6 @@ internal fun TijiNavGraph(
                                     scope.launch { preferences.recordReviewStatus(state.todayDate, questionId, grade.name) }
                                 }
                             },
-                            aiEndpoint = state.activeAiProfile.endpoint,
-                            aiModel = state.activeAiProfile.model,
-                            activeAiProfileId = state.activeAiProfileId
                         )
                     }
                 }

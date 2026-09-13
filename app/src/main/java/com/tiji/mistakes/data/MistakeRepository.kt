@@ -4,6 +4,7 @@ import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
 import com.tiji.mistakes.domain.ReviewScheduler
 import com.tiji.mistakes.domain.ReviewGrade
+import com.tiji.mistakes.domain.time.LearningCalendar
 import com.tiji.mistakes.service.AiRecognitionResult
 import com.tiji.mistakes.service.QuestionContentBlockCodec
 import com.tiji.mistakes.service.mergeClassificationMetadata
@@ -163,7 +164,23 @@ class MistakeRepository(private val database: AppDatabase) {
 
     suspend fun setReviewPlan(id: Long, enabled: Boolean) {
         val now = System.currentTimeMillis()
-        dao.setReviewPlan(id, enabled, now, now)
+        val nextReviewAt = if (enabled) LearningCalendar.nextStudyDayStart(now) else now
+        dao.setReviewPlan(id, enabled, nextReviewAt, now)
+    }
+
+    /** Explicitly adds active rows to tomorrow's plan without changing mastery. */
+    suspend fun addToReviewPlanForNextStudyDay(
+        ids: Collection<Long>,
+        now: Long = System.currentTimeMillis()
+    ): Int = database.withTransaction {
+        val distinctIds = ids.filter { it > 0L }.distinct()
+        if (distinctIds.isEmpty()) return@withTransaction 0
+        val nextReviewAt = LearningCalendar.nextStudyDayStart(now)
+        val activeRows = dao.findByIds(distinctIds).filter { it.deletedAt == null && !it.archived }
+        activeRows.forEach { row ->
+            dao.setReviewPlan(row.id, enabled = true, nextReviewAt = nextReviewAt, updatedAt = now)
+        }
+        activeRows.size
     }
 
     /** Updates the learner state and records the response in one Room transaction. */
@@ -180,6 +197,7 @@ class MistakeRepository(private val database: AppDatabase) {
             reviewCount = before.reviewCount + 1,
             lastReviewedAt = now,
             nextReviewAt = preview.nextReviewAt,
+            inReviewPlan = preview.masteryAfter < 3,
             updatedAt = now
         )
         dao.update(after)

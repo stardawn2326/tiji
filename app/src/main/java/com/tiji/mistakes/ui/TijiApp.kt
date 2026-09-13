@@ -92,6 +92,7 @@ fun TijiApp() {
     val reviewPlanSnapshots by preferences.reviewPlanSnapshots.collectAsStateWithLifecycle(emptyMap())
     val mistakes by viewModel.mistakes.collectAsStateWithLifecycle()
     val allMistakes by viewModel.allMistakes.collectAsStateWithLifecycle()
+    val progressSummary by viewModel.progressSummary.collectAsStateWithLifecycle()
     val reviewNow by viewModel.reviewNow.collectAsStateWithLifecycle(System.currentTimeMillis())
     val todayDate = remember(reviewNow) { LearningCalendar.localDate(reviewNow).toString() }
     val todayWeekday = remember(reviewNow) { LearningCalendar.localDate(reviewNow).dayOfWeek.value }
@@ -168,6 +169,7 @@ fun TijiApp() {
     val navState = TijiNavGraphState(
         allMistakes = allMistakes,
         mistakes = mistakes,
+        progressSummary = progressSummary,
         reviewNow = reviewNow,
         todayDate = todayDate,
         dueMistakes = dueMistakes,

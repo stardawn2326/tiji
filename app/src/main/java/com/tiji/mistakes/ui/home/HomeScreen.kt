@@ -10,21 +10,19 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.tiji.mistakes.data.MistakeEntity
+import com.tiji.mistakes.domain.MistakeProgressSummary
 import com.tiji.mistakes.ui.design.*
-import com.tiji.mistakes.ui.normalizedSubject
-import com.tiji.mistakes.ui.subjectCounts
 import com.tiji.mistakes.ui.navigation.TijiRoutes
+import java.util.Locale
 
 @Composable
 internal fun HomeScreen(
-    mistakes: List<MistakeEntity>, dueCount: Int, reviewTotal: Int, reviewCompleted: Int,
+    progressSummary: MistakeProgressSummary, dueCount: Int, reviewTotal: Int, reviewCompleted: Int,
     resetScrollToken: Int, onNavigate: (String) -> Unit,
     onSubject: (String) -> Unit = { onNavigate(TijiRoutes.LIBRARY) }
 ) {
     val listState = rememberLazyListState()
-    val subjects = remember(mistakes) { subjectCounts(mistakes) }
-    val mastered = remember(mistakes) { mistakes.count { it.mastery >= 3 } }
+    val subjects = progressSummary.bySubject
     val remaining = (reviewTotal - reviewCompleted).coerceAtLeast(0)
     LaunchedEffect(resetScrollToken) { if (resetScrollToken > 0) listState.scrollToItem(0) }
     LazyColumn(state = listState, modifier = Modifier.fillMaxSize(),
@@ -57,9 +55,13 @@ internal fun HomeScreen(
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 TijiSectionHeader("学习进度")
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    TijiStatCard("累计错题", mistakes.size.toString(), Modifier.weight(1f))
-                    TijiStatCard("已掌握", mastered.toString(), Modifier.weight(1f))
-                    TijiStatCard("待巩固", (mistakes.size-mastered).toString(), Modifier.weight(1f))
+                    TijiStatCard("累计错题", progressSummary.total.toString(), Modifier.weight(1f))
+                    TijiStatCard("已掌握", progressSummary.mastered.toString(), Modifier.weight(1f))
+                    TijiStatCard(
+                        "掌握率",
+                        String.format(Locale.ROOT, "%.0f%%", progressSummary.masteryRate * 100f),
+                        Modifier.weight(1f)
+                    )
                 }
             }
         }
@@ -79,10 +81,10 @@ internal fun HomeScreen(
         } else {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    subjects.forEach { (subject, count) ->
-                        TijiSubjectCountRow(subject, count,
-                            mistakes.count { normalizedSubject(it.subject) == subject && it.mastery >= 3 },
-                            onClick = { onSubject(subject) })
+                    subjects.forEach { subjectProgress ->
+                        TijiSubjectCountRow(subjectProgress.subject, subjectProgress.total,
+                            subjectProgress.mastered,
+                            onClick = { onSubject(subjectProgress.subject) })
                     }
                 }
             }

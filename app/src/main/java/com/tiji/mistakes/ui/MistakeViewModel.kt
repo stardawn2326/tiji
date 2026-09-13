@@ -18,12 +18,11 @@ import com.tiji.mistakes.domain.ReviewSessionSource
 import com.tiji.mistakes.domain.ReviewSessionStatus
 import com.tiji.mistakes.domain.ReviewSessionUiState
 import com.tiji.mistakes.domain.MistakeDuplicateService
+import com.tiji.mistakes.domain.MistakeProgressCalculator
+import com.tiji.mistakes.domain.MistakeProgressSummary
 import com.tiji.mistakes.domain.time.LearningCalendar
 import com.tiji.mistakes.service.AiChatMessage
 import com.tiji.mistakes.service.AiChatStateStore
-import com.tiji.mistakes.service.AiAnswerDiagnosisService
-import com.tiji.mistakes.service.AiAnswerDiagnosisState
-import com.tiji.mistakes.service.AiAnswerDiagnosisStatus
 import com.tiji.mistakes.service.AiFollowUpService
 import com.tiji.mistakes.service.AiMistakeClassificationService
 import com.tiji.mistakes.service.AiMistakeSavePhase
@@ -56,7 +55,6 @@ import com.tiji.mistakes.service.unreferencedImagePaths
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.asStateFlow
@@ -65,13 +63,12 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
 import org.json.JSONArray
 
 internal fun copyMistakeWithOwnedImages(context: Context, draft: MistakeEntity, prefix: String): Pair<MistakeEntity, List<String>> {
@@ -240,13 +237,12 @@ class MistakeViewModel(
             ?: AiMistakeSaveState(taskId = "", requestId = 0L, phase = AiMistakeSavePhase.IDLE)
     )
     private var aiMistakeSaveObserverJob: Job? = null
-    private val _aiAnswerDiagnosis = MutableStateFlow(AiAnswerDiagnosisState())
-    private var aiAnswerDiagnosisJob: Job? = null
-    private var aiAnswerDiagnosisRequestId = 0L
-
     // Home counts must never depend on the library's active search query.
     val allMistakes: StateFlow<List<MistakeEntity>> = repository.observe("")
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val progressSummary: StateFlow<MistakeProgressSummary> = allMistakes
+        .map(MistakeProgressCalculator::calculate)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MistakeProgressSummary())
     val searchQuery: StateFlow<String> = query
     val reviewNow: StateFlow<Long> = reviewClock.asStateFlow()
     val mistakes: StateFlow<List<MistakeEntity>> = query.flatMapLatest(repository::observe)
@@ -271,7 +267,6 @@ class MistakeViewModel(
     val aiChat: StateFlow<AiChatState> = _aiChat.asStateFlow()
     val aiRecognition: StateFlow<AiRecognitionState> = _aiRecognition.asStateFlow()
     val aiMistakeSave: StateFlow<AiMistakeSaveState> = _aiMistakeSave.asStateFlow()
-    val aiAnswerDiagnosis: StateFlow<AiAnswerDiagnosisState> = _aiAnswerDiagnosis.asStateFlow()
     val reviewSession: StateFlow<ReviewSessionUiState?> = _reviewSession.asStateFlow()
     val reviewSessionSummary: StateFlow<ReviewSessionSummaryState> = _reviewSessionSummary.asStateFlow()
 
@@ -476,7 +471,6 @@ class MistakeViewModel(
         previousUpdatedAt: Long = 0L
     ) {
         if (_aiSolve.value.running) return
-        clearAiAnswerDiagnosis()
         activeAiSolveHistoryId = null
         val requestId = ++aiSolveRequestId
         val solveRunId = UUID.randomUUID().toString()
@@ -542,86 +536,6 @@ class MistakeViewModel(
             )
             aiSolveStore.write(failed.toPersisted())
             _aiSolve.value = failed
-        }
-    }
-
-    /** Runs a structured learner-answer check without mutating the mistake yet. */
-    fun startAiAnswerDiagnosis(
-        endpoint: String,
-        model: String,
-        apiKey: String,
-        question: String,
-        candidateSolution: String,
-        userAnswer: String
-    ) {
-        if (_aiAnswerDiagnosis.value.running || userAnswer.isBlank()) return
-        aiAnswerDiagnosisJob?.cancel()
-        val requestId = ++aiAnswerDiagnosisRequestId
-        val startedAt = System.currentTimeMillis()
-        val initial = AiAnswerDiagnosisState(
-            requestId = requestId,
-            status = AiAnswerDiagnosisStatus.RUNNING,
-            answer = userAnswer,
-            startedAt = startedAt,
-            updatedAt = startedAt
-        )
-        _aiAnswerDiagnosis.value = initial
-        aiAnswerDiagnosisJob = viewModelScope.launch {
-            try {
-                val diagnosis = withContext(Dispatchers.IO) {
-                    withTimeout(120_000L) {
-                        AiAnswerDiagnosisService().diagnose(
-                            endpoint = endpoint,
-                            model = model,
-                            apiKey = apiKey,
-                            question = question,
-                            candidateSolution = candidateSolution,
-                            userAnswer = userAnswer
-                        ).getOrThrow()
-                    }
-                }
-                if (_aiAnswerDiagnosis.value.requestId == requestId) {
-                    _aiAnswerDiagnosis.value = initial.copy(
-                        status = AiAnswerDiagnosisStatus.COMPLETED,
-                        result = diagnosis,
-                        updatedAt = System.currentTimeMillis()
-                    )
-                }
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Throwable) {
-                if (_aiAnswerDiagnosis.value.requestId == requestId) {
-                    _aiAnswerDiagnosis.value = initial.copy(
-                        status = AiAnswerDiagnosisStatus.FAILED,
-                        error = error.message ?: error.javaClass.simpleName,
-                        updatedAt = System.currentTimeMillis()
-                    )
-                }
-            }
-        }
-    }
-
-    fun clearAiAnswerDiagnosis() {
-        aiAnswerDiagnosisJob?.cancel()
-        aiAnswerDiagnosisJob = null
-        _aiAnswerDiagnosis.value = AiAnswerDiagnosisState()
-    }
-
-    /** Persists a diagnosis suggestion only after the learner explicitly confirms it. */
-    fun persistAiAnswerDiagnosisReason(mistakeId: Long, reason: String) {
-        val normalized = reason.trim()
-        if (mistakeId <= 0L || normalized.isBlank()) return
-        viewModelScope.launch {
-            runCatching {
-                val current = requireNotNull(repository.find(mistakeId)) { "错题不存在" }
-                val merged = listOf(current.errorReason, normalized)
-                    .flatMap { it.split(',', '，', '、', ';', '；') }
-                    .map(String::trim)
-                    .filter(String::isNotBlank)
-                    .distinct()
-                    .joinToString(", ")
-                repository.save(current.copy(errorReason = merged), preserveReviewPlan = true)
-            }
         }
     }
 
@@ -1338,6 +1252,13 @@ class MistakeViewModel(
         onUpdated()
     }
 
+    /** Adds active rows to tomorrow's plan while leaving their mastery untouched. */
+    fun addMistakesToTomorrow(ids: Collection<Long>, onUpdated: (Int) -> Unit = {}) = viewModelScope.launch {
+        val count = repository.addToReviewPlanForNextStudyDay(ids)
+        refreshReviewClock()
+        onUpdated(count)
+    }
+
     /** Applies only fields explicitly supplied by the batch editor. */
     fun batchUpdateMistakes(
         ids: Collection<Long>,
@@ -1348,6 +1269,8 @@ class MistakeViewModel(
         inReviewPlan: Boolean? = null,
         onFinished: () -> Unit = {}
     ) = viewModelScope.launch {
+        val now = System.currentTimeMillis()
+        val tomorrow = if (inReviewPlan == true) LearningCalendar.nextStudyDayStart(now) else null
         val updates = ids.filter { it > 0L }.distinct().mapNotNull { id ->
             repository.find(id)?.let { current ->
                 current.copy(
@@ -1356,6 +1279,7 @@ class MistakeViewModel(
                     tags = tags?.trim() ?: current.tags,
                     difficulty = difficulty?.coerceIn(0, 5) ?: current.difficulty,
                     inReviewPlan = inReviewPlan ?: current.inReviewPlan,
+                    nextReviewAt = tomorrow ?: current.nextReviewAt,
                     updatedAt = System.currentTimeMillis()
                 )
             }

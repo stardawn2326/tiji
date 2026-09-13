@@ -25,8 +25,8 @@ object ReviewScheduler {
         val oldInterval = currentIntervalDays(mistake)
         val (interval, mastery) = when (grade) {
             ReviewGrade.FORGOT -> 1 to 0
-            ReviewGrade.HARD -> maxOf(1, (oldInterval * 1.5).toInt()) to maxOf(1, mistake.mastery)
-            ReviewGrade.GOOD -> maxOf(1, (oldInterval * 2.2).toInt()) to maxOf(2, mistake.mastery)
+            ReviewGrade.HARD -> maxOf(1, (oldInterval * 1.5).toInt()) to 1
+            ReviewGrade.GOOD -> maxOf(1, (oldInterval * 2.2).toInt()) to 2
             ReviewGrade.EASY -> maxOf(2, (oldInterval * 3.4).toInt()) to 3
         }
         return ReviewPreview(
@@ -94,7 +94,8 @@ object ReviewScheduler {
             mastery = preview.masteryAfter,
             reviewCount = mistake.reviewCount + 1,
             lastReviewedAt = now,
-            nextReviewAt = preview.nextReviewAt
+            nextReviewAt = preview.nextReviewAt,
+            inReviewPlan = preview.masteryAfter < 3
         )
     }
 
@@ -109,7 +110,8 @@ object ReviewScheduler {
             mastery = preview.masteryAfter,
             reviewCount = mistake.reviewCount + 1,
             lastReviewedAt = now,
-            nextReviewAt = preview.nextReviewAt
+            nextReviewAt = preview.nextReviewAt,
+            inReviewPlan = preview.masteryAfter < 3
         )
     }
 

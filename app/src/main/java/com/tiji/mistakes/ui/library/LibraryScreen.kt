@@ -101,7 +101,7 @@ internal fun LibraryScreen(
     exportOriginalImagesOnly: Boolean,
     onOpen: (Long) -> Unit,
     onCreate: () -> Unit,
-    onStartSelectedReview: (List<Long>) -> Unit = {}
+    onAddSelectedToTomorrow: (List<Long>) -> Unit = {}
 ) {
     val query by viewModel.searchQuery.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -202,9 +202,9 @@ internal fun LibraryScreen(
         mistakeListState.scrollToItem(0)
     }
     val displayedMistakes = remember(visibleMistakes, visibleLimit) { visibleMistakes.take(visibleLimit) }
-    fun startSelectedReview() {
-        // Re-filter against the latest active library rows at the boundary where a session is
-        // created. A deleted/archived row must never be captured into a new session plan.
+    fun addSelectedToTomorrow() {
+        // Re-filter against the latest active library rows at the boundary where the plan is
+        // written. A deleted/archived row must never be scheduled.
         val activeIds = mistakes.asSequence()
             .filter { !it.archived && it.deletedAt == null }
             .map { it.id }
@@ -213,7 +213,8 @@ internal fun LibraryScreen(
         if (validIds.isEmpty()) {
             Toast.makeText(context, "所选错题已不可用，请重新选择", Toast.LENGTH_SHORT).show()
         } else {
-            onStartSelectedReview(validIds)
+            onAddSelectedToTomorrow(validIds)
+            scope.launch { snackbarHostState.showSnackbar("已加入明日复习", duration = SnackbarDuration.Short) }
             selectionMode = false
             selectedIds = emptySet()
         }
@@ -425,10 +426,10 @@ internal fun LibraryScreen(
                     modifier = Modifier.testTag("library_selection_action_bar")
                 ) {
                         TijiContextAction(
-                            label = "开始复习",
+                            label = "加入明日复习",
                             enabled = selectedIds.isNotEmpty(),
-                            modifier = Modifier.weight(1f).testTag("library_start_selected_review"),
-                            onClick = ::startSelectedReview
+                            modifier = Modifier.weight(1f).testTag("library_add_selected_tomorrow"),
+                            onClick = ::addSelectedToTomorrow
                         )
                         TijiContextAction(
                             label = "打印",

@@ -79,9 +79,6 @@ import com.tiji.mistakes.domain.ai.AiSolvedMistakeDraftInput
 import com.tiji.mistakes.domain.ai.AiSolvedMistakeDraftMapper
 import com.tiji.mistakes.domain.MistakeDuplicateService
 import com.tiji.mistakes.service.AiChatMessage
-import com.tiji.mistakes.service.AiAnswerDiagnosisState
-import com.tiji.mistakes.service.AiAnswerDiagnosisStatus
-import com.tiji.mistakes.service.AiAnswerVerdict
 import com.tiji.mistakes.service.mergeTagText
 import com.tiji.mistakes.service.normalizeClassificationDifficulty
 import com.tiji.mistakes.service.AiProviderPreset

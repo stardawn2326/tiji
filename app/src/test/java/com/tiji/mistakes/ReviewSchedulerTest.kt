@@ -27,6 +27,7 @@ class ReviewSchedulerTest {
         assertEquals(3, result.mastery)
         assertEquals(preview.intervalDays, 3)
         assertEquals(preview.nextReviewAt, result.nextReviewAt)
+        assertEquals(false, result.inReviewPlan)
         assertTrue(result.nextReviewAt > ReviewScheduler.nextLocalMidnight(now))
     }
 
@@ -43,6 +44,14 @@ class ReviewSchedulerTest {
     fun gradeLabelsDescribeMasteryInTheReviewUi() {
         assertEquals("掌握", ReviewGrade.GOOD.label)
         assertEquals("熟练", ReviewGrade.EASY.label)
+    }
+
+    @Test
+    fun lowerGradeCanDowngradePreviouslyMasteredMistake() {
+        val mistake = MistakeEntity(mastery = 3, lastReviewedAt = now - DAY, nextReviewAt = now)
+
+        assertEquals(1, ReviewScheduler.preview(mistake, ReviewGrade.HARD, now).masteryAfter)
+        assertEquals(2, ReviewScheduler.preview(mistake, ReviewGrade.GOOD, now).masteryAfter)
     }
 
     @Test

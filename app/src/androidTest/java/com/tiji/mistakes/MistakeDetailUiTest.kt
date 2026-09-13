@@ -68,7 +68,7 @@ class MistakeDetailUiTest {
         composeRule.waitUntil(5_000) {
             runBlocking {
                 AppDatabase.get(context).mistakeDao().findById(fixtureId)?.let {
-                    it.mastery == 3 && it.inReviewPlan &&
+                    it.mastery == 3 && !it.inReviewPlan &&
                         AppDatabase.get(context).reviewRecordDao().listByMistakeId(fixtureId)
                             .lastOrNull()?.grade == ReviewGrade.EASY.name
                 } == true

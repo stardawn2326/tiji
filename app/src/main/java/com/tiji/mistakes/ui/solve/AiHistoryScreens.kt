@@ -81,9 +81,6 @@ import com.tiji.mistakes.domain.ai.AiDuplicateDetector
 import com.tiji.mistakes.domain.ai.AiSolvedMistakeDraftInput
 import com.tiji.mistakes.domain.ai.AiSolvedMistakeDraftMapper
 import com.tiji.mistakes.service.AiChatMessage
-import com.tiji.mistakes.service.AiAnswerDiagnosisState
-import com.tiji.mistakes.service.AiAnswerDiagnosisStatus
-import com.tiji.mistakes.service.AiAnswerVerdict
 import com.tiji.mistakes.service.AiProviderPreset
 import com.tiji.mistakes.service.AiRecognitionMode
 import com.tiji.mistakes.service.AiSolveHistoryRecord
