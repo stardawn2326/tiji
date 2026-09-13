@@ -208,7 +208,7 @@ object DailyStudyPlanner {
         latestRecord?.let { record ->
             when (record.grade) {
                 ReviewGrade.FORGOT.name -> add("上次选择忘记")
-                ReviewGrade.HARD.name -> add("上次选择困难")
+                ReviewGrade.HARD.name -> add("上次选择生疏")
             }
         }
         mistake.lastReviewedAt?.let { reviewedAt ->

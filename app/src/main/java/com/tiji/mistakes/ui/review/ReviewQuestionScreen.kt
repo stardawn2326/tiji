@@ -87,6 +87,7 @@ import com.tiji.mistakes.ui.design.TijiDialog
 import com.tiji.mistakes.ui.common.formatLocalDate
 import com.tiji.mistakes.ui.common.reviewGradeUiLabel
 import com.tiji.mistakes.ui.common.reviewIntervalLabel
+import com.tiji.mistakes.domain.mistakeReviewStatusLabel
 import com.tiji.mistakes.ui.design.TijiSectionHeader
 import com.tiji.mistakes.ui.design.TijiTag
 import com.tiji.mistakes.ui.image.ImagePreview
@@ -151,8 +152,8 @@ internal fun ReviewQuestionScreen(
     var mistake by remember { mutableStateOf<MistakeEntity?>(null) }
     var loadError by remember { mutableStateOf<String?>(null) }
     var showAnswer by remember(currentId) { mutableStateOf(false) }
-    var showMasteryConfirm by remember(currentId) { mutableStateOf(false) }
-    var pendingMasteryGrade by remember(currentId) { mutableStateOf<ReviewGrade?>(null) }
+    var showEasyConfirm by remember(currentId) { mutableStateOf(false) }
+    var pendingEasyGrade by remember(currentId) { mutableStateOf<ReviewGrade?>(null) }
     var reviewMenuExpanded by remember(currentId) { mutableStateOf(false) }
     var reviewReasonExpanded by remember(currentId) { mutableStateOf(false) }
     var autoAdvancePending by remember(currentId) { mutableStateOf(false) }
@@ -287,6 +288,8 @@ internal fun ReviewQuestionScreen(
     val progressLabel = if (effectiveReviewIds.isEmpty() || currentIndex < 0) "复习" else "${currentIndex + 1} / ${effectiveReviewIds.size}"
     val reviewHistoryFlow = remember(currentId) { viewModel.reviewHistory(currentId) }
     val currentReviewHistory by reviewHistoryFlow.collectAsStateWithLifecycle(emptyList())
+    val latestReviewGrade = currentReviewHistory.firstOrNull()?.grade
+        ?.let { value -> runCatching { ReviewGrade.valueOf(value) }.getOrNull() }
     val reviewReason = current?.let { reviewReasonFor(it, currentReviewHistory.firstOrNull(), sessionContext) }
     val leaveQuestion = {
         cancelPendingAutoAdvance()
@@ -343,8 +346,8 @@ internal fun ReviewQuestionScreen(
     }
     fun requestReview(grade: ReviewGrade) {
         if (grade == ReviewGrade.EASY) {
-            pendingMasteryGrade = grade
-            showMasteryConfirm = true
+            pendingEasyGrade = grade
+            showEasyConfirm = true
         } else {
             submitReview(grade)
         }
@@ -539,7 +542,9 @@ internal fun ReviewQuestionScreen(
                     TijiPaperCard {
                         Row(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
                             TijiTag(normalizedSubject(current.subject))
-                            TijiStatusBadge(current.mastery)
+                            TijiStatusBadge(
+                                label = mistakeReviewStatusLabel(current.reviewCount, latestReviewGrade)
+                            )
                         }
                         Text("题目", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                         Text(current.title.ifBlank { "未命名错题" }, style = MaterialTheme.typography.titleLarge)
@@ -682,29 +687,29 @@ internal fun ReviewQuestionScreen(
             }
         }
     }
-    if (showMasteryConfirm) {
+    if (showEasyConfirm) {
         TijiDialog(
             onDismissRequest = {
-                showMasteryConfirm = false
-                pendingMasteryGrade = null
+                showEasyConfirm = false
+                pendingEasyGrade = null
             },
-            title = { Text("确认已掌握？") },
-            text = { Text("确认后会记录为“熟练”，并从自动的每日复习队列移出；之后仍可手动加入明日复习。") },
+            title = { Text("确认熟练？") },
+            text = { Text("确认后将记录本次复习为“熟练”。") },
             confirmButton = {
                 TijiButton(
                     onClick = {
-                        val grade = pendingMasteryGrade
-                        showMasteryConfirm = false
-                        pendingMasteryGrade = null
+                        val grade = pendingEasyGrade
+                        showEasyConfirm = false
+                        pendingEasyGrade = null
                         if (grade != null) submitReview(grade)
                     }
-                ) { Text("确认已掌握") }
+                ) { Text("确认熟练") }
             },
             dismissButton = {
                 TijiTextButton(
                     onClick = {
-                        showMasteryConfirm = false
-                        pendingMasteryGrade = null
+                        showEasyConfirm = false
+                        pendingEasyGrade = null
                     }
                 ) { Text("取消") }
             }

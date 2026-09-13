@@ -74,7 +74,6 @@ import com.tiji.mistakes.ui.common.cameraUri
 import com.tiji.mistakes.ui.common.formatUploadTime
 import com.tiji.mistakes.ui.common.formatReviewDateTime
 import com.tiji.mistakes.ui.common.isPhotoEntryImagePath
-import com.tiji.mistakes.ui.common.masteryLabel
 import com.tiji.mistakes.ui.common.difficultyLabel
 import com.tiji.mistakes.ui.design.TijiSectionHeader
 import com.tiji.mistakes.ui.design.TijiTag
@@ -84,6 +83,7 @@ import com.tiji.mistakes.ui.editor.MistakeFields
 import com.tiji.mistakes.ui.MistakeViewModel
 import com.tiji.mistakes.ui.math.normalizeAsciiPunctuation
 import com.tiji.mistakes.ui.common.reviewGradeUiLabel
+import com.tiji.mistakes.domain.mistakeReviewStatusLabel
 import com.tiji.mistakes.ui.common.PdfExportOptionsDialog
 import com.tiji.mistakes.ui.common.PdfPreviewDialog
 import com.tiji.mistakes.ui.common.PdfPreviewLoadingDialog
@@ -168,6 +168,8 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
     var inReviewPlan by remember(current.id) { mutableStateOf(current.inReviewPlan) }
     var editing by remember(current.id) { mutableStateOf(false) }
     var showReviewCheckIn by remember(current.id) { mutableStateOf(false) }
+    var showEasyConfirm by remember(current.id) { mutableStateOf(false) }
+    var pendingEasyGrade by remember(current.id) { mutableStateOf<ReviewGrade?>(null) }
     var reviewSubmitting by remember(current.id) { mutableStateOf(false) }
     var explanationExpanded by remember(current.id) { mutableStateOf(false) }
     var detailMenuExpanded by remember(current.id) { mutableStateOf(false) }
@@ -183,6 +185,36 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
     var isPreparingPdf by remember { mutableStateOf(false) }
     var pdfOptions by remember {
         mutableStateOf(PdfExportOptions(includeSourceImages = true))
+    }
+    fun submitReview(grade: ReviewGrade) {
+        if (reviewSubmitting) return
+        reviewSubmitting = true
+        showReviewCheckIn = false
+        val reviewJob = viewModel.review(current, grade) { record ->
+            reviewSubmitting = false
+            mistake = current.copy(
+                mastery = record.masteryAfter,
+                reviewCount = current.reviewCount + 1,
+                lastReviewedAt = record.reviewedAt,
+                nextReviewAt = record.nextReviewAt,
+                inReviewPlan = record.masteryAfter < 3
+            )
+            saveMessage = "已记录：${reviewGradeUiLabel(grade)}"
+        }
+        if (reviewJob == null) {
+            reviewSubmitting = false
+        } else {
+            reviewJob.invokeOnCompletion { reviewSubmitting = false }
+        }
+    }
+    fun requestReview(grade: ReviewGrade) {
+        if (grade == ReviewGrade.EASY) {
+            showReviewCheckIn = false
+            pendingEasyGrade = grade
+            showEasyConfirm = true
+        } else {
+            submitReview(grade)
+        }
     }
     val pdfExportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
         val preview = previewPath.takeIf(String::isNotBlank)?.let(::File)?.takeIf(File::isFile)
@@ -268,23 +300,7 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                         TijiSecondaryButton(
                             onClick = {
                                 if (reviewSubmitting) return@TijiSecondaryButton
-                                reviewSubmitting = true
-                                showReviewCheckIn = false
-                                val reviewJob = viewModel.review(current, grade) { record ->
-                                    reviewSubmitting = false
-                                    mistake = current.copy(
-                                        mastery = record.masteryAfter,
-                                        reviewCount = current.reviewCount + 1,
-                                        lastReviewedAt = record.reviewedAt,
-                                        nextReviewAt = record.nextReviewAt
-                                    )
-                                    saveMessage = "已记录：${reviewGradeUiLabel(grade)}"
-                                }
-                                if (reviewJob == null) {
-                                    reviewSubmitting = false
-                                } else {
-                                    reviewJob.invokeOnCompletion { reviewSubmitting = false }
-                                }
+                                requestReview(grade)
                             },
                             enabled = !reviewSubmitting,
                             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
@@ -298,6 +314,34 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
             confirmButton = {},
             dismissButton = {
                 TijiTextButton(onClick = { showReviewCheckIn = false }) { Text("取消") }
+            }
+        )
+    }
+    if (showEasyConfirm) {
+        TijiDialog(
+            onDismissRequest = {
+                showEasyConfirm = false
+                pendingEasyGrade = null
+            },
+            title = { Text("确认熟练？") },
+            text = { Text("确认后将记录本次复习为“熟练”。") },
+            confirmButton = {
+                TijiButton(
+                    onClick = {
+                        val grade = pendingEasyGrade
+                        showEasyConfirm = false
+                        pendingEasyGrade = null
+                        if (grade != null) submitReview(grade)
+                    }
+                ) { Text("确认熟练") }
+            },
+            dismissButton = {
+                TijiTextButton(
+                    onClick = {
+                        showEasyConfirm = false
+                        pendingEasyGrade = null
+                    }
+                ) { Text("取消") }
             }
         )
     }
@@ -523,7 +567,13 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                                     overflow = TextOverflow.Ellipsis
                                 )
                             }
-                            TijiStatusBadge(current.mastery)
+                            TijiStatusBadge(
+                                label = mistakeReviewStatusLabel(
+                                    current.reviewCount,
+                                    reviewHistory.firstOrNull()?.grade
+                                        ?.let { value -> runCatching { ReviewGrade.valueOf(value) }.getOrNull() }
+                                )
+                            )
                         }
                         Text("保存于 ${formatUploadTime(current.uploadedAt)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
@@ -672,8 +722,12 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                             Text(current.reviewCount.toString(), style = MaterialTheme.typography.titleLarge)
                         }
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text("掌握状态", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text(masteryLabel(current.mastery), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                            Text("最近反馈", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                reviewHistory.firstOrNull()?.let { reviewGradeUiLabel(it.grade) } ?: "暂无记录",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.primary
+                            )
                         }
                     }
                     if (reviewHistory.isEmpty()) {
@@ -709,7 +763,7 @@ private fun DetailReviewHistoryRow(record: com.tiji.mistakes.data.ReviewRecordEn
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(formatReviewDateTime(record.reviewedAt), style = MaterialTheme.typography.bodySmall)
             Text(
-                "掌握 ${record.masteryBefore} → ${record.masteryAfter} · 间隔 ${record.intervalAfterDays} 天",
+                "下次间隔 ${record.intervalAfterDays} 天",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

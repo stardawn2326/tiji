@@ -1,51 +1,47 @@
 package com.tiji.mistakes.domain
 
-import com.tiji.mistakes.data.MistakeEntity
-
 /**
  * The single product-level source for the progress values shown on Home.
- * Filtering and subject normalization live here so the library query cannot
- * accidentally change the totals on another screen.
+ * Progress is based on whether a real review has happened, never on the
+ * internal mastery score.
  */
 data class SubjectProgress(
     val subject: String,
     val total: Int,
-    val mastered: Int
+    val reviewed: Int
 )
 
 data class MistakeProgressSummary(
     val total: Int = 0,
-    val mastered: Int = 0,
-    val masteryRate: Float = 0f,
+    val reviewed: Int = 0,
+    val reviewRate: Float = 0f,
     val bySubject: List<SubjectProgress> = emptyList()
 )
 
 object MistakeProgressCalculator {
-    fun calculate(mistakes: Iterable<MistakeEntity>): MistakeProgressSummary {
-        val active = mistakes.filter { it.deletedAt == null && !it.archived }
+    fun calculate(items: Iterable<MistakeListItem>): MistakeProgressSummary {
+        val active = items.filter { it.mistake.deletedAt == null && !it.mistake.archived }
         val total = active.size
-        val mastered = active.count { it.mastery >= MASTERED_LEVEL }
+        val reviewed = active.count { it.mistake.reviewCount > 0 || it.latestReviewGrade != null }
         val bySubject = active
-            .groupBy { normalizeSubject(it.subject) }
+            .groupBy { normalizeSubject(it.mistake.subject) }
             .entries
-            .sortedWith(compareByDescending<Map.Entry<String, List<MistakeEntity>>> { it.value.size }
+            .sortedWith(compareByDescending<Map.Entry<String, List<MistakeListItem>>> { it.value.size }
                 .thenBy { it.key })
             .map { (subject, rows) ->
                 SubjectProgress(
                     subject = subject,
                     total = rows.size,
-                    mastered = rows.count { it.mastery >= MASTERED_LEVEL }
+                    reviewed = rows.count { it.mistake.reviewCount > 0 || it.latestReviewGrade != null }
                 )
             }
         return MistakeProgressSummary(
             total = total,
-            mastered = mastered,
-            masteryRate = if (total == 0) 0f else mastered.toFloat() / total.toFloat(),
+            reviewed = reviewed,
+            reviewRate = if (total == 0) 0f else reviewed.toFloat() / total.toFloat(),
             bySubject = bySubject
         )
     }
 
     private fun normalizeSubject(subject: String): String = subject.trim().ifBlank { "未分类" }
-
-    private const val MASTERED_LEVEL = 3
 }

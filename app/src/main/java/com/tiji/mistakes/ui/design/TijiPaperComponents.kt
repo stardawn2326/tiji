@@ -228,16 +228,10 @@ internal fun TijiPaperCard(
 
 @Composable
 internal fun TijiStatusBadge(
-    mastery: Int,
-    modifier: Modifier = Modifier,
-    label: String? = null
+    label: String,
+    modifier: Modifier = Modifier
 ) {
-    val visual = when (mastery) {
-        0 -> StatusVisual("未掌握", MaterialTheme.colorScheme.primary)
-        1 -> StatusVisual("复习中", MaterialTheme.colorScheme.primary)
-        2 -> StatusVisual("基本掌握", MaterialTheme.colorScheme.primary)
-        else -> StatusVisual("已掌握", MaterialTheme.colorScheme.primary)
-    }
+    val visual = StatusVisual(label, MaterialTheme.colorScheme.primary)
     Surface(
         modifier = modifier,
         color = visual.color.copy(alpha = 0.12f),
@@ -250,7 +244,7 @@ internal fun TijiStatusBadge(
         ) {
             Text("●", style = MaterialTheme.typography.labelMedium)
             Spacer(Modifier.size(4.dp))
-            Text(label ?: visual.label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium)
+            Text(visual.label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium)
         }
     }
 }

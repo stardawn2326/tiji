@@ -65,6 +65,14 @@ class MistakeDetailUiTest {
 
         composeRule.onNodeWithTag("detail_mastery_action").performClick()
         composeRule.onNodeWithTag("detail_grade_easy").performClick()
+        composeRule.onNodeWithText("确认熟练？").assertExists()
+        composeRule.onNodeWithText("取消").performClick()
+        composeRule.waitForIdle()
+        check(runBlocking { AppDatabase.get(context).reviewRecordDao().listByMistakeId(fixtureId) }.isEmpty())
+
+        composeRule.onNodeWithTag("detail_mastery_action").performClick()
+        composeRule.onNodeWithTag("detail_grade_easy").performClick()
+        composeRule.onNodeWithText("确认熟练").performClick()
         composeRule.waitUntil(5_000) {
             runBlocking {
                 AppDatabase.get(context).mistakeDao().findById(fixtureId)?.let {
@@ -83,7 +91,7 @@ class MistakeDetailUiTest {
             composeRule.onAllNodesWithTag("mistake_card_$fixtureId").fetchSemanticsNodes().isNotEmpty()
         }
         composeRule.onNodeWithTag("mistake_card_$fixtureId").assertExists()
-        composeRule.onNodeWithText("已掌握").assertExists()
+        composeRule.onNodeWithText("复习 1 次 · 熟练").assertExists()
 
         composeRule.onNodeWithTag("mistake_card_$fixtureId").performClick()
         composeRule.waitUntil(5_000) {

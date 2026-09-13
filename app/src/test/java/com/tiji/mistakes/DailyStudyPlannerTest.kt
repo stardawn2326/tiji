@@ -83,7 +83,7 @@ class DailyStudyPlannerTest {
 
         assertEquals(listOf(8L), plan.weakBoost)
         assertTrue(plan.reasons.getValue(8L).contains("函数"))
-        assertTrue(plan.reasons.getValue(8L).contains("上次选择困难"))
+        assertTrue(plan.reasons.getValue(8L).contains("上次选择生疏"))
         assertTrue(plan.reasons.getValue(8L).contains("距离上次复习 3 天"))
     }
 

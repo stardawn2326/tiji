@@ -345,7 +345,7 @@ internal fun ReviewScreen(
         } else {
             item {
                 Text(
-                    "系统会按到期和掌握状态安排顺序",
+                    "系统会按到期和复习记录安排顺序",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.fillMaxWidth()

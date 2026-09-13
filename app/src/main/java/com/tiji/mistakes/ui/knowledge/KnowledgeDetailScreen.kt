@@ -65,6 +65,7 @@ import com.tiji.mistakes.data.KnowledgePointEntity
 import com.tiji.mistakes.data.MistakeEntity
 import com.tiji.mistakes.data.ReviewRecordEntity
 import com.tiji.mistakes.domain.KnowledgePointInsight
+import com.tiji.mistakes.domain.ReviewGrade
 import com.tiji.mistakes.service.HtmlPdfExportService
 import com.tiji.mistakes.service.PdfExportOptions
 import com.tiji.mistakes.service.PdfTemplate
@@ -77,6 +78,7 @@ import com.tiji.mistakes.ui.design.TijiPaperCard
 import com.tiji.mistakes.ui.common.formatLocalDate
 import com.tiji.mistakes.ui.common.formatReviewDateTime
 import com.tiji.mistakes.ui.common.reviewGradeUiLabel
+import com.tiji.mistakes.domain.mistakeReviewStatusLabel
 import com.tiji.mistakes.ui.common.PdfExportOptionsDialog
 import com.tiji.mistakes.ui.common.PdfPreviewDialog
 import com.tiji.mistakes.ui.common.PdfPreviewLoadingDialog
@@ -92,6 +94,7 @@ internal fun KnowledgeDetailScreen(
     insight: KnowledgePointInsight?,
     relatedMistakes: List<MistakeEntity>,
     reviewRecords: List<ReviewRecordEntity>,
+    latestReviewGrades: Map<Long, ReviewGrade?> = emptyMap(),
     exportOriginalImagesOnly: Boolean = false,
     onBack: () -> Unit,
     onOpenMistake: (Long) -> Unit,
@@ -397,7 +400,12 @@ internal fun KnowledgeDetailScreen(
                                 Text(mistake.title.ifBlank { "未命名错题" }, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                 Text("最近修改 ${formatLocalDate(mistake.updatedAt)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            TijiStatusBadge(mistake.mastery)
+                            TijiStatusBadge(
+                                label = mistakeReviewStatusLabel(
+                                    mistake.reviewCount,
+                                    latestReviewGrades[mistake.id]
+                                )
+                            )
                         }
                     }
                 }
@@ -428,7 +436,7 @@ private fun ReviewHistoryRow(record: ReviewRecordEntity) {
     ) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(formatReviewDateTime(record.reviewedAt), style = MaterialTheme.typography.bodySmall)
-            Text("掌握 ${record.masteryBefore} → ${record.masteryAfter}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("下次间隔 ${record.intervalAfterDays} 天", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Text(reviewGradeUiLabel(record.grade), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
     }

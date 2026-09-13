@@ -36,14 +36,14 @@ internal fun TijiStatCard(label: String, value: String, modifier: Modifier = Mod
 }
 
 @Composable
-internal fun TijiSubjectCountRow(subject: String, total: Int, mastered: Int, onClick: () -> Unit) {
+internal fun TijiSubjectCountRow(subject: String, total: Int, reviewed: Int, onClick: () -> Unit) {
     TijiCard(onClick, Modifier.fillMaxWidth().testTag("home_subject_$subject")) {
         Row(Modifier.fillMaxWidth().heightIn(min = 68.dp).padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Box(Modifier.width(3.dp).height(36.dp).background(tijiSubjectColor(subject), TijiShapes.XS))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(subject, style = MaterialTheme.typography.titleMedium)
-                Text("已掌握 $mastered", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("已复习 $reviewed", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Text(total.toString(), style = MaterialTheme.typography.headlineMedium)
             Text("道", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

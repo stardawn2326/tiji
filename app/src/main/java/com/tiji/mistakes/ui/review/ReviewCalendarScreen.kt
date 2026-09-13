@@ -217,7 +217,7 @@ internal fun ReviewCalendarScreen(
                     }
                 }
             }
-            Text("点击日期查看当天每道复习题的掌握状态。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("点击日期查看当天每道复习题的复习档位。", color = MaterialTheme.colorScheme.onSurfaceVariant)
             TijiCard(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
                 modifier = Modifier.fillMaxWidth()

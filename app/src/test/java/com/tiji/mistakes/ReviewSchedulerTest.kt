@@ -41,7 +41,9 @@ class ReviewSchedulerTest {
     }
 
     @Test
-    fun gradeLabelsDescribeMasteryInTheReviewUi() {
+    fun gradeLabelsMatchTheFrozenReviewCopy() {
+        assertEquals("忘记", ReviewGrade.FORGOT.label)
+        assertEquals("生疏", ReviewGrade.HARD.label)
         assertEquals("掌握", ReviewGrade.GOOD.label)
         assertEquals("熟练", ReviewGrade.EASY.label)
     }

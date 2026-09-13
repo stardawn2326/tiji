@@ -56,10 +56,10 @@ internal fun HomeScreen(
                 TijiSectionHeader("学习进度")
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     TijiStatCard("累计错题", progressSummary.total.toString(), Modifier.weight(1f))
-                    TijiStatCard("已掌握", progressSummary.mastered.toString(), Modifier.weight(1f))
+                    TijiStatCard("已复习", progressSummary.reviewed.toString(), Modifier.weight(1f))
                     TijiStatCard(
-                        "掌握率",
-                        String.format(Locale.ROOT, "%.0f%%", progressSummary.masteryRate * 100f),
+                        "复习率",
+                        String.format(Locale.ROOT, "%.0f%%", progressSummary.reviewRate * 100f),
                         Modifier.weight(1f)
                     )
                 }
@@ -83,7 +83,7 @@ internal fun HomeScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     subjects.forEach { subjectProgress ->
                         TijiSubjectCountRow(subjectProgress.subject, subjectProgress.total,
-                            subjectProgress.mastered,
+                            subjectProgress.reviewed,
                             onClick = { onSubject(subjectProgress.subject) })
                     }
                 }

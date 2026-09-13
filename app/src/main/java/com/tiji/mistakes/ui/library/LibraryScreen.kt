@@ -66,7 +66,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.tiji.mistakes.data.MistakeEntity
+import com.tiji.mistakes.domain.MistakeListItem
 import com.tiji.mistakes.service.HtmlPdfExportService
 import com.tiji.mistakes.service.PdfExportOptions
 import com.tiji.mistakes.service.PdfTemplate
@@ -97,12 +97,13 @@ internal fun LibraryScreen(
     resetScrollToken: Int,
     onSelectSubject: (String?) -> Unit,
     viewModel: MistakeViewModel,
-    mistakes: List<MistakeEntity>,
+    mistakeItems: List<MistakeListItem>,
     exportOriginalImagesOnly: Boolean,
     onOpen: (Long) -> Unit,
     onCreate: () -> Unit,
     onAddSelectedToTomorrow: (List<Long>) -> Unit = {}
 ) {
+    val mistakes = remember(mistakeItems) { mistakeItems.map(MistakeListItem::mistake) }
     val query by viewModel.searchQuery.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -187,21 +188,27 @@ internal fun LibraryScreen(
             if (selectedSubject != null && selectedSubject !in this) add(selectedSubject)
         }
     }
-    val visibleMistakes = remember(mistakes, order, selectedSubject, masteryFilter, difficultyFilter) {
-        val filtered = mistakes.filter {
-            (selectedSubject == null || normalizedSubject(it.subject) == selectedSubject) &&
-                (masteryFilter == null || it.mastery == masteryFilter) &&
-                difficultyMatchesFilter(it.difficulty, difficultyFilter)
+    val visibleItems = remember(mistakeItems, order, selectedSubject, masteryFilter, difficultyFilter) {
+        val filtered = mistakeItems.filter { item ->
+            val mistake = item.mistake
+            (selectedSubject == null || normalizedSubject(mistake.subject) == selectedSubject) &&
+                (masteryFilter == null || mistake.mastery == masteryFilter) &&
+                difficultyMatchesFilter(mistake.difficulty, difficultyFilter)
         }
-        when(order) { MistakeOrder.NEWEST -> filtered.sortedByDescending { it.uploadedAt }; MistakeOrder.OLDEST -> filtered.sortedBy { it.uploadedAt }; MistakeOrder.UPDATED -> filtered.sortedByDescending { it.updatedAt } }
+        when(order) {
+            MistakeOrder.NEWEST -> filtered.sortedByDescending { it.mistake.uploadedAt }
+            MistakeOrder.OLDEST -> filtered.sortedBy { it.mistake.uploadedAt }
+            MistakeOrder.UPDATED -> filtered.sortedByDescending { it.mistake.updatedAt }
+        }
     }
+    val visibleMistakes = remember(visibleItems) { visibleItems.map(MistakeListItem::mistake) }
     LaunchedEffect(query, order, selectedSubject, masteryFilter, difficultyFilter) {
         selectedIds = emptySet()
         selectionMode = false
         visibleLimit = 40
         mistakeListState.scrollToItem(0)
     }
-    val displayedMistakes = remember(visibleMistakes, visibleLimit) { visibleMistakes.take(visibleLimit) }
+    val displayedItems = remember(visibleItems, visibleLimit) { visibleItems.take(visibleLimit) }
     fun addSelectedToTomorrow() {
         // Re-filter against the latest active library rows at the boundary where the plan is
         // written. A deleted/archived row must never be scheduled.
@@ -598,13 +605,14 @@ internal fun LibraryScreen(
                 }
               }
             } else {
-                items(displayedMistakes, key = { it.id }) { mistake ->
-                    TijiMistakeCard(mistake,
+                items(displayedItems, key = { it.mistake.id }) { item ->
+                    val mistake = item.mistake
+                    TijiMistakeCard(item,
                         selected = mistake.id in selectedIds, selectionMode = selectionMode, onSelected = {
                         selectedIds = if (mistake.id in selectedIds) selectedIds - mistake.id else selectedIds + mistake.id
                     }) { if (selectionMode) { selectedIds = if (mistake.id in selectedIds) selectedIds - mistake.id else selectedIds + mistake.id } else onOpen(mistake.id) }
                 }
-                if (displayedMistakes.size < visibleMistakes.size) {
+                if (displayedItems.size < visibleItems.size) {
                     item {
                         TijiSecondaryButton(
                             onClick = { visibleLimit += 40 },

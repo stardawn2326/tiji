@@ -20,6 +20,9 @@ import com.tiji.mistakes.domain.ReviewSessionUiState
 import com.tiji.mistakes.domain.MistakeDuplicateService
 import com.tiji.mistakes.domain.MistakeProgressCalculator
 import com.tiji.mistakes.domain.MistakeProgressSummary
+import com.tiji.mistakes.domain.MistakeListItem
+import com.tiji.mistakes.domain.latestReviewGrades
+import com.tiji.mistakes.domain.toMistakeListItems
 import com.tiji.mistakes.domain.time.LearningCalendar
 import com.tiji.mistakes.service.AiChatMessage
 import com.tiji.mistakes.service.AiChatStateStore
@@ -240,13 +243,25 @@ class MistakeViewModel(
     // Home counts must never depend on the library's active search query.
     val allMistakes: StateFlow<List<MistakeEntity>> = repository.observe("")
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-    val progressSummary: StateFlow<MistakeProgressSummary> = allMistakes
-        .map(MistakeProgressCalculator::calculate)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MistakeProgressSummary())
     val searchQuery: StateFlow<String> = query
     val reviewNow: StateFlow<Long> = reviewClock.asStateFlow()
     val mistakes: StateFlow<List<MistakeEntity>> = query.flatMapLatest(repository::observe)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val allMistakeItems: StateFlow<List<MistakeListItem>> = allMistakes
+        .flatMapLatest { rows ->
+            repository.observeLatestReviewRecordsForMistakes(rows.map(MistakeEntity::id))
+                .map { records -> rows.toMistakeListItems(latestReviewGrades(records)) }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val mistakeItems: StateFlow<List<MistakeListItem>> = mistakes
+        .flatMapLatest { rows ->
+            repository.observeLatestReviewRecordsForMistakes(rows.map(MistakeEntity::id))
+                .map { records -> rows.toMistakeListItems(latestReviewGrades(records)) }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val progressSummary: StateFlow<MistakeProgressSummary> = allMistakeItems
+        .map(MistakeProgressCalculator::calculate)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MistakeProgressSummary())
     val dueMistakes: StateFlow<List<MistakeEntity>> = reviewClock.flatMapLatest(repository::observeDue)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val totalCount: StateFlow<Int> = repository.observeCount()

@@ -2,6 +2,7 @@ package com.tiji.mistakes.data
 
 import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import com.tiji.mistakes.domain.ReviewScheduler
 import com.tiji.mistakes.domain.ReviewGrade
 import com.tiji.mistakes.domain.time.LearningCalendar
@@ -45,6 +46,13 @@ class MistakeRepository(private val database: AppDatabase) {
         val ids = mistakeIds.filter { it > 0L }.distinct()
         if (ids.isEmpty()) return emptyList()
         return database.reviewRecordDao().listByMistakeIds(ids)
+    }
+
+    /** Observes one newest persisted grade per requested mistake in a single query. */
+    fun observeLatestReviewRecordsForMistakes(mistakeIds: Collection<Long>): Flow<List<ReviewRecordEntity>> {
+        val ids = mistakeIds.filter { it > 0L }.distinct()
+        if (ids.isEmpty()) return flowOf(emptyList())
+        return database.reviewRecordDao().observeLatestForMistakes(ids)
     }
 
     suspend fun listReviewRecordsByIds(recordIds: Collection<Long>): List<ReviewRecordEntity> {

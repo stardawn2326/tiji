@@ -17,7 +17,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
-import com.tiji.mistakes.data.MistakeEntity
+import com.tiji.mistakes.domain.MistakeListItem
 import com.tiji.mistakes.ui.common.formatLocalDate
 import com.tiji.mistakes.ui.common.difficultyLabel
 import com.tiji.mistakes.ui.design.TijiTag
@@ -28,12 +28,13 @@ import com.tiji.mistakes.ui.design.TijiPaperCard
 
 @Composable
 internal fun TijiMistakeCard(
-    mistake: MistakeEntity,
+    item: MistakeListItem,
     selected: Boolean = false,
     selectionMode: Boolean = false,
     onSelected: () -> Unit = {},
     onClick: () -> Unit
 ) {
+    val mistake = item.mistake
     TijiPaperCard(
         modifier = Modifier.testTag("mistake_card_${mistake.id}"),
         selected = selected,
@@ -64,14 +65,7 @@ internal fun TijiMistakeCard(
                             contentColor = MaterialTheme.colorScheme.onPrimaryContainer
                         )
                     }
-                    TijiStatusBadge(
-                        mastery = mistake.mastery,
-                        label = when {
-                            mistake.mastery >= 3 -> "已掌握"
-                            mistake.reviewCount > 0 -> "复习${mistake.reviewCount}次"
-                            else -> "未复习"
-                        }
-                    )
+                    TijiStatusBadge(label = item.statusLabel)
                 }
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TijiTag(difficultyLabel(mistake.difficulty))

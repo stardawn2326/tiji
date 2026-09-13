@@ -42,6 +42,20 @@ interface ReviewRecordDao {
     @Query("SELECT * FROM review_records WHERE mistakeId IN (:mistakeIds) ORDER BY reviewedAt DESC, id DESC")
     suspend fun listByMistakeIds(mistakeIds: List<Long>): List<ReviewRecordEntity>
 
+    /** One newest record per mistake for list cards; avoids one query per card. */
+    @Query(
+        """SELECT rr.* FROM review_records rr
+            WHERE rr.mistakeId IN (:mistakeIds)
+              AND NOT EXISTS (
+                  SELECT 1 FROM review_records newer
+                  WHERE newer.mistakeId = rr.mistakeId
+                    AND (newer.reviewedAt > rr.reviewedAt
+                      OR (newer.reviewedAt = rr.reviewedAt AND newer.id > rr.id))
+              )
+            ORDER BY rr.reviewedAt DESC, rr.id DESC"""
+    )
+    fun observeLatestForMistakes(mistakeIds: List<Long>): Flow<List<ReviewRecordEntity>>
+
     /** Rebuilds a session summary from the exact records written by that session. */
     @Query("SELECT * FROM review_records WHERE id IN (:recordIds) ORDER BY reviewedAt ASC, id ASC")
     suspend fun listByIds(recordIds: List<Long>): List<ReviewRecordEntity>
