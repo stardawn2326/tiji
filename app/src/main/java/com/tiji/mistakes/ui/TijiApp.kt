@@ -5,20 +5,21 @@ package com.tiji.mistakes.ui
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Replay
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SnackbarHost
+import com.tiji.mistakes.ui.design.TijiScreen
+import com.tiji.mistakes.ui.design.TijiSnackbar
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -40,8 +41,11 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import com.tiji.mistakes.data.AiProfile
 import com.tiji.mistakes.data.AppPreferences
+import com.tiji.mistakes.domain.DailyStudyPlanner
+import com.tiji.mistakes.domain.DailyStudyPlannerInput
 import com.tiji.mistakes.domain.ReviewAnalytics
 import com.tiji.mistakes.domain.WeaknessCalculator
+import com.tiji.mistakes.domain.time.LearningCalendar
 import com.tiji.mistakes.service.OcrModelManager
 import com.tiji.mistakes.ui.navigation.BottomDestination
 import com.tiji.mistakes.ui.navigation.TijiNavGraph
@@ -71,6 +75,7 @@ fun TijiApp() {
     val aiVisualProfiles by preferences.aiVisualProfiles.collectAsStateWithLifecycle(emptyList())
     val aiVisualBindings by preferences.aiVisualBindings.collectAsStateWithLifecycle(emptyMap())
     val aiSolveInputMode by preferences.aiSolveInputMode.collectAsStateWithLifecycle(AppPreferences.DEFAULT_INPUT_MODE)
+    val aiSolveReliabilityMode by preferences.aiSolveReliabilityMode.collectAsStateWithLifecycle("RELIABLE")
     val aiCaptureInputMode by preferences.aiCaptureInputMode.collectAsStateWithLifecycle(AppPreferences.DEFAULT_INPUT_MODE)
     val activeAiProfile = remember(aiProfiles, activeAiProfileId) {
         aiProfiles.firstOrNull { it.id == activeAiProfileId } ?: aiProfiles.firstOrNull()
@@ -83,20 +88,56 @@ fun TijiApp() {
     val reviewPlanEnabled by preferences.reviewPlanEnabled.collectAsStateWithLifecycle(false)
     val randomReview by preferences.randomReview.collectAsStateWithLifecycle(false)
     val reviewCheckIns by preferences.reviewCheckIns.collectAsStateWithLifecycle(emptySet())
-    val reviewMastery by preferences.reviewMastery.collectAsStateWithLifecycle(emptyMap())
     val reviewPlanSnapshots by preferences.reviewPlanSnapshots.collectAsStateWithLifecycle(emptyMap())
     val mistakes by viewModel.mistakes.collectAsStateWithLifecycle()
     val allMistakes by viewModel.allMistakes.collectAsStateWithLifecycle()
+    val mistakeItems by viewModel.mistakeItems.collectAsStateWithLifecycle()
+    val allMistakeItems by viewModel.allMistakeItems.collectAsStateWithLifecycle()
+    val progressSummary by viewModel.progressSummary.collectAsStateWithLifecycle()
+    val reviewNow by viewModel.reviewNow.collectAsStateWithLifecycle(System.currentTimeMillis())
+    val todayDate = remember(reviewNow) { LearningCalendar.localDate(reviewNow).toString() }
+    val todayWeekday = remember(reviewNow) { LearningCalendar.localDate(reviewNow).dayOfWeek.value }
     var librarySubject by rememberSaveable { mutableStateOf<String?>(null) }
-    var libraryKnowledgePointStableId by rememberSaveable { mutableStateOf<String?>(null) }
     val dueMistakes by viewModel.dueMistakes.collectAsStateWithLifecycle()
     val dueCount by viewModel.dueCount.collectAsStateWithLifecycle()
     val recentReviewRecords by viewModel.recentReviewRecords.collectAsStateWithLifecycle()
+    val reviewRecords by viewModel.allReviewRecords.collectAsStateWithLifecycle()
     val knowledgePoints by viewModel.knowledgePoints.collectAsStateWithLifecycle()
     val knowledgePointLinks by viewModel.knowledgePointLinks.collectAsStateWithLifecycle()
     val reviewAnalytics = remember(recentReviewRecords) { ReviewAnalytics.summarize(recentReviewRecords) }
     val weaknessInsights = remember(allMistakes, recentReviewRecords, knowledgePoints, knowledgePointLinks) {
         WeaknessCalculator.calculate(knowledgePoints, knowledgePointLinks, allMistakes, recentReviewRecords)
+    }
+    val dailyStudyPlan = remember(
+        allMistakes,
+        dueMistakes,
+        recentReviewRecords,
+        weaknessInsights,
+        knowledgePoints,
+        knowledgePointLinks,
+        dailyReviewLimit,
+        reviewSubjects,
+        reviewPlanEnabled,
+        reviewNow,
+        todayWeekday
+    ) {
+        if (!reviewPlanEnabled) {
+            com.tiji.mistakes.domain.DailyStudyPlan()
+        } else {
+            DailyStudyPlanner.plan(
+                DailyStudyPlannerInput(
+                    activeMistakes = allMistakes,
+                    dueMistakes = dueMistakes,
+                    recentRecords = recentReviewRecords,
+                    knowledgeInsights = weaknessInsights,
+                    knowledgePoints = knowledgePoints,
+                    knowledgePointLinks = knowledgePointLinks,
+                    dailyLimit = dailyReviewLimit,
+                    subjectPreferences = DailyStudyPlanner.parseSubjectPreferences(reviewSubjects, todayWeekday),
+                    now = reviewNow
+                )
+            )
+        }
     }
     val navController = rememberNavController()
     val scope = rememberCoroutineScope()
@@ -120,37 +161,43 @@ fun TijiApp() {
     val destinations = remember {
         listOf(
             BottomDestination(TijiRoutes.HOME, "首页") { Icon(Icons.Outlined.Home, null) },
-            BottomDestination(TijiRoutes.LIBRARY, "错题") { Icon(Icons.AutoMirrored.Outlined.MenuBook, null) },
+            BottomDestination(TijiRoutes.LIBRARY, "错题库") { Icon(Icons.AutoMirrored.Outlined.MenuBook, null) },
             BottomDestination(TijiRoutes.SOLVE, "AI解题") { Icon(Icons.Outlined.AutoAwesome, null) },
             BottomDestination(TijiRoutes.REVIEW, "复习") { Icon(Icons.Outlined.Replay, null) },
-            BottomDestination(TijiRoutes.SETTINGS, "我的") { Icon(Icons.Outlined.Person, null) }
+            BottomDestination(TijiRoutes.SETTINGS, "设置") { Icon(Icons.Outlined.Settings, null) }
         )
     }
 
     val navState = TijiNavGraphState(
         allMistakes = allMistakes,
         mistakes = mistakes,
+        allMistakeItems = allMistakeItems,
+        mistakeItems = mistakeItems,
+        progressSummary = progressSummary,
+        reviewNow = reviewNow,
+        todayDate = todayDate,
         dueMistakes = dueMistakes,
         dueCount = dueCount,
         knowledgePoints = knowledgePoints,
         knowledgePointLinks = knowledgePointLinks,
         reviewAnalytics = reviewAnalytics,
         weaknessInsights = weaknessInsights,
+        dailyStudyPlan = dailyStudyPlan,
         reviewPlanSnapshots = reviewPlanSnapshots,
-        reviewMastery = reviewMastery,
+        reviewRecords = reviewRecords,
         reviewCheckIns = reviewCheckIns,
         reviewPlanEnabled = reviewPlanEnabled,
         dailyReviewLimit = dailyReviewLimit,
         reviewSubjects = reviewSubjects,
         randomReview = randomReview,
         librarySubject = librarySubject,
-        libraryKnowledgePointStableId = libraryKnowledgePointStableId,
         aiProfiles = aiProfiles,
         activeAiProfileId = activeAiProfileId,
         activeAiProfile = activeAiProfile,
         aiVisualProfiles = aiVisualProfiles,
         aiVisualBindings = aiVisualBindings,
         aiSolveInputMode = aiSolveInputMode,
+        aiSolveReliabilityMode = aiSolveReliabilityMode,
         aiCaptureInputMode = aiCaptureInputMode,
         aiUploadConsent = aiUploadConsent,
         aiExcludeSourceImageByDefault = aiExcludeSourceImageByDefault,
@@ -165,21 +212,21 @@ fun TijiApp() {
     )
 
     TijiTheme(mode = ThemeMode.fromKey(themeModeKey), palette = ThemePalette.fromKey(themePaletteKey)) {
-        Scaffold(
-            snackbarHost = { SnackbarHost(snackbarHostState) },
+        TijiScreen(
+            snackbarHost = { TijiSnackbar(snackbarHostState) },
             bottomBar = {
                 if (route in setOf(TijiRoutes.HOME, TijiRoutes.LIBRARY, TijiRoutes.SOLVE, TijiRoutes.REVIEW, TijiRoutes.SETTINGS)) {
                     NavigationBar(
                         containerColor = MaterialTheme.colorScheme.surface,
                         tonalElevation = 0.dp,
-                        modifier = Modifier.navigationBarsPadding()
+                        modifier = Modifier
                     ) {
                         destinations.forEach { destination ->
                             NavigationBarItem(
                                 selected = route == destination.route ||
                                     (destination.route == TijiRoutes.LIBRARY && route == TijiRoutes.DETAIL_PATTERN) ||
-                                    (destination.route == TijiRoutes.REVIEW && (route == TijiRoutes.REVIEW_CALENDAR || route == TijiRoutes.REVIEW_DETAIL_PATTERN)) ||
-                                    (destination.route == TijiRoutes.SETTINGS && (route == TijiRoutes.SETTINGS_DETAIL || route == TijiRoutes.SETTINGS_DETAIL_PATTERN)),
+                                    (destination.route == TijiRoutes.REVIEW && (route == TijiRoutes.REVIEW_CALENDAR || route == TijiRoutes.REVIEW_SESSION_PATTERN)) ||
+                                    (destination.route == TijiRoutes.SETTINGS && route == TijiRoutes.SETTINGS),
                                 onClick = {
                                     when (destination.route) {
                                         TijiRoutes.HOME -> homeVisitToken += 1
@@ -199,12 +246,12 @@ fun TijiApp() {
                                 icon = destination.icon,
                                 label = { Text(destination.label) },
                                 modifier = Modifier.testTag(
-                                    "nav_${if (destination.route == TijiRoutes.SETTINGS) "profile" else destination.route}"
+                                    "nav_${if (destination.route == TijiRoutes.SETTINGS) "settings" else destination.route}"
                                 ),
                                 colors = NavigationBarItemDefaults.colors(
                                     selectedIconColor = MaterialTheme.colorScheme.primary,
                                     selectedTextColor = MaterialTheme.colorScheme.primary,
-                                    indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                                    indicatorColor = androidx.compose.ui.graphics.Color.Transparent,
                                     unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
                                     unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -216,7 +263,7 @@ fun TijiApp() {
         ) { padding ->
             TijiNavGraph(
                 navController = navController,
-                modifier = Modifier.padding(padding),
+                modifier = Modifier.padding(padding).consumeWindowInsets(padding),
                 viewModel = viewModel,
                 preferences = preferences,
                 scope = scope,
@@ -225,11 +272,6 @@ fun TijiApp() {
                 state = navState,
                 onLibrarySubject = { subject ->
                     librarySubject = subject
-                    libraryKnowledgePointStableId = null
-                },
-                onLibraryKnowledgePoint = { stableId ->
-                    libraryKnowledgePointStableId = stableId
-                    librarySubject = null
                 }
             )
         }

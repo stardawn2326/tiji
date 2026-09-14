@@ -13,10 +13,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.tiji.mistakes.ui.design.TijiShapes
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.tiji.mistakes.ui.design.TijiTextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -36,7 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
-import coil.compose.AsyncImage
+import com.tiji.mistakes.ui.design.TijiImage
 import com.tiji.mistakes.service.ImageProcessor
 import com.tiji.mistakes.service.ImageStorage
 import com.tiji.mistakes.ui.capture.StandaloneImageEditor
@@ -95,11 +95,11 @@ internal fun ExpandedImageDialog(
         var offsetX by remember(path) { mutableFloatStateOf(0f) }
         var offsetY by remember(path) { mutableFloatStateOf(0f) }
         Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.88f)).padding(12.dp)) {
-            AsyncImage(
+            TijiImage(
                 model = imageModel,
                 contentDescription = "放大的题目图片",
                 contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(20.dp))
+                modifier = Modifier.fillMaxSize().clip(TijiShapes.XL)
                     .graphicsLayer(scaleX = scale, scaleY = scale, translationX = offsetX, translationY = offsetY)
                     .pointerInput(path) {
                         detectTransformGestures { _, pan, zoom, _ ->
@@ -109,19 +109,19 @@ internal fun ExpandedImageDialog(
                         }
                     }
             )
-            TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.TopEnd).padding(12.dp)) {
+            TijiTextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.TopEnd).padding(12.dp)) {
                 Text("关闭", color = Color.White)
             }
             if (onDelete != null) {
-                TextButton(onClick = onDelete, modifier = Modifier.align(Alignment.TopStart).padding(12.dp)) {
+                TijiTextButton(onClick = onDelete, modifier = Modifier.align(Alignment.TopStart).padding(12.dp)) {
                     Text("删除图片", color = MaterialTheme.colorScheme.error)
                 }
             }
-            TextButton(
+            TijiTextButton(
                 onClick = { replacementLauncher.launch("image/*") },
                 modifier = Modifier.align(Alignment.BottomStart).navigationBarsPadding().padding(12.dp)
             ) { Text("替换图片", color = Color.White) }
-            TextButton(
+            TijiTextButton(
                 enabled = !saving,
                 onClick = ::requestSave,
                 modifier = Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(12.dp)

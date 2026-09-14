@@ -25,21 +25,22 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.tiji.mistakes.ui.design.TijiShapes
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.FileDownload
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
+import androidx.compose.material.icons.outlined.Print
+import com.tiji.mistakes.ui.design.TijiDialog
+import com.tiji.mistakes.ui.design.TijiButton
+import com.tiji.mistakes.ui.design.TijiCard
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import com.tiji.mistakes.ui.design.TijiIconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
+import com.tiji.mistakes.ui.design.TijiSecondaryButton
+import com.tiji.mistakes.ui.design.TijiSurface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -55,6 +56,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.tiji.mistakes.service.PdfExportOptions
+import com.tiji.mistakes.service.PdfTemplate
 import java.io.File
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CoroutineScope
@@ -67,9 +70,15 @@ internal object PendingPdfExportStore {
     var libraryIds = longArrayOf()
     var libraryPreviewPath = ""
     var libraryFilename = ""
+    var libraryOptions = PdfExportOptions()
     var reviewIds = longArrayOf()
     var reviewPreviewPath = ""
     var reviewFilename = ""
+    var reviewOptions = PdfExportOptions()
+    var knowledgeIds = longArrayOf()
+    var knowledgePreviewPath = ""
+    var knowledgeFilename = ""
+    var knowledgeOptions = PdfExportOptions()
 }
 
 internal val durablePdfExportScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -112,7 +121,7 @@ internal fun discardPdfPreview(path: String) {
 
 @Composable
 internal fun PdfPreviewLoadingDialog() {
-    AlertDialog(
+    TijiDialog(
         onDismissRequest = {},
         title = { Text("正在生成 PDF 预览", style = MaterialTheme.typography.titleMedium) },
         text = {
@@ -128,8 +137,10 @@ internal fun PdfPreviewLoadingDialog() {
 @Composable
 internal fun PdfPreviewPage(file: File, pageIndex: Int) {
     var bitmap by remember(file.absolutePath, pageIndex) { mutableStateOf<Bitmap?>(null) }
+    var failed by remember(file.absolutePath, pageIndex) { mutableStateOf(false) }
     LaunchedEffect(file.absolutePath, pageIndex) {
         bitmap = withContext(Dispatchers.IO) { renderPdfPreviewPage(file, pageIndex) }
+        failed = bitmap == null
     }
     DisposableEffect(bitmap) {
         val current = bitmap
@@ -138,8 +149,8 @@ internal fun PdfPreviewPage(file: File, pageIndex: Int) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text("第 ${pageIndex + 1} 页", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(6.dp))
-        Card(
-            shape = RoundedCornerShape(4.dp),
+        TijiCard(
+            shape = TijiShapes.XS,
             colors = CardDefaults.cardColors(containerColor = Color.White),
             elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
             modifier = Modifier.fillMaxWidth()
@@ -149,7 +160,10 @@ internal fun PdfPreviewPage(file: File, pageIndex: Int) {
                 Box(
                     modifier = Modifier.fillMaxWidth().aspectRatio(595f / 842f),
                     contentAlignment = Alignment.Center
-                ) { CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 2.5.dp) }
+                ) {
+                    if (failed) Text("此页预览失败", color = MaterialTheme.colorScheme.onErrorContainer)
+                    else CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 2.5.dp)
+                }
             } else {
                 ComposeImage(
                     bitmap = pageBitmap.asImageBitmap(),
@@ -166,22 +180,24 @@ internal fun PdfPreviewPage(file: File, pageIndex: Int) {
 internal fun PdfPreviewDialog(
     file: File,
     questionCount: Int,
+    template: PdfTemplate = PdfTemplate.PRACTICE,
     onDismiss: () -> Unit,
-    onSave: () -> Unit
+    onSave: () -> Unit,
+    onPrint: () -> Unit = {}
 ) {
     val pageCount = remember(file.absolutePath, file.length()) { pdfPreviewPageCount(file) }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
+        TijiSurface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
             Column(Modifier.fillMaxSize().navigationBarsPadding()) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = onDismiss) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "关闭预览") }
+                    TijiIconButton(onClick = onDismiss) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "关闭预览") }
                     Column(Modifier.weight(1f)) {
                         Text("PDF 预览", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                         Text(
-                            "共 $questionCount 道题，共 ${pageCount.coerceAtLeast(0)} 页 · 与最终导出一致",
+                            "${template.label} · 共 $questionCount 道题，共 ${pageCount.coerceAtLeast(0)} 页 · 与最终导出一致",
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -202,14 +218,12 @@ internal fun PdfPreviewDialog(
                     }
                 }
                 HorizontalDivider()
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("取消") }
-                    Button(onClick = onSave, enabled = pageCount > 0, modifier = Modifier.weight(1f)) {
-                        Icon(Icons.Outlined.FileDownload, null)
-                        Spacer(Modifier.size(6.dp))
+                com.tiji.mistakes.ui.design.TijiBottomActionBar {
+                    TijiSecondaryButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("取消") }
+                    TijiSecondaryButton(onClick = onPrint, enabled = pageCount > 0, modifier = Modifier.weight(1.15f)) {
+                        Text("系统打印")
+                    }
+                    TijiButton(onClick = onSave, enabled = pageCount > 0, modifier = Modifier.weight(1f)) {
                         Text("保存 PDF")
                     }
                 }

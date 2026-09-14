@@ -68,6 +68,34 @@ class LearningCalendarTest {
         assertEquals(java.time.LocalDate.of(2026, 5, 1), LearningCalendar.localDate(now, berlin))
     }
 
+    @Test
+    fun localDateRollsOverAtMidnightForObservableReviewClock() {
+        val fridayLate = at("2026-09-11T23:59:59", tokyo)
+        val saturdayEarly = at("2026-09-12T00:01:00", tokyo)
+
+        assertEquals(java.time.LocalDate.of(2026, 9, 11), LearningCalendar.localDate(fridayLate, tokyo))
+        assertEquals(java.time.LocalDate.of(2026, 9, 12), LearningCalendar.localDate(saturdayEarly, tokyo))
+    }
+
+    @Test
+    fun addStudyDaysUsesCalendarDatesAcrossSpringForward() {
+        val before = at("2026-03-07T23:30:00", newYork)
+        val next = LearningCalendar.addStudyDays(before, 1, newYork)
+
+        assertEquals(java.time.LocalDate.of(2026, 3, 8), LearningCalendar.localDate(next, newYork))
+        assertEquals(java.time.LocalTime.MIDNIGHT, java.time.Instant.ofEpochMilli(next).atZone(newYork).toLocalTime())
+        assertEquals(1L, LearningCalendar.daysBetweenLocalDates(before, next, newYork))
+    }
+
+    @Test
+    fun monthAndYearBoundariesRemainNaturalDates() {
+        val yearEnd = at("2025-12-31T23:59:00", tokyo)
+        val next = LearningCalendar.addStudyDays(yearEnd, 1, tokyo)
+
+        assertEquals(java.time.LocalDate.of(2026, 1, 1), LearningCalendar.localDate(next, tokyo))
+        assertEquals(1L, LearningCalendar.daysBetweenLocalDates(yearEnd, next, tokyo))
+    }
+
     private fun at(value: String, zoneId: ZoneId): Long =
         LocalDateTime.parse(value).atZone(zoneId).toInstant().toEpochMilli()
 

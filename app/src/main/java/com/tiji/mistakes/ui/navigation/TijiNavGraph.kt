@@ -5,14 +5,14 @@ package com.tiji.mistakes.ui.navigation
 import android.net.Uri
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.NavHost
@@ -22,8 +22,8 @@ import com.tiji.mistakes.data.AiVisualProfile
 import com.tiji.mistakes.data.AppPreferences
 import com.tiji.mistakes.data.MistakeEntity
 import com.tiji.mistakes.service.OcrModelManager
+import com.tiji.mistakes.service.SecureKeyStore
 import com.tiji.mistakes.ui.capture.NewCaptureScreen
-import com.tiji.mistakes.ui.common.reviewDateKey
 import com.tiji.mistakes.ui.detail.DetailScreen
 import com.tiji.mistakes.ui.home.HomeScreen
 import com.tiji.mistakes.ui.library.LibraryScreen
@@ -32,17 +32,26 @@ import com.tiji.mistakes.ui.knowledge.KnowledgeListScreen
 import com.tiji.mistakes.ui.MistakeViewModel
 import com.tiji.mistakes.ui.ThemeMode
 import com.tiji.mistakes.ui.ThemePalette
-import com.tiji.mistakes.domain.ReviewSessionContext
+import com.tiji.mistakes.domain.DataResetCoordinator
+import com.tiji.mistakes.domain.DataResetDependencies
+import com.tiji.mistakes.domain.DataResetMode
+import com.tiji.mistakes.domain.ReviewSessionPlan
 import com.tiji.mistakes.domain.ReviewSessionSource
 import com.tiji.mistakes.ui.review.ReviewCalendarScreen
 import com.tiji.mistakes.ui.review.ReviewQuestionScreen
 import com.tiji.mistakes.ui.review.ReviewScreen
-import com.tiji.mistakes.ui.settings.MyScreen
-import com.tiji.mistakes.ui.settings.SettingsScreen
+import com.tiji.mistakes.ui.review.ReviewSessionUnavailableScreen
+import com.tiji.mistakes.ui.settings.AboutScreen
+import com.tiji.mistakes.ui.settings.AiSettingsScreen
+import com.tiji.mistakes.ui.settings.AppearanceSettingsScreen
+import com.tiji.mistakes.ui.settings.DataSettingsScreen
+import com.tiji.mistakes.ui.settings.ReviewSettingsScreen
+import com.tiji.mistakes.ui.settings.SettingsHomeScreen
 import com.tiji.mistakes.ui.settings.VisualAssistConfigScreen
 import com.tiji.mistakes.ui.solve.AiChatHistoryScreen
 import com.tiji.mistakes.ui.solve.AiSolveHistoryScreen
 import com.tiji.mistakes.ui.solve.AiSolveScreen
+import com.tiji.mistakes.ui.common.reviewDateKey
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -58,10 +67,25 @@ internal fun TijiNavGraph(
     snackbarHostState: SnackbarHostState,
     ocrModelManager: OcrModelManager,
     state: TijiNavGraphState,
-    onLibrarySubject: (String?) -> Unit,
-    onLibraryKnowledgePoint: (String?) -> Unit
+    onLibrarySubject: (String?) -> Unit
 ) {
-            NavHost(
+    val context = LocalContext.current
+    val activeReviewSession by viewModel.reviewSession.collectAsStateWithLifecycle()
+    suspend fun executeReset(mode: DataResetMode) = DataResetCoordinator.execute(
+        mode = mode,
+        dependencies = DataResetDependencies(
+            clearLearningData = { viewModel.resetAllData() },
+            clearLearningPreferences = { preferences.resetReviewData() },
+            clearFactoryPreferences = { preferences.clearAll() },
+            clearKeystoreAliases = { SecureKeyStore(context).clearAll() }
+        )
+    )
+    val reviewRecordsByDate = remember(state.reviewRecords) {
+        state.reviewRecords
+            .groupBy { reviewDateKey(it.reviewedAt) }
+            .mapValues { (_, records) -> records.associate { it.mistakeId to it.grade } }
+    }
+    NavHost(
                 navController,
                 startDestination = TijiRoutes.HOME,
                 modifier = modifier,
@@ -69,124 +93,157 @@ internal fun TijiNavGraph(
                     if (isSecondaryRoute(initialState.destination.route) || isSecondaryRoute(targetState.destination.route)) {
                         slideIntoContainer(
                             pageSlideDirection(initialState.destination.route, targetState.destination.route, popping = false),
-                            tween(220)
+                            tween(com.tiji.mistakes.ui.design.TijiMotion.Page)
                         )
-                    } else fadeIn(tween(180))
+                    } else {
+                        slideIntoContainer(
+                            pageSlideDirection(initialState.destination.route, targetState.destination.route, popping = false),
+                            tween(com.tiji.mistakes.ui.design.TijiMotion.PrimaryTab)
+                        )
+                    }
                 },
                 exitTransition = {
                     if (isSecondaryRoute(initialState.destination.route) || isSecondaryRoute(targetState.destination.route)) {
                         slideOutOfContainer(
                             pageSlideDirection(initialState.destination.route, targetState.destination.route, popping = false),
-                            tween(220)
+                            tween(com.tiji.mistakes.ui.design.TijiMotion.Page)
                         )
-                    } else fadeOut(tween(180))
+                    } else {
+                        slideOutOfContainer(
+                            pageSlideDirection(initialState.destination.route, targetState.destination.route, popping = false),
+                            tween(com.tiji.mistakes.ui.design.TijiMotion.PrimaryTab)
+                        )
+                    }
                 },
                 popEnterTransition = {
                     if (isSecondaryRoute(initialState.destination.route) || isSecondaryRoute(targetState.destination.route)) {
                         slideIntoContainer(
                             pageSlideDirection(initialState.destination.route, targetState.destination.route, popping = true),
-                            tween(220)
+                            tween(com.tiji.mistakes.ui.design.TijiMotion.Page)
                         )
-                    } else fadeIn(tween(180))
+                    } else {
+                        slideIntoContainer(
+                            pageSlideDirection(initialState.destination.route, targetState.destination.route, popping = true),
+                            tween(com.tiji.mistakes.ui.design.TijiMotion.PrimaryTab)
+                        )
+                    }
                 },
                 popExitTransition = {
                     if (isSecondaryRoute(initialState.destination.route) || isSecondaryRoute(targetState.destination.route)) {
                         slideOutOfContainer(
                             pageSlideDirection(initialState.destination.route, targetState.destination.route, popping = true),
-                            tween(220)
+                            tween(com.tiji.mistakes.ui.design.TijiMotion.Page)
                         )
-                    } else fadeOut(tween(180))
+                    } else {
+                        slideOutOfContainer(
+                            pageSlideDirection(initialState.destination.route, targetState.destination.route, popping = true),
+                            tween(com.tiji.mistakes.ui.design.TijiMotion.PrimaryTab)
+                        )
+                    }
                 }
             ) {
                 composable(TijiRoutes.HOME) {
                     HomeScreen(
-                        mistakes = state.allMistakes,
+                        progressSummary = state.progressSummary,
                         dueCount = state.dueCount,
-                        reviewTotal = state.reviewPlanSnapshots[reviewDateKey()].orEmpty().size.takeIf { it > 0 } ?: state.dueCount,
-                        reviewCompleted = state.reviewMastery[reviewDateKey()].orEmpty().keys.count { id -> id in state.reviewPlanSnapshots[reviewDateKey()].orEmpty() },
-                        reviewAnalytics = state.reviewAnalytics,
-                        weaknessInsights = state.weaknessInsights,
+                        reviewTotal = state.reviewPlanSnapshots[state.todayDate].orEmpty().size.takeIf { it > 0 } ?: state.dueCount,
+                        reviewCompleted = reviewRecordsByDate[state.todayDate].orEmpty().keys.count { id -> id in state.reviewPlanSnapshots[state.todayDate].orEmpty() },
+                        resetScrollToken = state.homeVisitToken,
+                        onNavigate = navController::navigate,
                         onSubject = { subject ->
                             onLibrarySubject(subject)
-                            viewModel.setQuery("")
                             navController.navigate(TijiRoutes.LIBRARY)
-                        },
-                        onKnowledgePoint = { stableId ->
-                            onLibraryKnowledgePoint(stableId)
-                            viewModel.setQuery("")
-                            navController.navigate(TijiRoutes.knowledgeDetail(stableId))
-                        },
-                        resetScrollToken = state.homeVisitToken,
-                        onNavigate = navController::navigate
+                        }
                     )
                 }
                 composable(TijiRoutes.LIBRARY) {
                     LibraryScreen(
                         selectedSubject = state.librarySubject,
-                        selectedKnowledgePointStableId = state.libraryKnowledgePointStableId,
                         resetScrollToken = state.libraryVisitToken,
                         onSelectSubject = { subject -> onLibrarySubject(subject) },
-                        onSelectKnowledgePoint = { stableId -> onLibraryKnowledgePoint(stableId) },
                         viewModel = viewModel,
-                        mistakes = state.mistakes,
-                        knowledgePointInsights = state.weaknessInsights,
-                        knowledgePoints = state.knowledgePoints,
-                        knowledgePointLinks = state.knowledgePointLinks,
+                        mistakeItems = state.mistakeItems,
                         exportOriginalImagesOnly = !state.aiExcludeSourceImageByDefault,
                         onOpen = { navController.navigate(TijiRoutes.detail(it)) },
-                        onCreate = { navController.navigate(TijiRoutes.CAPTURE) }
+                        onCreate = { navController.navigate(TijiRoutes.CAPTURE) },
+                        onAddSelectedToTomorrow = { selectedIds ->
+                            val activeIds = state.mistakes.mapTo(mutableSetOf()) { it.id }
+                            val validIds = selectedIds.filter { it in activeIds }.distinct()
+                            if (validIds.isEmpty()) {
+                                scope.launch { snackbarHostState.showSnackbar("所选错题已不可用，请重新选择") }
+                            } else {
+                                viewModel.addMistakesToTomorrow(validIds)
+                            }
+                        }
                     )
                 }
                 composable(TijiRoutes.REVIEW) {
                     ReviewScreen(
-                        allMistakes = state.mistakes,
-                        dueMistakes = state.dueMistakes,
+                        allMistakes = state.allMistakes,
+                        dailyStudyPlan = state.dailyStudyPlan,
+                        now = state.reviewNow,
+                        todayDate = state.todayDate,
+                        activeSession = activeReviewSession,
                         viewModel = viewModel,
                         exportOriginalImagesOnly = !state.aiExcludeSourceImageByDefault,
                         reviewPlanEnabled = state.reviewPlanEnabled,
-                        dailyLimit = state.dailyReviewLimit,
-                        reviewSubjects = state.reviewSubjects,
-                        randomMode = state.randomReview,
-                        reviewStatuses = state.reviewMastery[reviewDateKey()].orEmpty(),
-                        savedPlanIds = state.reviewPlanSnapshots[reviewDateKey()],
-                        checkedInToday = reviewDateKey() in state.reviewCheckIns,
+                        reviewStatuses = reviewRecordsByDate[state.todayDate].orEmpty(),
+                        savedPlanIds = state.reviewPlanSnapshots[state.todayDate],
+                        checkedInToday = state.todayDate in state.reviewCheckIns,
                         onSavePlanSnapshot = { date, ids -> scope.launch { preferences.ensureReviewPlanSnapshot(date, ids) } },
-                        onCheckIn = { scope.launch { preferences.setReviewCheckIn(reviewDateKey(), true) } },
+                        onCheckIn = { scope.launch { preferences.setReviewCheckIn(state.todayDate, true) } },
                         onOpenCalendar = { navController.navigate(TijiRoutes.REVIEW_CALENDAR) },
-                         onOpenSettings = { navController.navigate(TijiRoutes.settingsDetail(SettingsSection.OVERVIEW)) },
-                        onOpenDetail = { id, ids -> navController.navigate(TijiRoutes.reviewDetail(id, ids)) },
+                          onOpenSettings = { navController.navigate(TijiRoutes.SETTINGS) },
+                        onStartSession = { ids ->
+                            val plan = ReviewSessionPlan(
+                                sessionKey = viewModel.newReviewSessionId(),
+                                source = ReviewSessionSource.TODAY_PLAN,
+                                reviewIds = ids,
+                                returnDestination = TijiRoutes.REVIEW
+                            )
+                            viewModel.startReviewSession(plan)
+                            navController.navigate(TijiRoutes.reviewSession(plan.sessionId))
+                        },
+                        onResumeSession = { session -> navController.navigate(TijiRoutes.reviewSession(session.sessionId)) },
                         resetScrollToken = state.reviewVisitToken
                     )
                 }
                 composable(TijiRoutes.SOLVE) {
                     AiSolveScreen(
                         viewModel = viewModel,
+                        allMistakes = state.allMistakes,
                         aiEndpoint = state.activeAiProfile.endpoint,
                         aiModel = state.activeAiProfile.model,
                         aiProfiles = state.aiProfiles,
                         activeAiProfileId = state.activeAiProfileId,
                         visualAssistProfile = state.aiVisualProfiles.firstOrNull { it.id == state.aiVisualBindings[state.activeAiProfileId] },
                         initialAiInputMode = state.aiSolveInputMode,
+                        initialReliabilityMode = state.aiSolveReliabilityMode,
                         aiUploadConsent = state.aiUploadConsent,
                         aiExcludeSourceImageByDefault = state.aiExcludeSourceImageByDefault,
                         onActiveAiProfile = { id -> scope.launch { preferences.setActiveAiProfile(id, state.aiProfiles) } },
-                        onOpenSettings = { navController.navigate(TijiRoutes.settingsDetail(SettingsSection.OVERVIEW)) },
-                        onOpenChatHistory = { navController.navigate(TijiRoutes.AI_CHAT_HISTORY) },
+                         onOpenSettings = { navController.navigate(TijiRoutes.SETTINGS) },
                         onOpenSolveHistory = { navController.navigate(TijiRoutes.AI_SOLVE_HISTORY) },
+                        onOpenMistake = { id -> navController.navigate(TijiRoutes.detail(id)) },
                         onAiUploadConsent = { value -> scope.launch { preferences.setAiUploadConsent(value) } },
                         onAiInputMode = { value -> scope.launch { preferences.setAiSolveInputMode(value.name) } },
+                        onReliabilityMode = { value -> scope.launch { preferences.setAiSolveReliabilityMode(value.name) } },
                         solveVisitToken = state.solveVisitToken
                     )
                 }
                 composable(TijiRoutes.SETTINGS) {
-                    MyScreen(
+                    SettingsHomeScreen(
                         resetScrollToken = state.settingsVisitToken,
-                        onOpenReviewSettings = { navController.navigate(TijiRoutes.settingsDetail(SettingsSection.REVIEW)) },
-                        onOpenKnowledge = { navController.navigate(TijiRoutes.KNOWLEDGE) },
-                        onOpenAiSettings = { navController.navigate(TijiRoutes.settingsDetail(SettingsSection.AI)) },
-                        onOpenDataSettings = { navController.navigate(TijiRoutes.settingsDetail(SettingsSection.DATA)) },
-                        onOpenAppearanceSettings = { navController.navigate(TijiRoutes.settingsDetail(SettingsSection.APPEARANCE)) },
-                        onOpenAbout = { navController.navigate(TijiRoutes.settingsDetail(SettingsSection.ABOUT)) }
+                        activeAiProfile = state.activeAiProfile,
+                        reviewPlanEnabled = state.reviewPlanEnabled,
+                        dailyReviewLimit = state.dailyReviewLimit,
+                        themeMode = ThemeMode.fromKey(state.themeModeKey),
+                        themePalette = ThemePalette.fromKey(state.themePaletteKey),
+                        onOpenAiSettings = { navController.navigate(TijiRoutes.SETTINGS_AI) },
+                        onOpenReviewSettings = { navController.navigate(TijiRoutes.SETTINGS_REVIEW) },
+                        onOpenDataSettings = { navController.navigate(TijiRoutes.SETTINGS_DATA) },
+                        onOpenAppearanceSettings = { navController.navigate(TijiRoutes.SETTINGS_APPEARANCE) },
+                        onOpenAbout = { navController.navigate(TijiRoutes.SETTINGS_ABOUT) }
                     )
                 }
                 composable(TijiRoutes.KNOWLEDGE) {
@@ -209,12 +266,10 @@ internal fun TijiNavGraph(
                         insight = state.weaknessInsights.firstOrNull { it.point.stableId == stableId },
                         relatedMistakes = relatedMistakes,
                         reviewRecords = reviewHistory,
+                        latestReviewGrades = state.allMistakeItems.associate { it.mistake.id to it.latestReviewGrade },
+                        exportOriginalImagesOnly = !state.aiExcludeSourceImageByDefault,
                         onBack = { navController.popBackStack() },
                         onOpenMistake = { id -> navController.navigate(TijiRoutes.detail(id)) },
-                        onOpenLibrary = { selectedId ->
-                            onLibraryKnowledgePoint(selectedId)
-                            navController.navigate(TijiRoutes.LIBRARY)
-                        },
                         onStartFocusedReview = { selectedId, pointName ->
                             scope.launch {
                                 val queue = viewModel.focusedReviewQueue(selectedId)
@@ -222,55 +277,39 @@ internal fun TijiNavGraph(
                                     if (queue.isEmpty()) {
                                         snackbarHostState.showSnackbar("这个知识点暂时没有可练习的错题")
                                     } else {
-                                        navController.navigate(
-                                            TijiRoutes.focusedReviewDetail(
-                                                id = queue.first().id,
-                                                ids = queue.map { it.id },
-                                                stableId = selectedId,
-                                                name = pointName
-                                            )
+                                        val plan = ReviewSessionPlan(
+                                            sessionKey = viewModel.newReviewSessionId(),
+                                            source = ReviewSessionSource.KNOWLEDGE_POINT,
+                                            reviewIds = queue.map { it.id },
+                                            knowledgePointStableId = selectedId,
+                                            knowledgePointName = pointName,
+                                            returnDestination = TijiRoutes.knowledgeDetail(selectedId)
                                         )
+                                        viewModel.startReviewSession(plan)
+                                        navController.navigate(TijiRoutes.reviewSession(plan.sessionId))
                                     }
                                 }
                             }
                         }
                     )
                 }
-                composable(TijiRoutes.SETTINGS_DETAIL_PATTERN) { entry ->
-                    val section = SettingsSection.fromKey(entry.arguments?.getString("section"))
-                    SettingsScreen(
-                        resetScrollToken = state.settingsVisitToken,
-                        pageTag = section.pageTag,
-                        initialItemIndex = section.initialItemIndex,
-                        themeMode = ThemeMode.fromKey(state.themeModeKey),
-                        themePalette = ThemePalette.fromKey(state.themePaletteKey),
+                composable(TijiRoutes.SETTINGS_AI) {
+                    AiSettingsScreen(
                         aiEndpoint = state.activeAiProfile.endpoint,
                         aiModel = state.activeAiProfile.model,
                         aiProfiles = state.aiProfiles,
                         activeAiProfileId = state.activeAiProfileId,
                         aiVisualProfiles = state.aiVisualProfiles,
                         aiVisualBindings = state.aiVisualBindings,
-                        dailyReviewLimit = state.dailyReviewLimit,
-                        reviewSubjects = state.reviewSubjects,
-                        reviewPlanEnabled = state.reviewPlanEnabled,
-                        randomReview = state.randomReview,
-                        mistakes = state.mistakes,
-                        backgroundScope = scope,
                         ocrModelManager = ocrModelManager,
-                        aiExcludeSourceImageByDefault = state.aiExcludeSourceImageByDefault,
-                        onAiExcludeSourceImageByDefault = { value -> scope.launch { preferences.setAiExcludeSourceImageByDefault(value) } },
-                        onThemeMode = { value -> scope.launch { preferences.setThemeMode(value.key) } },
-                        onThemePalette = { value -> scope.launch { preferences.setThemePalette(value.key) } },
                         onSaveAiConfig = { endpoint, model -> scope.launch { preferences.setAiEndpoint(endpoint); preferences.setAiModel(model) } },
                         onAiProfiles = { profiles -> scope.launch { preferences.setAiProfiles(profiles) } },
                         onActiveAiProfile = { id -> scope.launch { preferences.setActiveAiProfile(id, state.aiProfiles) } },
                         onOpenVisualAssistConfig = { textProfileId -> navController.navigate(TijiRoutes.visualConfig(textProfileId)) },
-                        onDailyReviewLimit = { value -> scope.launch { preferences.setDailyReviewLimit(value) } },
-                        onReviewSubjects = { value -> scope.launch { preferences.setReviewSubjects(value) } },
-                        onReviewPlanEnabled = { value -> scope.launch { preferences.setReviewPlanEnabled(value) } },
-                        onRandomReview = { value -> scope.launch { preferences.setRandomReview(value) } },
                         onDeleteAiProfile = { id ->
                             val previousProfiles = state.aiProfiles
+                            val previousVisualProfiles = state.aiVisualProfiles
+                            val previousVisualBindings = state.aiVisualBindings
                             val remainingProfiles = previousProfiles.filterNot { it.id == id }
                             val fallback = remainingProfiles.firstOrNull()
                                 ?: AiProfile(AppPreferences.DEFAULT_PROFILE_ID, "默认 AI", AppPreferences.DEFAULT_ENDPOINT, AppPreferences.DEFAULT_MODEL)
@@ -288,23 +327,71 @@ internal fun TijiNavGraph(
                                 if (result == SnackbarResult.ActionPerformed) {
                                     preferences.setAiProfiles(previousProfiles)
                                     preferences.setActiveAiProfile(state.activeAiProfileId, previousProfiles)
+                                    preferences.restoreAiVisualState(previousVisualProfiles, previousVisualBindings)
                                     snackbarHostState.showSnackbar("已撤回删除", duration = SnackbarDuration.Short)
                                 }
                             }
                         },
-                        onResetData = { onFinished ->
+                        onBack = { navController.popBackStack() }
+                    )
+                }
+                composable(TijiRoutes.SETTINGS_REVIEW) {
+                    ReviewSettingsScreen(
+                        dailyReviewLimit = state.dailyReviewLimit,
+                        reviewSubjects = state.reviewSubjects,
+                        reviewPlanEnabled = state.reviewPlanEnabled,
+                        randomReview = state.randomReview,
+                        mistakes = state.mistakes,
+                        onDailyReviewLimit = { value -> scope.launch { preferences.setDailyReviewLimit(value) } },
+                        onReviewSubjects = { value -> scope.launch { preferences.setReviewSubjects(value) } },
+                        onReviewPlanEnabled = { value -> scope.launch { preferences.setReviewPlanEnabled(value) } },
+                        onRandomReview = { value -> scope.launch { preferences.setRandomReview(value) } },
+                        onBack = { navController.popBackStack() }
+                    )
+                }
+                composable(TijiRoutes.SETTINGS_DATA) {
+                    DataSettingsScreen(
+                        aiExcludeSourceImageByDefault = state.aiExcludeSourceImageByDefault,
+                        onAiExcludeSourceImageByDefault = { value ->
+                            scope.launch { preferences.setAiExcludeSourceImageByDefault(value) }
+                        },
+                        backgroundScope = scope,
+                        onClearLearningData = { onFinished ->
                             scope.launch {
                                 runCatching {
-                                    viewModel.resetAllData()
-                                    preferences.resetReviewData()
+                                    executeReset(DataResetMode.LEARNING_DATA)
                                 }.onSuccess {
                                     onFinished(null)
                                 }.onFailure { error ->
                                     onFinished("重置失败：${error.message ?: "未知错误"}")
                                 }
                             }
-                        }
+                        },
+                        onFactoryReset = { onFinished ->
+                            scope.launch {
+                                runCatching {
+                                    executeReset(DataResetMode.FACTORY_RESET)
+                                }.onSuccess {
+                                    onFinished(null)
+                                }.onFailure { error ->
+                                    onFinished("恢复出厂失败：${error.message ?: "未知错误"}")
+                                }
+                            }
+                        },
+                        onBack = { navController.popBackStack() }
                     )
+                }
+                composable(TijiRoutes.SETTINGS_APPEARANCE) {
+                    AppearanceSettingsScreen(
+                        themeMode = ThemeMode.fromKey(state.themeModeKey),
+                        themePalette = ThemePalette.fromKey(state.themePaletteKey),
+                        onThemeMode = { value -> scope.launch { preferences.setThemeMode(value.key) } },
+                        onThemePalette = { value -> scope.launch { preferences.setThemePalette(value.key) } },
+                        onBack = { navController.popBackStack() }
+                    )
+                }
+                composable(TijiRoutes.SETTINGS_ABOUT) {
+                    AboutScreen(onBack = { navController.popBackStack() })
                 }
                 composable(TijiRoutes.AI_SOLVE_HISTORY) {
                     AiSolveHistoryScreen(
@@ -351,6 +438,7 @@ internal fun TijiNavGraph(
                 composable(TijiRoutes.CAPTURE) {
                     NewCaptureScreen(
                         viewModel = viewModel,
+                        allMistakes = state.allMistakes,
                         onBack = { navController.popBackStack() },
                         aiEndpoint = state.activeAiProfile.endpoint,
                         aiModel = state.activeAiProfile.model,
@@ -363,7 +451,8 @@ internal fun TijiNavGraph(
                         onAiUploadConsent = { value -> scope.launch { preferences.setAiUploadConsent(value) } },
                         onActiveAiProfile = { id -> scope.launch { preferences.setActiveAiProfile(id, state.aiProfiles) } },
                          onAiInputMode = { value -> scope.launch { preferences.setAiCaptureInputMode(value.name) } },
-                        onOpenSettings = { navController.navigate(TijiRoutes.settingsDetail(SettingsSection.OVERVIEW)) }
+                        onOpenSettings = { navController.navigate(TijiRoutes.SETTINGS) },
+                        onOpenMistake = { id -> navController.navigate(TijiRoutes.detail(id)) }
                     )
                 }
                 composable(TijiRoutes.DETAIL_PATTERN) { entry ->
@@ -389,61 +478,55 @@ internal fun TijiNavGraph(
                         navController.popBackStack()
                     }
                 }
-                composable(TijiRoutes.REVIEW_DETAIL_PATTERN) { entry ->
-                    val ids = Uri.decode(entry.arguments?.getString("ids").orEmpty())
-                        .split(',')
-                        .mapNotNull { it.toLongOrNull() }
-                    ReviewQuestionScreen(
-                        viewModel = viewModel,
-                        id = entry.arguments?.getString("id")?.toLongOrNull() ?: 0L,
-                        reviewIds = ids,
-                        reviewStatuses = state.reviewMastery[reviewDateKey()].orEmpty(),
-                        onBack = { navController.popBackStack() },
-                        onRemovedFromPlan = { questionId, onDone ->
-                            scope.launch {
-                                preferences.removeFromReviewPlanSnapshot(reviewDateKey(), questionId)
-                                viewModel.setReviewPlan(questionId, false, onUpdated = onDone)
-                            }
-                        },
-                        onReviewed = { questionId, grade ->
-                            scope.launch { preferences.recordReviewStatus(reviewDateKey(), questionId, grade.name) }
-                        }
-                    )
-                }
-                composable(TijiRoutes.FOCUSED_REVIEW_DETAIL_PATTERN) { entry ->
-                    val ids = Uri.decode(entry.arguments?.getString("ids").orEmpty())
-                        .split(',')
-                        .mapNotNull { it.toLongOrNull() }
-                    val stableId = Uri.decode(entry.arguments?.getString("stableId").orEmpty())
-                    val pointName = Uri.decode(entry.arguments?.getString("name").orEmpty())
-                    val pointLabel = state.weaknessInsights
-                        .firstOrNull { it.point.stableId == stableId }
-                        ?.label
+                composable(TijiRoutes.REVIEW_SESSION_PATTERN) { entry ->
                     val sessionId = Uri.decode(entry.arguments?.getString("sessionId").orEmpty())
-                    ReviewQuestionScreen(
-                        viewModel = viewModel,
-                        id = entry.arguments?.getString("id")?.toLongOrNull() ?: 0L,
-                        reviewIds = ids,
-                        reviewStatuses = emptyMap(),
-                        sessionKey = "focused:$sessionId",
-                        sessionContext = ReviewSessionContext(
-                            source = ReviewSessionSource.KNOWLEDGE_POINT,
-                            knowledgePointStableId = stableId,
-                            knowledgePointName = pointName,
-                            knowledgePointLabel = pointLabel
-                        ),
-                        onBack = { navController.popBackStack() },
-                        onRemovedFromPlan = { _, onDone -> onDone() },
-                        onReviewed = { _, _ -> }
-                    )
+                    val session = activeReviewSession?.takeIf { it.sessionId == sessionId }
+                    if (session == null) {
+                        ReviewSessionUnavailableScreen(onBack = { navController.popBackStack() })
+                    } else {
+                        val pointLabel = state.weaknessInsights
+                            .firstOrNull { it.point.stableId == session.plan.knowledgePointStableId }
+                            ?.label
+                        ReviewQuestionScreen(
+                            viewModel = viewModel,
+                            id = session.reviewIds.firstOrNull() ?: 0L,
+                            reviewIds = session.reviewIds,
+                            reviewStatuses = emptyMap(),
+                            sessionKey = session.sessionId,
+                            sessionContext = session.plan.context(pointLabel),
+                            onBack = {
+                                navController.popBackStack()
+                            },
+                            onRemovedFromPlan = { questionId, onDone ->
+                                if (session.plan.source == ReviewSessionSource.TODAY_PLAN) {
+                                    scope.launch {
+                                        preferences.removeFromReviewPlanSnapshot(state.todayDate, questionId)
+                                        viewModel.setReviewPlan(
+                                            questionId,
+                                            false,
+                                            onUpdated = {
+                                                viewModel.removeMistakeFromReviewSession(session.sessionId, questionId)
+                                                onDone()
+                                            }
+                                        )
+                                    }
+                                } else {
+                                    viewModel.removeMistakeFromReviewSession(session.sessionId, questionId)
+                                    onDone()
+                                }
+                            },
+                            onReviewed = { _, _ -> },
+                        )
+                    }
                 }
                 composable(TijiRoutes.REVIEW_CALENDAR) {
                     ReviewCalendarScreen(
                         mistakes = state.mistakes,
-                        reviewRecords = state.reviewMastery,
+                        reviewRecords = reviewRecordsByDate,
                         checkedInDates = state.reviewCheckIns,
-                        todayQuestionIds = state.reviewPlanSnapshots[reviewDateKey()].orEmpty(),
-                        onCheckIn = { scope.launch { preferences.setReviewCheckIn(reviewDateKey(), true) } },
+                        todayDate = state.todayDate,
+                        todayQuestionIds = state.reviewPlanSnapshots[state.todayDate].orEmpty(),
+                        onCheckIn = { scope.launch { preferences.setReviewCheckIn(state.todayDate, true) } },
                         onBack = { navController.popBackStack() }
                     )
                 }

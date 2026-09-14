@@ -2,9 +2,15 @@ package com.tiji.mistakes.data
 
 import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import com.tiji.mistakes.domain.ReviewScheduler
 import com.tiji.mistakes.domain.ReviewGrade
+import com.tiji.mistakes.domain.Difficulty
+import com.tiji.mistakes.domain.ReviewScheduler.shouldRemainInReviewPlan
+import com.tiji.mistakes.domain.time.LearningCalendar
+import com.tiji.mistakes.service.AiRecognitionResult
 import com.tiji.mistakes.service.QuestionContentBlockCodec
+import com.tiji.mistakes.service.mergeClassificationMetadata
 import org.json.JSONArray
 
 class MistakeRepository(private val database: AppDatabase) {
@@ -26,6 +32,10 @@ class MistakeRepository(private val database: AppDatabase) {
     fun observeReviewRecordsSince(from: Long): Flow<List<ReviewRecordEntity>> =
         database.reviewRecordDao().observeSince(from)
 
+    /** Full review history exposed to calendar and other fact-source consumers. */
+    fun observeAllReviewRecords(): Flow<List<ReviewRecordEntity>> =
+        database.reviewRecordDao().observeAll()
+
     fun observeReviewRecordsForMistake(mistakeId: Long, limit: Int = 5): Flow<List<ReviewRecordEntity>> =
         database.reviewRecordDao().observeLatestForMistake(mistakeId, limit.coerceAtLeast(1))
 
@@ -42,6 +52,13 @@ class MistakeRepository(private val database: AppDatabase) {
         val ids = mistakeIds.filter { it > 0L }.distinct()
         if (ids.isEmpty()) return emptyList()
         return database.reviewRecordDao().listByMistakeIds(ids)
+    }
+
+    /** Observes one newest persisted grade per requested mistake in a single query. */
+    fun observeLatestReviewRecordsForMistakes(mistakeIds: Collection<Long>): Flow<List<ReviewRecordEntity>> {
+        val ids = mistakeIds.filter { it > 0L }.distinct()
+        if (ids.isEmpty()) return flowOf(emptyList())
+        return database.reviewRecordDao().observeLatestForMistakes(ids)
     }
 
     suspend fun listReviewRecordsByIds(recordIds: Collection<Long>): List<ReviewRecordEntity> {
@@ -74,10 +91,17 @@ class MistakeRepository(private val database: AppDatabase) {
     }
 
     suspend fun find(id: Long): MistakeEntity? = dao.findById(id)
-    suspend fun save(mistake: MistakeEntity): Long {
+    suspend fun save(mistake: MistakeEntity, preserveReviewPlan: Boolean = false): Long {
         val now = System.currentTimeMillis()
-        val prepared = mistake.copy(updatedAt = now).let {
-            if (it.id == 0L) it.copy(inReviewPlan = true, nextReviewAt = ReviewScheduler.nextLocalMidnight(now)) else it
+        val prepared = mistake.copy(
+            difficulty = Difficulty.normalize(mistake.difficulty),
+            updatedAt = now
+        ).let {
+            if (it.id == 0L && !preserveReviewPlan) {
+                it.copy(inReviewPlan = true, nextReviewAt = ReviewScheduler.nextLocalMidnight(now))
+            } else {
+                it
+            }
         }
         return database.withTransaction {
             val id = if (prepared.id > 0L) {
@@ -91,6 +115,30 @@ class MistakeRepository(private val database: AppDatabase) {
             sanitizeKnowledgePointParentsInTransaction()
             id
         }
+    }
+
+    /**
+     * Applies asynchronous AI metadata to the row that exists at commit time.
+     *
+     * The classifier may have spent up to two minutes preparing its response.
+     * Its request snapshot is therefore never a safe write-back base: a learner
+     * can edit the mistake while the request is in flight. Re-read and merge
+     * inside this transaction so content, learner metadata, and review choices
+     * are preserved while only classifier-owned fields are added.
+     */
+    suspend fun applyAiClassification(
+        mistakeId: Long,
+        classification: AiRecognitionResult
+    ): MistakeEntity = database.withTransaction {
+        val latest = requireNotNull(dao.findById(mistakeId)) { "已保存的错题不存在：$mistakeId" }
+        val merged = mergeClassificationMetadata(latest, classification).copy(
+            updatedAt = System.currentTimeMillis()
+        )
+        dao.update(merged)
+        syncKnowledgePointsForMistake(merged)
+        database.knowledgePointDao().deleteOrphans()
+        sanitizeKnowledgePointParentsInTransaction()
+        merged
     }
     suspend fun saveAll(mistakes: List<MistakeEntity>) = database.withTransaction {
         dao.upsertAll(mistakes)
@@ -133,7 +181,23 @@ class MistakeRepository(private val database: AppDatabase) {
 
     suspend fun setReviewPlan(id: Long, enabled: Boolean) {
         val now = System.currentTimeMillis()
-        dao.setReviewPlan(id, enabled, now, now)
+        val nextReviewAt = if (enabled) LearningCalendar.nextStudyDayStart(now) else now
+        dao.setReviewPlan(id, enabled, nextReviewAt, now)
+    }
+
+    /** Explicitly adds active rows to tomorrow's plan without changing mastery. */
+    suspend fun addToReviewPlanForNextStudyDay(
+        ids: Collection<Long>,
+        now: Long = System.currentTimeMillis()
+    ): Int = database.withTransaction {
+        val distinctIds = ids.filter { it > 0L }.distinct()
+        if (distinctIds.isEmpty()) return@withTransaction 0
+        val nextReviewAt = LearningCalendar.nextStudyDayStart(now)
+        val activeRows = dao.findByIds(distinctIds).filter { it.deletedAt == null && !it.archived }
+        activeRows.forEach { row ->
+            dao.setReviewPlan(row.id, enabled = true, nextReviewAt = nextReviewAt, updatedAt = now)
+        }
+        activeRows.size
     }
 
     /** Updates the learner state and records the response in one Room transaction. */
@@ -143,12 +207,19 @@ class MistakeRepository(private val database: AppDatabase) {
         now: Long = System.currentTimeMillis()
     ): ReviewRecordEntity = database.withTransaction {
         val before = requireNotNull(dao.findById(mistakeId)) { "错题不存在：$mistakeId" }
-        val preview = ReviewScheduler.preview(before, grade, now)
+        database.reviewRecordDao().findRecentByGrade(
+            mistakeId = mistakeId,
+            grade = grade.name,
+            from = now - REVIEW_TAP_DEBOUNCE_MS
+        )?.let { return@withTransaction it }
+        val recentHistory = database.reviewRecordDao().listByMistakeId(mistakeId)
+        val preview = ReviewScheduler.preview(before, grade, recentHistory, now)
         val after = before.copy(
             mastery = preview.masteryAfter,
             reviewCount = before.reviewCount + 1,
             lastReviewedAt = now,
             nextReviewAt = preview.nextReviewAt,
+            inReviewPlan = shouldRemainInReviewPlan(grade),
             updatedAt = now
         )
         dao.update(after)
@@ -181,19 +252,35 @@ class MistakeRepository(private val database: AppDatabase) {
     }
 
     /** Rebuilds structured knowledge links only for the imported mistake IDs. */
-    suspend fun syncKnowledgePointsForMistakes(mistakeIds: Collection<Long>): Int {
+    suspend fun syncKnowledgePointsForMistakes(mistakeIds: Collection<Long>): Int = database.withTransaction {
+        syncKnowledgePointsForMistakesInTransaction(mistakeIds)
+    }
+
+    /**
+     * Rebuilds imported knowledge links without opening a nested transaction.
+     * The caller must already be inside the import Room transaction so the
+     * marker can remain the final Room write after this work completes.
+     */
+    internal suspend fun syncKnowledgePointsForMistakesInTransaction(
+        mistakeIds: Collection<Long>
+    ): Int {
         val distinctIds = mistakeIds.filter { it > 0L }.distinct()
         if (distinctIds.isEmpty()) return 0
-        return database.withTransaction {
-            var linked = 0
-            dao.findByIds(distinctIds).forEach { mistake ->
-                linked += syncKnowledgePointsForMistake(mistake)
-            }
-            database.knowledgePointDao().deleteOrphans()
-            sanitizeKnowledgePointParentsInTransaction()
-            linked
+        var linked = 0
+        dao.findByIds(distinctIds).forEach { mistake ->
+            linked += syncKnowledgePointsForMistake(mistake)
         }
+        database.knowledgePointDao().deleteOrphans()
+        sanitizeKnowledgePointParentsInTransaction()
+        return linked
     }
+
+    /**
+     * Import-only seam for parent sanitation. The caller must already be in
+     * the Room transaction that will write the import commit marker.
+     */
+    internal suspend fun sanitizeKnowledgePointParentsInTransactionForImport(): Int =
+        sanitizeKnowledgePointParentsInTransaction()
 
     private suspend fun sanitizeKnowledgePointParentsInTransaction(): Int {
         val pointDao = database.knowledgePointDao()
@@ -253,6 +340,10 @@ class MistakeRepository(private val database: AppDatabase) {
             database.reviewRecordDao().deleteAll()
             database.mistakeKnowledgePointDao().deleteAll()
             database.knowledgePointDao().deleteAll()
+            // Import markers are transient transaction-bound state. A data
+            // reset must remove them so a later startup cannot mistake an
+            // abandoned import for a committed one.
+            database.backupImportCommitMarkerDao().clearAll()
         }
         return paths
     }
@@ -266,11 +357,18 @@ class MistakeRepository(private val database: AppDatabase) {
         addAll(decodePaths(mistake.sourceImagePaths))
         mistake.answerImagePath?.takeIf(String::isNotBlank)?.let(::add)
         mistake.explanationImagePath?.takeIf(String::isNotBlank)?.let(::add)
-        addAll(QuestionContentBlockCodec.decode(mistake.contentBlocks).map { it.path })
+        QuestionContentBlockCodec.decode(mistake.contentBlocks).forEach { block ->
+            block.path.takeIf(String::isNotBlank)?.let(::add)
+            block.sourcePath?.takeIf(String::isNotBlank)?.let(::add)
+        }
     }.distinct()
 
     private fun decodePaths(raw: String): List<String> = runCatching {
         val array = JSONArray(raw.ifBlank { "[]" })
         (0 until array.length()).mapNotNull { array.optString(it).takeIf(String::isNotBlank) }
     }.getOrDefault(emptyList())
+
+    private companion object {
+        const val REVIEW_TAP_DEBOUNCE_MS = 1_500L
+    }
 }

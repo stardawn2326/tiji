@@ -16,7 +16,7 @@ class MainNavigationRegressionTest {
 
     @Test
     fun mainDestinationsRemainReachableAfterRotation() {
-        listOf("home", "library", "solve", "review", "profile").forEach { route ->
+        listOf("home", "library", "solve", "review", "settings").forEach { route ->
             composeRule.onNodeWithTag("nav_$route").assertExists().performClick()
         }
 
@@ -26,6 +26,6 @@ class MainNavigationRegressionTest {
 
         composeRule.activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         composeRule.waitForIdle()
-        composeRule.onNodeWithTag("nav_profile").assertExists().performClick()
+        composeRule.onNodeWithTag("nav_settings").assertExists().performClick()
     }
 }

@@ -1,320 +1,93 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
-
 package com.tiji.mistakes.ui.home
 
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.setValue
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AddAPhoto
-import androidx.compose.material.icons.outlined.CalendarMonth
-import androidx.compose.material.icons.outlined.Lightbulb
-import androidx.compose.material3.Button
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
+import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.tiji.mistakes.data.MistakeEntity
-import com.tiji.mistakes.domain.KnowledgePointInsight
-import com.tiji.mistakes.domain.ReviewAnalyticsSummary
-import com.tiji.mistakes.ui.common.formatLocalDate
-import com.tiji.mistakes.ui.ConceptPageHeader
-import com.tiji.mistakes.ui.ConceptSectionHeader
-import com.tiji.mistakes.ui.ConceptTag
-import com.tiji.mistakes.ui.normalizedSubject
-import com.tiji.mistakes.ui.subjectCounts
-import com.tiji.mistakes.ui.TijiDimens
-import com.tiji.mistakes.ui.TijiStatusBadge
-import com.tiji.mistakes.ui.TijiSurfaceCard
+import com.tiji.mistakes.domain.MistakeProgressSummary
+import com.tiji.mistakes.ui.design.*
+import com.tiji.mistakes.ui.navigation.TijiRoutes
+import java.util.Locale
 
 @Composable
 internal fun HomeScreen(
-    mistakes: List<MistakeEntity>,
-    dueCount: Int,
-    reviewTotal: Int,
-    reviewCompleted: Int,
-    reviewAnalytics: ReviewAnalyticsSummary,
-    weaknessInsights: List<KnowledgePointInsight>,
-    onSubject: (String?) -> Unit,
-    onKnowledgePoint: (String) -> Unit,
-    resetScrollToken: Int,
-    onNavigate: (String) -> Unit
+    progressSummary: MistakeProgressSummary, dueCount: Int, reviewTotal: Int, reviewCompleted: Int,
+    resetScrollToken: Int, onNavigate: (String) -> Unit,
+    onSubject: (String) -> Unit = { onNavigate(TijiRoutes.LIBRARY) }
 ) {
-    val subjects = remember(mistakes) { subjectCounts(mistakes) }
-    val weakPoints = remember(weaknessInsights) { weaknessInsights.take(3) }
-    val stablePointCount = remember(weaknessInsights) { weaknessInsights.count { it.label == "稳定" } }
-    val recentMistakes = remember(mistakes) { mistakes.sortedByDescending { it.updatedAt }.take(2) }
     val listState = rememberLazyListState()
-    LaunchedEffect(resetScrollToken) {
-        if (resetScrollToken > 0) listState.scrollToItem(0)
-    }
-    LazyColumn(
-        state = listState,
-        contentPadding = PaddingValues(horizontal = TijiDimens.pagePadding, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier.fillMaxSize()
-    ) {
+    val subjects = progressSummary.bySubject
+    val remaining = (reviewTotal - reviewCompleted).coerceAtLeast(0)
+    LaunchedEffect(resetScrollToken) { if (resetScrollToken > 0) listState.scrollToItem(0) }
+    LazyColumn(state = listState, modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(horizontal = TijiDimens.pagePadding, vertical = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        item { TijiPageHeader("题迹") }
         item {
-                ConceptPageHeader(
-                    title = "晚上好，",
-                    subtitle = "保持专注，未来会感谢现在的你。",
-                    action = {
-                        IconButton(onClick = { onNavigate("review-calendar") }) {
-                            Icon(Icons.Outlined.CalendarMonth, contentDescription = "复习日历")
-                        }
-                    }
-                )
+            Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                TijiQuickActionCard("AI 解题", Icons.Outlined.AutoAwesome, Modifier.weight(1f).fillMaxHeight(),
+                    emphasized = true, onClick = { onNavigate(TijiRoutes.SOLVE) })
+                TijiQuickActionCard("录入错题", Icons.Outlined.AddAPhoto, Modifier.weight(1f).fillMaxHeight(),
+                    onClick = { onNavigate(TijiRoutes.CAPTURE) })
+            }
         }
         item {
-            TijiSurfaceCard(contentPadding = 12.dp) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.Top
-                ) {
-                    Surface(
-                        shape = RoundedCornerShape(13.dp),
-                        color = MaterialTheme.colorScheme.primaryContainer
-                    ) {
-                        Icon(
-                            Icons.Outlined.CalendarMonth,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.padding(11.dp).size(24.dp)
-                        )
-                    }
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                            Text("今日复习", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                            Text(formatLocalDate(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        Text(
-                            if (reviewTotal > 0) "今天还有 ${(reviewTotal - reviewCompleted).coerceAtLeast(0)} 道题需要复习" else "今天暂时没有待复习题",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text("${reviewCompleted}/${reviewTotal}", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
-                        Text("已完成", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
+            TijiPaperCard {
+                TijiSectionHeader("今日复习", if (reviewTotal > 0) "已完成 $reviewCompleted / $reviewTotal 题" else "暂无待复习题")
+                if (reviewTotal > 0) {
+                    Text(if (remaining > 0) "还有 $remaining 道题" else "今天已完成",
+                        style = MaterialTheme.typography.headlineMedium)
                 }
-                LinearProgressIndicator(
-                    progress = { (reviewCompleted.toFloat() / reviewTotal.coerceAtLeast(1)).coerceIn(0f, 1f) },
-                    modifier = Modifier.fillMaxWidth().height(7.dp),
-                    trackColor = MaterialTheme.colorScheme.primaryContainer
-                )
-                Button(
-                    onClick = { onNavigate("review") },
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                ) {
-                    Text(
-                        when {
-                            reviewCompleted > 0 -> "继续复习"
-                            reviewTotal > 0 || dueCount > 0 -> "开始今日复习"
-                            else -> "查看复习计划"
-                        }
+                TijiProgress(progress = { if (reviewTotal > 0) (reviewCompleted.toFloat()/reviewTotal).coerceIn(0f,1f) else 0f },
+                    modifier = Modifier.fillMaxWidth().height(6.dp))
+                TijiButton(onClick = { onNavigate(TijiRoutes.REVIEW) }, modifier = Modifier.fillMaxWidth()) {
+                    Text(if (remaining > 0 || dueCount > 0) "进入今日复习" else "打开复习计划")
+                }
+            }
+        }
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                TijiSectionHeader("学习进度")
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    TijiStatCard("累计错题", progressSummary.total.toString(), Modifier.weight(1f))
+                    TijiStatCard("已掌握", progressSummary.mastered.toString(), Modifier.weight(1f))
+                    TijiStatCard(
+                        "掌握率",
+                        String.format(Locale.ROOT, "%.0f%%", progressSummary.masteryRate * 100f),
+                        Modifier.weight(1f)
                     )
                 }
             }
         }
         item {
-            TijiSurfaceCard(contentPadding = 12.dp) {
-                Text("本周学习", style = MaterialTheme.typography.titleMedium)
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    HomeMetric(
-                        value = reviewAnalytics.weekCompletedCount.toString(),
-                        label = "本周复习",
-                        modifier = Modifier.weight(1f)
-                    )
-                    HomeMetric(
-                        value = reviewAnalytics.forgotten30DayCount.toString(),
-                        label = "近30天忘记",
-                        modifier = Modifier.weight(1f)
-                    )
-                    HomeMetric(
-                        value = stablePointCount.toString(),
-                        label = "稳定知识点",
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-            }
-        }
-        item {
-            ConceptSectionHeader(
-                title = "各科错题",
-                action = { TextButton(onClick = { onSubject(null) }) { Text("查看全部") } }
-            )
+            TijiSectionHeader("各科错题", action = {
+                TijiTextButton({ onNavigate(TijiRoutes.LIBRARY) }) { Text("全部 ›") }
+            })
         }
         if (subjects.isEmpty()) {
             item {
-                TijiSurfaceCard {
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(9.dp)
-                    ) {
-                        Surface(
-                            color = MaterialTheme.colorScheme.primaryContainer,
-                            contentColor = MaterialTheme.colorScheme.primary,
-                            shape = RoundedCornerShape(14.dp)
-                        ) {
-                            Icon(Icons.Outlined.AddAPhoto, contentDescription = null, modifier = Modifier.padding(12.dp).size(26.dp))
-                        }
-                        Text("从一道错题开始", style = MaterialTheme.typography.titleLarge)
-                        Text(
-                            "拍照录题或使用 AI 解题，保存后会自动按科目整理。",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        OutlinedButton(onClick = { onNavigate("capture") }) { Text("录入第一道错题") }
+                TijiPaperCard {
+                    TijiEmptyState("还没有错题", "拍照、AI 识题或手动录入第一道题。") {
+                        TijiSecondaryButton({ onNavigate(TijiRoutes.CAPTURE) }) { Text("录入第一道错题") }
                     }
                 }
             }
         } else {
             item {
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    contentPadding = PaddingValues(end = 2.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    items(subjects, key = { it.first }) { (subject, count) ->
-                        TijiSurfaceCard(
-                            onClick = { onSubject(subject) },
-                            contentPadding = 12.dp,
-                            modifier = Modifier.width(96.dp)
-                        ) {
-                            Surface(
-                                color = MaterialTheme.colorScheme.primaryContainer,
-                                contentColor = MaterialTheme.colorScheme.primary,
-                                shape = RoundedCornerShape(10.dp)
-                            ) {
-                                Icon(
-                                    Icons.AutoMirrored.Outlined.MenuBook,
-                                    contentDescription = null,
-                                    modifier = Modifier.padding(7.dp).size(18.dp)
-                                )
-                            }
-                            Text(subject, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
-                                Text(count.toString(), style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
-                                Spacer(Modifier.size(4.dp))
-                                Text("道错题", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 3.dp))
-                            }
-                        }
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    subjects.forEach { subjectProgress ->
+                        TijiSubjectCountRow(subjectProgress.subject, subjectProgress.total,
+                            subjectProgress.mastered,
+                            onClick = { onSubject(subjectProgress.subject) })
                     }
                 }
             }
         }
-        item {
-            ConceptSectionHeader(
-                title = "薄弱知识点",
-                action = { TextButton(onClick = { onNavigate("library") }) { Text("查看全部") } }
-            )
-        }
-        item {
-            TijiSurfaceCard(contentPadding = 12.dp) {
-                if (weakPoints.isEmpty()) {
-                    Text("整理错题并完成复习后，这里会显示需要巩固的知识点。", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                } else {
-                    weakPoints.forEach { point ->
-                        Column(
-                            modifier = Modifier.fillMaxWidth().clickable { onKnowledgePoint(point.point.stableId) },
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(9.dp)
-                            ) {
-                                Surface(
-                                    color = MaterialTheme.colorScheme.tertiaryContainer,
-                                    contentColor = MaterialTheme.colorScheme.tertiary,
-                                    shape = RoundedCornerShape(9.dp)
-                                ) {
-                                    Icon(Icons.Outlined.Lightbulb, contentDescription = null, modifier = Modifier.padding(6.dp).size(18.dp))
-                                }
-                                Text(point.point.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                                Text(point.label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                                Text("${point.mistakeCount} 道", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            LinearProgressIndicator(
-                                progress = { point.weakness },
-                                modifier = Modifier.fillMaxWidth().height(6.dp),
-                                trackColor = MaterialTheme.colorScheme.primaryContainer
-                            )
-                        }
-                    }
-                }
-            }
-        }
-        if (recentMistakes.isNotEmpty()) {
-            item {
-                ConceptSectionHeader(
-                    title = "最近记录",
-                    subtitle = "继续整理最近保存的题目",
-                    action = { TextButton(onClick = { onSubject(null) }) { Text("打开错题库") } }
-                )
-            }
-            items(recentMistakes, key = { it.id }) { mistake ->
-                TijiSurfaceCard(onClick = { onNavigate("detail/${mistake.id}") }) {
-                    Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            ConceptTag(normalizedSubject(mistake.subject))
-                            Text(mistake.title.ifBlank { "未命名错题" }, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(
-                                mistake.questionText.ifBlank { "图片题目，点击查看详情" },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                        TijiStatusBadge(mistake.mastery)
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun HomeMetric(value: String, label: String, modifier: Modifier = Modifier) {
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(3.dp)) {
-        Text(value, style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
-        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

@@ -2,12 +2,12 @@ package com.tiji.mistakes.service
 
 import android.util.Base64
 import android.util.Log
-import android.os.SystemClock
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import com.tiji.mistakes.domain.Difficulty
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -20,6 +20,122 @@ internal fun isOutputLengthLimit(finishReason: String): Boolean =
 internal class AiOutputLimitException(
     val partialContent: String
 ) : IllegalStateException("AI 输出达到长度上限，回答可能未完成，请重新解题或重新追问")
+
+data class AiCapabilityResult(val ok: Boolean, val detail: String)
+
+data class AiProviderCapabilityCheck(
+    val text: AiCapabilityResult,
+    val streaming: AiCapabilityResult,
+    val image: AiCapabilityResult,
+    val visualAssistBinding: AiCapabilityResult,
+    val visualProfile: AiCapabilityResult = AiCapabilityResult(false, "未配置视觉辅助配置")
+)
+
+private fun monotonicTimeMs(): Long = System.nanoTime() / 1_000_000L
+
+private fun logInfo(tag: String, message: String) = runCatching { Log.i(tag, message) }
+private fun logDebug(tag: String, message: String) = runCatching { Log.d(tag, message) }
+private fun logWarn(tag: String, message: String, error: Throwable) = runCatching { Log.w(tag, message, error) }
+private fun logError(tag: String, message: String, error: Throwable) = runCatching { Log.e(tag, message, error) }
+
+/** Small transport seam used by the deterministic provider contract harness. */
+internal interface AiProviderTransport {
+    fun request(endpoint: String, apiKey: String, body: JSONObject): String
+
+    suspend fun stream(
+        endpoint: String,
+        apiKey: String,
+        body: JSONObject,
+        onLine: suspend (String) -> Unit
+    )
+
+    fun cancel()
+}
+
+/** Production OpenAI-compatible transport. Protocol parsing stays in AiVisionService. */
+internal class HttpUrlConnectionAiProviderTransport : AiProviderTransport {
+    @Volatile
+    private var activeConnection: HttpURLConnection? = null
+
+    override fun cancel() {
+        activeConnection?.disconnect()
+    }
+
+    override fun request(endpoint: String, apiKey: String, body: JSONObject): String {
+        val connection = URL("${endpoint.trimEnd('/')}/chat/completions")
+            .openConnection() as HttpURLConnection
+        activeConnection = connection
+        return try {
+            connection.requestMethod = "POST"
+            connection.connectTimeout = 20_000
+            connection.readTimeout = 120_000
+            connection.doOutput = true
+            connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
+            connection.setRequestProperty("Authorization", "Bearer $apiKey")
+            val bodyBytes = body.toString().toByteArray(Charsets.UTF_8)
+            connection.setFixedLengthStreamingMode(bodyBytes.size)
+            connection.outputStream.use { it.write(bodyBytes) }
+            val code = connection.responseCode
+            val response = (if (code in 200..299) connection.inputStream else connection.errorStream)
+                ?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+            if (code !in 200..299) error(aiProviderErrorMessage(code, response))
+            if (response.isBlank()) error("服务商返回空响应：请检查接口地址、模型名称、API Key、额度或网络连接")
+            response
+        } finally {
+            connection.disconnect()
+            if (activeConnection === connection) activeConnection = null
+        }
+    }
+
+    override suspend fun stream(
+        endpoint: String,
+        apiKey: String,
+        body: JSONObject,
+        onLine: suspend (String) -> Unit
+    ) = withContext(Dispatchers.IO) {
+        val connection = URL("${endpoint.trimEnd('/')}/chat/completions")
+            .openConnection() as HttpURLConnection
+        activeConnection = connection
+        try {
+            connection.requestMethod = "POST"
+            connection.connectTimeout = 20_000
+            connection.readTimeout = 180_000
+            connection.doOutput = true
+            connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
+            connection.setRequestProperty("Accept", "text/event-stream")
+            connection.setRequestProperty("Authorization", "Bearer $apiKey")
+            val bodyBytes = body.toString().toByteArray(Charsets.UTF_8)
+            connection.setFixedLengthStreamingMode(bodyBytes.size)
+            connection.outputStream.use { it.write(bodyBytes) }
+            val code = connection.responseCode
+            if (code !in 200..299) {
+                val error = connection.errorStream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+                error(aiProviderErrorMessage(code, error))
+            }
+            connection.inputStream.bufferedReader(Charsets.UTF_8).useLines { lines ->
+                lines.forEach { line -> onLine(line) }
+            }
+        } finally {
+            connection.disconnect()
+            if (activeConnection === connection) activeConnection = null
+        }
+    }
+}
+
+internal fun aiProviderErrorMessage(code: Int, response: String): String {
+    val detail = runCatching { JSONObject(response).optJSONObject("error")?.optString("message") }.getOrNull().orEmpty()
+    val prefix = when {
+        detail.contains("unknown variant", ignoreCase = true) || detail.contains("expected text", ignoreCase = true) ->
+            "当前模型只接受文字，不支持图片输入；请切换到视觉模型"
+        code == 401 || code == 403 -> "鉴权失败，请检查 API Key"
+        code == 404 -> "接口或模型不存在，请检查服务地址与模型名"
+        code == 429 -> "请求过于频繁或额度不足"
+        code in 500..599 -> "AI 服务暂时不可用"
+        code == 400 -> "请求参数不被服务接受，通常是模型名称或消息格式不正确"
+        else -> "AI 请求失败（HTTP $code）"
+    }
+    return if (detail.isBlank()) prefix else "$prefix：${detail.take(240)}"
+}
 
 internal fun shouldOfferAiSettings(error: String?): Boolean {
     val message = error.orEmpty().lowercase()
@@ -636,9 +752,10 @@ private val AI_STRUCTURED_SOLUTION_RULE = """
     recognition 必须逐字保留原题可见内容，不得概括、改写、补写或删减。只调整题目自身的结构：原题包含多个小题时，在第二个及后续小题编号前使用一个 lineBreak，使 (1)(2)、①②、（Ⅰ）（Ⅱ）等小题各自起行；小题编号必须与该小题正文保持在同一行。不得把屏幕宽度造成的折行写成 lineBreak。
     approach、derivation、finalAnswer 按实际解答自然返回，不要求按题目小题拆分，也不要为了排版重新组织、改写或重复已经生成的文字。
     segments 只允许 text、math、block、lineBreak、paragraphBreak、blank。中文正文、编号、列表标签和标点使用 text；普通单行公式使用 math；矩阵、方程组、分段函数、独立公式和多行推导使用一个完整 block。不要使用 Markdown 的 #、**、``` 或列表语法表达排版。
-    如果你无法保证 schemaVersion 2 JSON 完整、合法且包含四个 section，禁止输出残缺 JSON；改用旧版四分区文本结构，严格依次输出“题目识别”“解题思路”“逐步推导”“最终答案”四个标题及完整正文。旧版回退中不要输出 TIJI_SOLUTION_V2 标记、JSON、schemaVersion、sections 或 segments。
+    如果你无法保证 schemaVersion 2 JSON 完整、合法且包含四个 section，禁止输出残缺 JSON，不得改用旧版四分区文本结构或任何协议外文字；本次结果将由应用保留上一版并显示校验警告。
     math/block 的 latex 字段不带 $、$$、\\(、\\)、\\[、\\] 定界符。JSON 中 LaTeX 命令的反斜杠必须正确转义；矩阵和 aligned 的每个 LaTeX 行分隔必须在 JSON 字符串中编码为四个反斜杠字符。不要把多行数学结构拆成多个 text/math，也不要用物理换行代替结构片段。
 """.trimIndent()
+
 private val AI_SEMANTIC_LINE_BREAK_RULE = """
     只在 recognition（题目识别）中表达原题自身的语义换行：选择题的 A./B./C./D.、①②③、(1)(2) 以及罗马数字序号（Ⅰ）（Ⅱ）（Ⅲ）、(Ⅰ)(Ⅱ)(Ⅲ)、Ⅰ./Ⅱ./Ⅲ.、Ⅰ、/Ⅱ、/Ⅲ、或 Ⅰ：/Ⅱ：/Ⅲ：使用 lineBreak；序号必须与其后的题干保持同一行。只有同一道题中至少出现两个按顺序递增的罗马数字序号时才按分题处理，单独的 I、V、X 或普通英文不要拆分。普通文字因图片宽度产生的物理换行必须合并，公式、LaTeX、数学变量和同一段文字不能在内部断行；已有语义换行不得重复添加。不要把这条小题拆分规则套用到 approach、derivation 或 finalAnswer，也不要据此改写解答正文。
 """.trimIndent()
@@ -650,7 +767,7 @@ private val AI_SOLUTION_FORMAT_RULE = """
 
 /** Exact solve-output mode recovered from the user-provided v50 APK. */
 internal fun structuredSolveOutputInstruction(): String = """
-    请直接解题，并严格按 schemaVersion 2 输出结构化解答。
+    请直接解题。新解题请求必须以 schemaVersion 2 作为唯一首选协议，禁止生成 schemaVersion 3、reason、concepts、learning、verification 或 uncertainItems 字段。
     $AI_STRUCTURED_SOLUTION_RULE
     $AI_INLINE_FORMULA_RULE
     $AI_MATH_SEGMENT_RULE
@@ -874,18 +991,30 @@ internal fun buildSupplementalTextInstruction(supplementalText: String?): String
         """
         用户补充说明（仅用于理解题意和解题，不是原题来源）：
         <user_supplement>
-        ${it.take(12_000)}
+        $it
         </user_supplement>
         补充说明不得写入内部题目标记、题目 segments 或 recognition，不得覆盖图片或 OCR 中的原题；仅可用于消歧、补充被裁掉的条件或明确用户的解题要求。
         """.trimIndent()
     }.orEmpty()
 
-class AiVisionService {
-    @Volatile
-    private var activeConnection: HttpURLConnection? = null
+internal fun buildRecognitionCorrectionInstruction(recognitionCorrection: String?): String =
+    recognitionCorrection?.trim()?.takeIf { it.isNotBlank() }?.let {
+        """
+
+        学习者已经明确修正了题目识别结果。以下内容只作为题目文字的修正依据：
+        <recognition_correction>
+        $it
+        </recognition_correction>
+        重新识别时必须优先采用这段修正后的题目文字，同时结合原图或 OCR 核对未修改部分；不要把标签、说明或修正过程写入题目识别，也不要擅自改动学习者没有明确修正的条件、选项、符号或公式。
+        """.trimIndent()
+    }.orEmpty()
+
+class AiVisionService internal constructor(
+    private val transport: AiProviderTransport = HttpUrlConnectionAiProviderTransport()
+) {
 
     fun cancelActiveRequest() {
-        activeConnection?.disconnect()
+        transport.cancel()
     }
 
     suspend fun streamSolve(
@@ -899,14 +1028,15 @@ class AiVisionService {
         diagramEvidence: String? = null,
         supplementalText: String? = null,
         correctionContext: String? = null,
+        recognitionCorrection: String? = null,
         supplementalImagePaths: List<String> = emptyList(),
         onDelta: suspend (String) -> Unit
     ): Result<String> = withContext(Dispatchers.IO) {
         val orderedSourcePaths = (sourceImagePaths + listOfNotNull(imagePath))
             .filter(String::isNotBlank)
             .distinct()
-        val startedAt = SystemClock.elapsedRealtime()
-        Log.i(
+        val startedAt = monotonicTimeMs()
+        logInfo(
             TAG,
             "solve_request_start provider=${AiProviderPreset.detect(endpoint, model)} " +
                 "model=${model.take(80)} images=${orderedSourcePaths.size} questionChars=${question?.length ?: 0}"
@@ -929,6 +1059,7 @@ class AiVisionService {
                 """.trimIndent()
             }.orEmpty()
             val supplementalTextInstruction = buildSupplementalTextInstruction(supplementalText)
+            val recognitionCorrectionInstruction = buildRecognitionCorrectionInstruction(recognitionCorrection)
             val directVisualQuestionSegmentsInstruction = if (orderedSourcePaths.isNotEmpty()) {
                 """
                 这是直接视觉解题链。除普通题目标记外，必须额外输出一份机器可读的原题片段，放在以下两个隐藏标记之间：
@@ -941,10 +1072,11 @@ class AiVisionService {
                 ""
             }
             val instruction = """
-                输出的第一行必须严格为 [[TIJI_META:{"difficulty":0,"subject":"","questionType":"","title":"简短题型总结","graphic":{"present":false}}]]。解题阶段不得判断或填写科目、题型、知识点、标签、难度；这些分类元数据必须保持空值/0，由题目保存成功后的独立分类任务完成。$AI_TITLE_RULE 该行是程序内部元数据，用户界面会隐藏，不要重复该标记。
+                输出的第一行必须严格为 [[TIJI_META:{"difficulty":0,"subject":"","questionType":"","title":"简短题型总结","graphic":{"present":false}}]]。该内部兼容元数据行保持空值/0；解题协议不承载分类字段，保存表单打开前会把完整解答交给独立分类任务，得到的科目、知识点/标签、题型和难度将作为可编辑初始值。$AI_TITLE_RULE 该行是程序内部元数据，用户界面会隐藏，不要重复该标记。
                 $AI_GRAPHIC_RULES
                 $hiddenDiagramInstruction
                 $supplementalTextInstruction
+                $recognitionCorrectionInstruction
                 元数据行之后输出内部题目标记：[[TIJI_QUESTION_START]]，下一行输出还原后的完整原题，随后输出 [[TIJI_QUESTION_END]]。这两个标记和其中的原题也会被程序隐藏，不要在解答正文中重复。
                 $directVisualQuestionSegmentsInstruction
                 允许模型在内部进行思考，但最终可见输出只能是规定的解答内容；禁止输出思考过程、草稿、OCR 分析、识别不确定性、置信度、识别说明、“注：”“说明：”“可能是……”或任何元话语。
@@ -967,15 +1099,15 @@ class AiVisionService {
             val visualPaths = (orderedSourcePaths + supplementalImagePaths)
                 .filter(String::isNotBlank)
                 .distinct()
-            Log.i(TAG, "vision_solve_start model=${model.take(80)} images=${visualPaths.size}")
+            logInfo(TAG, "vision_solve_start model=${model.take(80)} images=${visualPaths.size}")
             val content: Any = if (visualPaths.isNotEmpty()) {
                 val instructionWithTextSource = if (!question.isNullOrBlank()) {
-                    "$instruction\n\n原题文字：\n${question.take(12_000)}"
+                    "$instruction\n\n原题文字：\n$question"
                 } else instruction
                 JSONArray().put(JSONObject().put("type", "text").put("text", instructionWithTextSource)).also { parts ->
                     visualPaths.forEachIndexed { index, path ->
                         val image = prepareVisionUpload(path, "solve_${index + 1}")
-                        Log.i(TAG, "vision_upload_ready model=${model.take(80)} index=$index bytes=${image.size}")
+                        logInfo(TAG, "vision_upload_ready model=${model.take(80)} index=$index bytes=${image.size}")
                         parts.put(
                             JSONObject().put("type", "text").put(
                                 "text",
@@ -1007,10 +1139,13 @@ class AiVisionService {
                 .put("stream", true)
                 .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", content)))
             applyDeepSeekTextOptions(body, endpoint, model)
-            val streamed = runCatching { streamRequest(endpoint, apiKey, body, onDelta) }
+            val streamed = runCatching {
+                streamWithSingleContinuation(endpoint, apiKey, body, onDelta)
+            }
             streamed.getOrElse {
-                Log.e(TAG, "vision_stream_failed model=${model.take(80)} image=${visualPaths.isNotEmpty()}", it)
+                logError(TAG, "vision_stream_failed model=${model.take(80)} image=${visualPaths.isNotEmpty()}", it)
                 currentCoroutineContext().ensureActive()
+                if (it is AiOutputLimitException) throw it
                 // Never resend a Base64 image after a visual stream failure.
                 // The retry used to upload and infer on the same image a second
                 // time, which made Qwen appear hung and raised the app heap peak.
@@ -1022,19 +1157,56 @@ class AiVisionService {
                 val fallback = extractContent(request(endpoint, apiKey, fallbackBody))
                 onDelta(fallback)
                 fallback
-            }.also { Log.i(TAG, "vision_solve_response model=${model.take(80)} chars=${it.length}") }
+            }.also { logInfo(TAG, "vision_solve_response model=${model.take(80)} chars=${it.length}") }
         }
         result.exceptionOrNull()?.let { if (it is CancellationException) throw it }
         result.exceptionOrNull()?.let { error ->
-            Log.e(TAG, "视觉解题请求失败 model=${model.take(80)} images=${orderedSourcePaths.size}", error)
+            logError(TAG, "视觉解题请求失败 model=${model.take(80)} images=${orderedSourcePaths.size}", error)
         }
-        Log.i(TAG, "solve_request_end model=${model.take(80)} elapsedMs=${SystemClock.elapsedRealtime() - startedAt} success=${result.isSuccess}")
+        logInfo(TAG, "solve_request_end model=${model.take(80)} elapsedMs=${monotonicTimeMs() - startedAt} success=${result.isSuccess}")
+        result
+    }
+
+    /**
+     * A bounded non-streaming text completion used by the independent
+     * verifier/repair pass. It intentionally reuses the configured provider
+     * and transport path without adding another API-key or model store.
+     */
+    internal suspend fun completeText(
+        endpoint: String,
+        model: String,
+        apiKey: String,
+        prompt: String,
+        maxTokens: Int = 4_000
+    ): Result<String> = withContext(Dispatchers.IO) {
+        val result = runCatching {
+            requireConfig(endpoint, model, apiKey)
+            require(prompt.isNotBlank()) { "文本请求不能为空" }
+            val body = JSONObject()
+                .put("model", model)
+                .put("max_tokens", maxTokens.coerceIn(256, 8_000))
+                .put("temperature", 0)
+                .put(
+                    "messages",
+                    JSONArray().put(
+                        JSONObject()
+                            .put("role", "user")
+                            .put("content", prompt)
+                    )
+                )
+            applyDeepSeekTextOptions(body, endpoint, model)
+            extractContent(request(endpoint, apiKey, body))
+        }
+        result.exceptionOrNull()?.let { error ->
+            if (error is CancellationException) throw error
+            logWarn(TAG, "text_completion_failed model=${model.take(80)}", error)
+        }
         result
     }
 
     private fun prepareVisionUpload(path: String, role: String): ByteArray {
         val bytes = ImageProcessor.prepareForUpload(path).getOrThrow()
-        Log.d(TAG, "视觉图片已压缩 role=$role bytes=${bytes.size} file=${path.substringAfterLast('/')}")
+        logDebug(TAG, "视觉图片已压缩 role=$role bytes=${bytes.size} file=${path.substringAfterLast('/')}")
         return bytes
     }
 
@@ -1232,7 +1404,7 @@ class AiVisionService {
         如果题目上下文含图，必须结合输入图片中的图形、标注、坐标、刻度、单位和图例回答；不要假装已经识别不存在的图形。
 
         已有题目与解答：
-        ${context.take(24_000)}
+        $context
 
         用户追问：
         $prompt
@@ -1259,7 +1431,8 @@ class AiVisionService {
                 .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", prompt)))
             // Classification is metadata-only. Parsing without a required
             // question lets the response omit all solve fields.
-            parseRecognition(extractContent(request(endpoint, apiKey, body)), requireQuestion = false)
+            val parsed = parseRecognition(extractContent(request(endpoint, apiKey, body)), requireQuestion = false)
+            parsed.copy(difficulty = normalizeClassificationDifficulty(parsed.difficulty))
         }
     }
     suspend fun testConnection(endpoint: String, model: String, apiKey: String): Result<Unit> = withContext(Dispatchers.IO) {
@@ -1306,6 +1479,55 @@ class AiVisionService {
         }
     }
 
+    /** Runs the three provider contracts used by the app's solve paths. */
+    suspend fun testProviderCapabilities(
+        endpoint: String,
+        model: String,
+        apiKey: String,
+        visualAssistBound: Boolean,
+        visualEndpoint: String? = null,
+        visualModel: String? = null,
+        visualApiKey: String? = null
+    ): AiProviderCapabilityCheck = withContext(Dispatchers.IO) {
+        fun result(value: Result<Unit>, success: String): AiCapabilityResult = value.fold(
+            onSuccess = { AiCapabilityResult(true, success) },
+            onFailure = { AiCapabilityResult(false, it.message ?: "未知错误") }
+        )
+        val text = result(testConnection(endpoint, model, apiKey), "文本请求可用")
+        val streaming = result(testStreamingConnection(endpoint, model, apiKey), "流式解题可用")
+        val image = result(testVisionConnection(endpoint, model, apiKey), "图片输入可用")
+        val visual = if (!visualAssistBound) {
+            AiCapabilityResult(false, "未配置视觉辅助配置")
+        } else if (visualEndpoint.isNullOrBlank() || visualModel.isNullOrBlank() || visualApiKey.isNullOrBlank()) {
+            AiCapabilityResult(false, "视觉 Profile 配置不完整")
+        } else {
+            result(
+                testVisionConnection(visualEndpoint, visualModel, visualApiKey),
+                "视觉 Profile 可用"
+            )
+        }
+        val binding = when {
+            !visualAssistBound -> AiCapabilityResult(false, "未绑定视觉辅助配置")
+            visual.ok -> AiCapabilityResult(true, "文本 Profile 与视觉 Profile 绑定正常")
+            else -> AiCapabilityResult(false, "绑定存在，但视觉 Profile 自检未通过")
+        }
+        AiProviderCapabilityCheck(text, streaming, image, binding, visual)
+    }
+
+    private suspend fun testStreamingConnection(endpoint: String, model: String, apiKey: String): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                requireConfig(endpoint, model, apiKey)
+                val body = JSONObject()
+                    .put("model", model)
+                    .put("max_tokens", 8)
+                    .put("stream", true)
+                    .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", "Reply only OK")))
+                streamRequest(endpoint, apiKey, body) {}
+                Unit
+            }
+        }
+
     /**
      * First pass for visual-assist mode. It uses the same hidden question
      * protocol as the single visual solve path; only the final solving call is
@@ -1318,8 +1540,8 @@ class AiVisionService {
         imagePath: String,
         onDelta: suspend (String) -> Unit = {}
     ): Result<VisualEvidence> = withContext(Dispatchers.IO) {
-        val startedAt = SystemClock.elapsedRealtime()
-        Log.i(TAG, "vision_evidence_start provider=${AiProviderPreset.detect(endpoint, model)} model=${model.take(80)}")
+        val startedAt = monotonicTimeMs()
+        logInfo(TAG, "vision_evidence_start provider=${AiProviderPreset.detect(endpoint, model)} model=${model.take(80)}")
         val result = runCatching {
             requireConfig(endpoint, model, apiKey)
             require(AiProviderPreset.detect(endpoint, model).supportsVisionFor(model)) {
@@ -1384,9 +1606,9 @@ class AiVisionService {
             )
         }
         result.onSuccess {
-            Log.i(TAG, "vision_evidence_end model=${model.take(80)} elapsedMs=${SystemClock.elapsedRealtime() - startedAt} questionChars=${it.questionText.length}")
+            logInfo(TAG, "vision_evidence_end model=${model.take(80)} elapsedMs=${monotonicTimeMs() - startedAt} questionChars=${it.questionText.length}")
         }.onFailure {
-            Log.e(TAG, "vision_evidence_failed model=${model.take(80)} elapsedMs=${SystemClock.elapsedRealtime() - startedAt}", it)
+            logError(TAG, "vision_evidence_failed model=${model.take(80)} elapsedMs=${monotonicTimeMs() - startedAt}", it)
         }
         result
     }
@@ -1453,6 +1675,7 @@ class AiVisionService {
         imagePaths: List<String> = listOf(imagePath),
         supplementalText: String? = null,
         correctionContext: String? = null,
+        recognitionCorrection: String? = null,
         supplementalImagePaths: List<String> = emptyList(),
         onDelta: suspend (String) -> Unit = {}
     ): Result<VisualAssistSolveResult> = withContext(Dispatchers.IO) {
@@ -1488,6 +1711,7 @@ class AiVisionService {
                 graphicImagePath = null,
                 supplementalText = supplementalText,
                 correctionContext = correctionWithImages,
+                recognitionCorrection = recognitionCorrection,
                 onDelta = onDelta
             ).getOrThrow()
             VisualAssistSolveResult(solution, evidence)
@@ -1603,7 +1827,7 @@ $retryInstruction
                 $ocrText
                 坐标排序后的可见 OCR 文本结束
                 ${orderedText.takeIf { it.isNotBlank() }?.let { "\n完整坐标排序 OCR 文档（包含图形区域，图形文字只能作为隐藏证据）：\n$it\n" }.orEmpty()}
-                ${rawOcrTrace.takeIf { it.isNotBlank() }?.let { "\n原始 OCR 文字框与公式候选（仅用于重建，不得照抄为题干）：\n${it.take(24_000)}\n" }.orEmpty()}
+                ${rawOcrTrace.takeIf { it.isNotBlank() }?.let { "\n原始 OCR 文字框与公式候选（仅用于重建，不得照抄为题干）：\n$it\n" }.orEmpty()}
                 ${formulaCandidates.takeIf { it.isNotEmpty() }?.joinToString("\n")?.let { "\n公式 OCR 候选：\n$it\n" }.orEmpty()}
             """.trimIndent()
             val body = JSONObject()
@@ -1742,92 +1966,84 @@ $retryInstruction
         """.trimIndent()
     }
 
-    private fun request(endpoint: String, apiKey: String, body: JSONObject): String {
-        val connection = URL("${endpoint.trimEnd('/')}/chat/completions").openConnection() as HttpURLConnection
-        activeConnection = connection
-        return try {
-            connection.requestMethod = "POST"
-            connection.connectTimeout = 20_000
-            connection.readTimeout = 120_000
-            connection.doOutput = true
-            connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
-            connection.setRequestProperty("Authorization", "Bearer $apiKey")
-            connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
-            val code = connection.responseCode
-            val response = (if (code in 200..299) connection.inputStream else connection.errorStream)
-                ?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
-            if (code !in 200..299) error(errorMessage(code, response))
-            if (response.isBlank()) {
-                error("服务商返回空响应：请检查接口地址、模型名称、API Key、额度或网络连接")
+    private suspend fun streamRequest(endpoint: String, apiKey: String, body: JSONObject, onDelta: suspend (String) -> Unit): String {
+        val complete = StringBuilder()
+        var receivedReasoning = false
+        var finishReason = ""
+        transport.stream(endpoint, apiKey, body) { line ->
+            currentCoroutineContext().ensureActive()
+            if (line.startsWith("data:")) {
+                val data = line.removePrefix("data:").trim()
+                if (data != "[DONE]" && data.isNotBlank()) {
+                    val apiError = runCatching {
+                        JSONObject(data).optJSONObject("error")?.optString("message").orEmpty()
+                    }.getOrNull().orEmpty()
+                    if (apiError.isNotBlank()) error(apiError)
+                    val delta = runCatching {
+                        val choice = JSONObject(data).optJSONArray("choices")?.optJSONObject(0)
+                        choice?.optString("finish_reason")
+                            ?.takeIf { it.isNotBlank() && it != "null" }
+                            ?.let { finishReason = it }
+                        val deltaObject = choice?.optJSONObject("delta")
+                        receivedReasoning = receivedReasoning || jsonText(deltaObject, "reasoning_content").isNotBlank()
+                        jsonText(deltaObject, "content")
+                    }.getOrDefault("")
+                    if (delta.isNotEmpty()) { complete.append(delta); onDelta(delta) }
+                }
             }
-            response
-        } finally {
-            connection.disconnect()
-            if (activeConnection === connection) activeConnection = null
+        }
+        if (isOutputLengthLimit(finishReason)) {
+            throw AiOutputLimitException(complete.toString())
+        }
+        return complete.toString().also {
+            require(it.isNotBlank()) {
+                if (receivedReasoning) {
+                    "模型只返回了思考过程，没有返回最终答案；正在尝试非流式 JSON 回退"
+                } else {
+                    "服务商返回空响应：请检查模型是否支持流式输出、API Key、额度或网络连接"
+                }
+            }
         }
     }
 
-    private suspend fun streamRequest(endpoint: String, apiKey: String, body: JSONObject, onDelta: suspend (String) -> Unit): String {
-        val connection = URL("${endpoint.trimEnd('/')}/chat/completions").openConnection() as HttpURLConnection
-        activeConnection = connection
+    /** Continue exactly once when a provider stops at its output limit. */
+    private suspend fun streamWithSingleContinuation(
+        endpoint: String,
+        apiKey: String,
+        body: JSONObject,
+        onDelta: suspend (String) -> Unit
+    ): String {
         return try {
-            connection.requestMethod = "POST"
-            connection.connectTimeout = 20_000
-            connection.readTimeout = 180_000
-            connection.doOutput = true
-            connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
-            connection.setRequestProperty("Accept", "text/event-stream")
-            connection.setRequestProperty("Authorization", "Bearer $apiKey")
-            connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
-            val code = connection.responseCode
-            if (code !in 200..299) {
-                val error = connection.errorStream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
-                error(errorMessage(code, error))
+            streamRequest(endpoint, apiKey, body, onDelta)
+        } catch (first: AiOutputLimitException) {
+            currentCoroutineContext().ensureActive()
+            logWarn(TAG, "vision_stream_output_limit_continue", first)
+            val continuationBody = JSONObject(body.toString())
+            val messages = JSONArray(continuationBody.optJSONArray("messages")?.toString() ?: "[]")
+            messages.put(
+                JSONObject()
+                    .put("role", "assistant")
+                    .put("content", first.partialContent)
+            )
+            messages.put(
+                JSONObject()
+                    .put("role", "user")
+                    .put(
+                        "content",
+                        "上一条回答在输出上限处被截断。请从截断处继续，不能重复已经输出的内容；保持原题、四个 V2 section 和原有格式，直到完整结束。"
+                    )
+            )
+            continuationBody.put("messages", messages)
+            try {
+                first.partialContent + streamRequest(endpoint, apiKey, continuationBody, onDelta)
+            } catch (second: AiOutputLimitException) {
+                throw AiOutputLimitException(first.partialContent + second.partialContent)
             }
-            val complete = StringBuilder()
-            var receivedReasoning = false
-            var finishReason = ""
-            connection.inputStream.bufferedReader(Charsets.UTF_8).useLines { lines ->
-                lines.forEach { line ->
-                    currentCoroutineContext().ensureActive()
-                    if (line.startsWith("data:")) {
-                        val data = line.removePrefix("data:").trim()
-                        if (data != "[DONE]" && data.isNotBlank()) {
-                            val apiError = runCatching {
-                                JSONObject(data).optJSONObject("error")?.optString("message").orEmpty()
-                            }.getOrNull().orEmpty()
-                            if (apiError.isNotBlank()) error(apiError)
-                            val delta = runCatching {
-                                val choice = JSONObject(data).optJSONArray("choices")?.optJSONObject(0)
-                                choice?.optString("finish_reason")
-                                    ?.takeIf { it.isNotBlank() && it != "null" }
-                                    ?.let { finishReason = it }
-                                val deltaObject = choice?.optJSONObject("delta")
-                                receivedReasoning = receivedReasoning || jsonText(deltaObject, "reasoning_content").isNotBlank()
-                                jsonText(deltaObject, "content")
-                            }.getOrDefault("")
-                            if (delta.isNotEmpty()) { complete.append(delta); onDelta(delta) }
-                        }
-                    }
-                }
-            }
-            if (isOutputLengthLimit(finishReason)) {
-                throw AiOutputLimitException(complete.toString())
-            }
-            complete.toString().also {
-                require(it.isNotBlank()) {
-                    if (receivedReasoning) {
-                        "模型只返回了思考过程，没有返回最终答案；正在尝试非流式 JSON 回退"
-                    } else {
-                        "服务商返回空响应：请检查模型是否支持流式输出、API Key、额度或网络连接"
-                    }
-                }
-            }
-        } finally {
-            connection.disconnect()
-            if (activeConnection === connection) activeConnection = null
         }
     }
+
+    private fun request(endpoint: String, apiKey: String, body: JSONObject): String =
+        transport.request(endpoint, apiKey, body)
 
     private fun extractContent(response: String): String {
         if (response.isBlank()) {
@@ -1972,9 +2188,9 @@ $retryInstruction
                 questionType = stringValue("questionType", "question_type", "type", "题型", "题目类型").trim(),
                 knowledgePoints = listValue("knowledgePoints", "knowledge_points", "知识点"),
                 tags = listValue("tags", "标签"),
-                difficulty = (json.optInt("difficulty", 0).takeIf { it > 0 }
+                difficulty = Difficulty.normalize(json.optInt("difficulty", 0).takeIf { it > 0 }
                     ?: metadata?.optInt("difficulty", 0)?.takeIf { it > 0 }
-                    ?: 0).coerceIn(0, 5),
+                    ?: 0),
                 graphicSpecs = parseGraphicSpecs(json),
                 visibleTextLines = visibleTextLines.ifEmpty {
                     canonicalQuestionSegments
@@ -2202,7 +2418,7 @@ $retryInstruction
 
         fun metadataText(key: String, fallback: String): String =
             metadata?.optString(key).orEmpty().trim().ifBlank { fallback }
-        val metadataDifficulty = metadata?.optInt("difficulty", 0)?.coerceIn(0, 5) ?: 0
+        val metadataDifficulty = metadata?.optInt("difficulty", 0)?.let(Difficulty::normalize) ?: 0
         val graphicSpecs = metadata?.let(::parseGraphicSpecs).orEmpty().ifEmpty { parsed.graphicSpecs }
         val metadataFormulas = metadata?.let { jsonItems(it, "formulas", "formulaCandidates") }.orEmpty()
         val metadataUncertainItems = metadata?.let { jsonItems(it, "uncertainItems", "uncertain") }.orEmpty()
@@ -2346,8 +2562,8 @@ $retryInstruction
         val questionType = section("questionType")
         val difficulty = section("难度")
             .toIntOrNull()
-            ?.coerceIn(0, 5)
-            ?: Regex("(?m)难度\\s*[:：]?\\s*([1-5])").find(cleaned)?.groupValues?.getOrNull(1)?.toIntOrNull()?.coerceIn(0, 5)
+            ?.let(Difficulty::normalize)
+            ?: Regex("(?m)难度\\s*[:：]?\\s*([1-5])").find(cleaned)?.groupValues?.getOrNull(1)?.toIntOrNull()?.let(Difficulty::normalize)
             ?: 0
         val fallbackQuestion = if (question.isBlank() && matches.isEmpty()) {
             Regex("(?im)^(?:答案|最终答案|解题思路|逐步推导|解析|解答|解|证明|分析|过程|answer|explanation)\\s*[:：]?")
@@ -2456,26 +2672,8 @@ $retryInstruction
         else -> ""
     }
 
-    private fun errorMessage(code: Int, response: String): String {
-        val detail = runCatching { JSONObject(response).optJSONObject("error")?.optString("message") }.getOrNull().orEmpty()
-        val prefix = when {
-            detail.contains("unknown variant", ignoreCase = true) || detail.contains("expected text", ignoreCase = true) ->
-                "当前模型只接受文字，不支持图片输入；请切换到视觉模型"
-            code == 401 || code == 403 -> "鉴权失败，请检查 API Key"
-            code == 404 -> "接口或模型不存在，请检查服务地址与模型名"
-            code == 429 -> "请求过于频繁或额度不足"
-            code in 500..599 -> "AI 服务暂时不可用"
-            code == 400 -> "请求参数不被服务接受，通常是模型名称或消息格式不正确"
-            else -> "AI 请求失败（HTTP $code）"
-        }
-        return if (detail.isBlank()) prefix else "$prefix：${detail.take(240)}"
-    }
-
     companion object {
         private const val TAG = "AiVisionService"
-        private const val MAX_CLASSIFICATION_SOURCE_CHARS = 18_000
-        private const val CLASSIFICATION_SOURCE_HEAD_CHARS = 12_000
-        private const val CLASSIFICATION_SOURCE_TAIL_CHARS = 6_000
         // A real 64x64 PNG with a visible "OK" marker. Some vision providers reject
         // 1x1 images before model inference, so the smoke test must satisfy normal
         // image-dimension constraints and verify a fixed response marker.

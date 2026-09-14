@@ -13,6 +13,7 @@ import com.tiji.mistakes.data.MistakeKnowledgePointCrossRef
 import com.tiji.mistakes.data.MistakeRepository
 import com.tiji.mistakes.data.ReviewRecordEntity
 import com.tiji.mistakes.domain.ReviewGrade
+import com.tiji.mistakes.domain.Difficulty
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -36,7 +37,13 @@ data class BackupPreview(
     val imageCount: Int,
     val reviewRecordCount: Int,
     val legacy: Boolean,
-    val knowledgePointCount: Int = 0
+    val knowledgePointCount: Int = 0,
+    /** Dry-run import plan; no database rows are changed while inspecting. */
+    val willAdd: Int = 0,
+    val willUpdate: Int = 0,
+    val willSkip: Int = 0,
+    val missingImages: Int = 0,
+    val parseErrors: List<String> = emptyList()
 )
 
 data class BackupImportResult(
@@ -77,7 +84,9 @@ object BackupService {
                 val safeStableId = safeStableId(mistake.stableId)
                 fun image(role: String, path: String?): String? {
                     val file = path?.let(::File)?.takeIf(File::isFile) ?: return null
-                    val extension = file.extension.lowercase().takeIf { it in setOf("jpg", "jpeg", "png", "webp") } ?: "jpg"
+                    val extension = file.extension.lowercase().takeIf {
+                        it in setOf("jpg", "jpeg", "png", "webp", "heic", "heif")
+                    } ?: "jpg"
                     val entry = "images/$safeStableId-$role.$extension"
                     images += ExportImage(entry, file)
                     return entry
@@ -176,10 +185,44 @@ object BackupService {
     }
 
     suspend fun inspectBackup(context: Context, uri: Uri): Result<BackupPreview> = withContext(Dispatchers.IO) {
-        runCatching { parsePayload(readArchive(context, uri)).preview }
+        runCatching {
+            val entries = readArchive(context, uri)
+            // Preview is deliberately lenient about missing image entries so the
+            // user can see the exact count before the strict import is offered.
+            val payload = runCatching { parsePayload(entries, strictImages = false) }.getOrElse { error ->
+                return@runCatching BackupPreview(
+                    schemaVersion = 0,
+                    appVersion = "未知",
+                    exportedAt = 0L,
+                    mistakeCount = 0,
+                    imageCount = 0,
+                    reviewRecordCount = 0,
+                    legacy = false,
+                    parseErrors = listOf(error.message ?: "备份解析失败")
+                )
+            }
+            val existing = AppDatabase.get(context).mistakeDao().listAll()
+            val byStableId = existing.filter { it.stableId.isNotBlank() }.associateBy(MistakeEntity::stableId)
+            val byFingerprint = existing.associateBy(::fingerprint)
+            var willAdd = 0
+            var willUpdate = 0
+            var willSkip = 0
+            payload.records.forEach { record ->
+                val match = byStableId[record.entity.stableId] ?: byFingerprint[fingerprint(record.entity)]
+                when {
+                    match == null -> willAdd++
+                    record.entity.updatedAt > match.updatedAt -> willUpdate++
+                    else -> willSkip++
+                }
+            }
+            payload.preview.copy(willAdd = willAdd, willUpdate = willUpdate, willSkip = willSkip)
+        }
     }
 
-    internal fun inspectEntries(entries: Map<String, ByteArray>): BackupPreview = parsePayload(entries).preview
+    internal fun inspectEntries(
+        entries: Map<String, ByteArray>,
+        strictImages: Boolean = true
+    ): BackupPreview = parsePayload(entries, strictImages).preview
 
     suspend fun importBackup(
         context: Context,
@@ -193,6 +236,97 @@ object BackupService {
         preferences = AppPreferences(context)
     )
 
+    /**
+     * Completes startup recovery for a journal left by process death. A Room
+     * transaction is all-or-nothing, so a published path is retained only when
+     * the current database still references it; otherwise the new files and
+     * portable preference snapshot are removed together.
+     */
+    suspend fun recoverPendingImport(context: Context): BackupRecoveryAction =
+        recoverPendingImport(context, AppDatabase.get(context), AppPreferences(context))
+
+    internal suspend fun recoverPendingImport(
+        context: Context,
+        database: AppDatabase,
+        preferences: AppPreferences?
+    ): BackupRecoveryAction = withContext(Dispatchers.IO) {
+        val coordinator = BackupImportCoordinator(context)
+        val journalRead = coordinator.readResult()
+        if (journalRead.status == BackupJournalReadStatus.CORRUPT) {
+            // Never delete staging or published files when the only journal
+            // version is unreadable. The diagnostic sidecar and the original
+            // journal remain available for a deliberate repair.
+            return@withContext BackupRecoveryAction.CORRUPT_JOURNAL
+        }
+        val journal = journalRead.journal ?: return@withContext BackupRecoveryAction.NONE
+        val markerDao = database.backupImportCommitMarkerDao()
+        suspend fun cleanupCommitted(): BackupRecoveryAction {
+            finalizeCommittedImport(coordinator, database, journal)
+            return BackupRecoveryAction.CLEANED_COMMITTED
+        }
+        suspend fun cleanupBeforeCommit(): BackupRecoveryAction {
+            // Restore the portable settings while the journal still exists;
+            // an I/O failure leaves both the journal and files for retry.
+            restorePreferenceSnapshot(database, preferences, journal)
+            coordinator.cleanup(journal, deleteCreatedFiles = true)
+            database.backupImportCommitMarkerDao().clear(journal.importId)
+            return BackupRecoveryAction.CLEANED_BEFORE_COMMIT
+        }
+        when (journal.phase) {
+            BackupImportPhase.VALIDATED,
+            BackupImportPhase.STAGED,
+            BackupImportPhase.SNAPSHOT_CREATED -> {
+                cleanupBeforeCommit()
+            }
+            BackupImportPhase.FILES_PUBLISHED -> {
+                if (markerDao.isCommitted(journal.importId)) cleanupCommitted()
+                else cleanupBeforeCommit()
+            }
+            BackupImportPhase.ROOM_COMMITTED,
+            BackupImportPhase.PREFERENCES_COMMITTED ->
+                if (markerDao.isCommitted(journal.importId)) cleanupCommitted() else cleanupBeforeCommit()
+            BackupImportPhase.COMMITTED -> cleanupCommitted()
+        }
+    }
+
+    /**
+     * Finalizes a committed import without doing any business writes. A
+     * recovery path may enter here before the journal reached COMMITTED, so
+     * first make that phase durable. The marker is cleared only after all
+     * transient files are removed; the journal is cleared last, making every
+     * interruption safe to retry.
+     */
+    private suspend fun finalizeCommittedImport(
+        coordinator: BackupImportCoordinator,
+        database: AppDatabase,
+        journal: BackupImportJournal
+    ) {
+        val committedJournal = if (journal.phase == BackupImportPhase.COMMITTED) {
+            journal
+        } else {
+            coordinator.advance(BackupImportPhase.COMMITTED)
+        }
+        val referenced = MistakeRepository(database).allReferencedImagePaths()
+        coordinator.cleanupPublishedWork(
+            journal = committedJournal,
+            referencedImagePaths = referenced,
+            previousReferencedImagePaths = committedJournal.snapshot.referencedImagePaths
+        )
+        database.backupImportCommitMarkerDao().clear(committedJournal.importId)
+        coordinator.clear()
+    }
+
+    private suspend fun restorePreferenceSnapshot(
+        database: AppDatabase,
+        preferences: AppPreferences?,
+        journal: BackupImportJournal
+    ) {
+        val raw = journal.snapshot.preferencesJson ?: return
+        if (preferences == null) return
+        val stableToLocal = database.mistakeDao().listAll().associate { it.stableId to it.id }
+        preferences.importBackupJson(JSONObject(raw), stableToLocal, replace = true)
+    }
+
     /** Internal database seam used by compatibility tests without mutating device data. */
     internal suspend fun importBackup(
         context: Context,
@@ -201,14 +335,44 @@ object BackupService {
         database: AppDatabase,
         preferences: AppPreferences? = null
     ): Result<BackupImportResult> = withContext(Dispatchers.IO) {
-        runCatching {
+        val coordinator = BackupImportCoordinator(context)
+        check(recoverPendingImport(context, database, preferences) != BackupRecoveryAction.CORRUPT_JOURNAL) {
+            "备份导入 journal 损坏，已保留现场，请先修复 journal.error"
+        }
+        val importId = UUID.randomUUID().toString()
+        val stagingDirectory = File(context.filesDir, "staging/import_$importId")
+        val rollbackDirectory = File(context.filesDir, "staging/rollback_$importId")
+        val stagedImages = linkedMapOf<String, StagedImportImage>()
+        val createdImagePaths = mutableSetOf<String>()
+        val previousReferencedImagePaths = MistakeRepository(database).allReferencedImagePaths()
+        var preferenceSnapshot: JSONObject? = null
+        val result = runCatching {
             val payload = parsePayload(readArchive(context, uri))
+            var journal = coordinator.begin(
+                mode = mode,
+                stagingDirectory = stagingDirectory,
+                rollbackDirectory = rollbackDirectory
+            )
+            stagePayloadImages(context, payload, stagingDirectory, stagedImages)
+            journal = coordinator.advance(BackupImportPhase.STAGED)
             val dao = database.mistakeDao()
             val reviewDao = database.reviewRecordDao()
             val knowledgePointDao = database.knowledgePointDao()
             val crossRefDao = database.mistakeKnowledgePointDao()
-            val existing = if (mode == BackupImportMode.REPLACE) emptyList() else dao.listAll()
-            val existingPoints = if (mode == BackupImportMode.REPLACE) emptyList() else knowledgePointDao.listAll()
+            val beforeImportMistakes = dao.listAll()
+            preferenceSnapshot = preferences?.exportBackupJson(
+                beforeImportMistakes.associate { it.id to it.stableId }
+            )
+            journal = coordinator.advance(
+                BackupImportPhase.SNAPSHOT_CREATED,
+                snapshot = BackupRollbackSnapshot(
+                    preferencesJson = preferenceSnapshot?.toString(),
+                    referencedImagePaths = previousReferencedImagePaths
+                )
+            )
+            val existing = if (mode == BackupImportMode.REPLACE) emptyList() else beforeImportMistakes
+            val existingPointsBeforeImport = knowledgePointDao.listAll()
+            val existingPoints = if (mode == BackupImportMode.REPLACE) emptyList() else existingPointsBeforeImport
             val byStableId = existing.filter { it.stableId.isNotBlank() }.associateBy(MistakeEntity::stableId).toMutableMap()
             val byFingerprint = existing.associateBy(::fingerprint).toMutableMap()
             val pointsByStableId = existingPoints.associateBy(KnowledgePointEntity::stableId).toMutableMap()
@@ -218,6 +382,12 @@ object BackupService {
             var updated = 0
             var skipped = 0
             var copiedImages = 0
+
+            // Room rows must never point at files that have not reached their
+            // final private path. Promotion has its own rollback journal.
+            rollbackDirectory.mkdirs()
+            promoteStagedImages(stagedImages.values, createdImagePaths, rollbackDirectory)
+            coordinator.advance(BackupImportPhase.FILES_PUBLISHED, createdImagePaths)
 
             database.withTransaction {
                 if (mode == BackupImportMode.REPLACE) {
@@ -242,9 +412,10 @@ object BackupService {
                         if (entry == null) {
                             return existingPath.takeIf { mode == BackupImportMode.MERGE }
                         }
-                        val bytes = payload.entries[entry] ?: return null
+                        val staged = stagedImages[stagedImageKey(incoming.stableId, role, entry)]
+                            ?: return null
                         copiedImages += 1
-                        return storeImportedImage(context, incoming.stableId, role, entry, bytes)
+                        return staged.target.absolutePath
                     }
 
                     val importedQuestionImages = record.questionImageEntries.mapIndexedNotNull { index, entry ->
@@ -383,29 +554,119 @@ object BackupService {
                     }
                 }
                 knowledgePointDao.deleteOrphans()
+
+                // Apply DataStore settings while the Room transaction is open.
+                // DataStore cannot join Room's transaction; if either side
+                // fails, the absent marker makes the failure path restore this
+                // snapshot before any staged files are removed.
+                preferences?.importBackupJson(
+                    payload.preferences,
+                    importedStableToLocalId,
+                    replace = mode == BackupImportMode.REPLACE
+                )
+                val repository = MistakeRepository(database)
+                if (payload.preview.schemaVersion < SCHEMA_VERSION && importedStableToLocalId.isNotEmpty()) {
+                    repository.syncKnowledgePointsForMistakesInTransaction(importedStableToLocalId.values)
+                }
+                // Every Room write needed for the import's final business
+                // state is complete before the marker is inserted.
+                repository.sanitizeKnowledgePointParentsInTransactionForImport()
+                // This marker is the final Room operation. It is deliberately
+                // independent of image references so preference-only imports
+                // have the same transaction fact as image imports.
+                database.backupImportCommitMarkerDao().markCommitted(
+                    importId = importId,
+                    mode = mode.name,
+                    committedAt = System.currentTimeMillis()
+                )
             }
+            coordinator.advance(BackupImportPhase.ROOM_COMMITTED)
+            // DataStore is part of the import protocol even though it cannot
+            // participate in Room's transaction. The pre-import snapshot is
+            // restored in the failure path below when its write throws.
+            coordinator.advance(BackupImportPhase.PREFERENCES_COMMITTED)
 
-            if (payload.preview.schemaVersion < SCHEMA_VERSION && importedStableToLocalId.isNotEmpty()) {
-                MistakeRepository(database).syncKnowledgePointsForMistakes(importedStableToLocalId.values)
-            }
-
-            MistakeRepository(database).sanitizeKnowledgePointParents()
-
-            preferences?.importBackupJson(
-                payload.preferences,
-                importedStableToLocalId,
-                replace = mode == BackupImportMode.REPLACE
-            )
+            coordinator.advance(BackupImportPhase.COMMITTED)
             BackupImportResult(inserted, updated, skipped, copiedImages)
+        }
+        if (result.isSuccess) {
+            val committedJournal = requireNotNull(coordinator.read()) { "备份导入已成功但 journal 丢失" }
+            finalizeCommittedImport(coordinator, database, committedJournal)
+        } else {
+            // The transaction may already have committed before a later
+            // journal/sanitization step failed. The marker, rather than the
+            // presence of images, decides whether compensation is allowed.
+            val failedJournalRead = coordinator.readResult()
+            if (failedJournalRead.status == BackupJournalReadStatus.CORRUPT) {
+                // A newly corrupt journal is itself a recovery incident. Keep
+                // its diagnostic and all files for deliberate startup repair.
+            } else {
+                val failedJournal = failedJournalRead.journal
+                val markerCommitted = database.backupImportCommitMarkerDao().isCommitted(importId)
+                if (markerCommitted) {
+                    if (failedJournal != null) {
+                        finalizeCommittedImport(coordinator, database, failedJournal)
+                    } else {
+                        stagingDirectory.deleteRecursively()
+                        rollbackDirectory.deleteRecursively()
+                        val referenced = MistakeRepository(database).allReferencedImagePaths()
+                        ImageStorage.deletePrivateFiles(
+                            context,
+                            (createdImagePaths + previousReferencedImagePaths)
+                                .filterNot { it in referenced }
+                        )
+                        database.backupImportCommitMarkerDao().clear(importId)
+                        coordinator.clear()
+                    }
+                } else {
+                    // Room rolled back (or was never entered). Restore the
+                    // portable DataStore snapshot before deleting the journal.
+                    // If restoration fails, retain the journal and files so
+                    // startup recovery can retry instead of reporting a false
+                    // rollback.
+                    val restore = runCatching {
+                        if (failedJournal != null) {
+                            restorePreferenceSnapshot(database, preferences, failedJournal)
+                        } else if (preferenceSnapshot != null && preferences != null) {
+                            val stableToLocal = database.mistakeDao().listAll().associate { it.stableId to it.id }
+                            preferences.importBackupJson(
+                                preferenceSnapshot,
+                                stableToLocal,
+                                replace = true
+                            )
+                        }
+                    }
+                    if (restore.isSuccess) {
+                        ImageStorage.deletePrivateFiles(context, createdImagePaths)
+                        if (failedJournal != null) {
+                            coordinator.cleanup(failedJournal, deleteCreatedFiles = true)
+                        } else {
+                            stagingDirectory.deleteRecursively()
+                            rollbackDirectory.deleteRecursively()
+                            coordinator.clear()
+                        }
+                        database.backupImportCommitMarkerDao().clear(importId)
+                    }
+                }
+            }
+        }
+        result
+    }
+
+    private fun parsePayload(entries: Map<String, ByteArray>, strictImages: Boolean = true): BackupPayload {
+        val manifest = entries["manifest.json"]?.decodeUtf8()?.let(::JSONObject)
+        return if (manifest?.optString("format") == FORMAT) {
+            parseVersioned(entries, manifest, strictImages)
+        } else {
+            parseLegacy(entries, strictImages)
         }
     }
 
-    private fun parsePayload(entries: Map<String, ByteArray>): BackupPayload {
-        val manifest = entries["manifest.json"]?.decodeUtf8()?.let(::JSONObject)
-        return if (manifest?.optString("format") == FORMAT) parseVersioned(entries, manifest) else parseLegacy(entries)
-    }
-
-    private fun parseVersioned(entries: Map<String, ByteArray>, manifest: JSONObject): BackupPayload {
+    private fun parseVersioned(
+        entries: Map<String, ByteArray>,
+        manifest: JSONObject,
+        strictImages: Boolean
+    ): BackupPayload {
         val schema = manifest.optInt("schemaVersion", 0)
         val minReaderSchema = manifest.optInt("minReaderSchemaVersion", schema)
         require(schema in 1..SCHEMA_VERSION && minReaderSchema in 1..schema) {
@@ -417,10 +678,14 @@ object BackupService {
         val records = (0 until array.length()).map { index ->
             parseRecord(array.getJSONObject(index), legacyBase = null, availableEntries = entries.keys)
         }
-        records.flatMap { record ->
+        val expectedImages = records.flatMap { record ->
             record.questionImageEntries + listOfNotNull(record.questionImageEntry, record.answerImageEntry, record.explanationImageEntry) +
                 record.contentBlockEntries.map(ImportedContentBlock::entry)
-        }.distinct().forEach { name -> require(name in entries) { "备份缺少图片文件：$name" } }
+        }.distinct()
+        val missingImages = expectedImages.count { it !in entries }
+        if (strictImages) {
+            expectedImages.forEach { name -> require(name in entries) { "备份缺少图片文件：$name" } }
+        }
         val preferences = entries["data/preferences.json"]?.decodeUtf8()?.let(::JSONObject)
         val reviewRecords = parseReviewRecords(entries["data/review_records.json"]?.decodeUtf8())
         val knowledgePoints = parseKnowledgePoints(entries["data/knowledge_points.json"]?.decodeUtf8())
@@ -436,12 +701,13 @@ object BackupService {
             },
             reviewRecordCount = if (entries["data/review_records.json"] != null) reviewRecords.size else countReviewRecords(preferences),
             legacy = false,
-            knowledgePointCount = knowledgePoints.size
+            knowledgePointCount = knowledgePoints.size,
+            missingImages = missingImages
         )
         return BackupPayload(preview, records, preferences, entries, reviewRecords, knowledgePoints, crossRefs)
     }
 
-    private fun parseLegacy(entries: Map<String, ByteArray>): BackupPayload {
+    private fun parseLegacy(entries: Map<String, ByteArray>, strictImages: Boolean): BackupPayload {
         val jsonEntries = entries.keys.filter { it.endsWith(".json", ignoreCase = true) }
             .filterNot { it.startsWith("data/") || it == "manifest.json" }
             .sorted()
@@ -454,12 +720,17 @@ object BackupService {
                 availableEntries = entries.keys
             )
         }
-        val imageCount = records.sumOf { record ->
-            (record.questionImageEntries + listOfNotNull(record.questionImageEntry, record.answerImageEntry, record.explanationImageEntry) +
-                record.contentBlockEntries.map(ImportedContentBlock::entry)).distinct().count { it in entries }
+        val expectedImages = records.flatMap { record ->
+            record.questionImageEntries + listOfNotNull(record.questionImageEntry, record.answerImageEntry, record.explanationImageEntry) +
+                record.contentBlockEntries.map(ImportedContentBlock::entry)
+        }.distinct()
+        val imageCount = expectedImages.count { it in entries }
+        val missingImages = expectedImages.count { it !in entries }
+        if (strictImages) {
+            expectedImages.forEach { name -> require(name in entries) { "备份缺少图片文件：$name" } }
         }
         return BackupPayload(
-            BackupPreview(0, "旧版备份", 0L, records.size, imageCount, 0, legacy = true),
+            BackupPreview(0, "旧版备份", 0L, records.size, imageCount, 0, legacy = true, missingImages = missingImages),
             records,
             preferences = null,
             entries = entries,
@@ -515,7 +786,7 @@ object BackupService {
             subject = json.optString("subject", "未分类"),
             questionType = json.optString("questionType", "未分类"),
             tags = json.optString("tags"),
-            difficulty = json.optInt("difficulty", 0).coerceIn(0, 5),
+            difficulty = Difficulty.normalize(json.optInt("difficulty", 0)),
             includeSourceImageInPdf = json.optBoolean("includeSourceImageInPdf", true),
             mastery = json.optInt("mastery", 0),
             ocrText = json.optString("ocrText"),
@@ -705,25 +976,116 @@ object BackupService {
         return output.toByteArray()
     }
 
-    private fun storeImportedImage(
+    /** Staged image state; the target path is what the committed row will own. */
+    private data class StagedImportImage(
+        val target: File,
+        val staged: File?
+    )
+
+    /** Copies every referenced archive image into app-private staging before Room changes. */
+    private fun stagePayloadImages(
+        context: Context,
+        payload: BackupPayload,
+        stagingDirectory: File,
+        stagedImages: MutableMap<String, StagedImportImage>
+    ) {
+        stagingDirectory.mkdirs()
+        payload.records.forEach { record ->
+            val stableId = record.entity.stableId
+            fun stage(entry: String?, role: String) {
+                if (entry == null) return
+                val key = stagedImageKey(stableId, role, entry)
+                if (key in stagedImages) return
+                val bytes = payload.entries[entry] ?: error("备份缺少图片文件：$entry")
+                stagedImages[key] = stageImportedImage(
+                    context = context,
+                    stableId = stableId,
+                    role = role,
+                    entry = entry,
+                    bytes = bytes,
+                    stagingDirectory = stagingDirectory,
+                    sequence = stagedImages.size
+                )
+            }
+            record.questionImageEntries.forEachIndexed { index, entry -> stage(entry, "question-$index") }
+            stage(record.questionImageEntry, "question")
+            stage(record.answerImageEntry, "answer")
+            stage(record.explanationImageEntry, "explanation")
+            record.contentBlockEntries.forEach { block -> stage(block.entry, "block-${block.order}") }
+        }
+    }
+
+    private fun stageImportedImage(
         context: Context,
         stableId: String,
         role: String,
         entry: String,
-        bytes: ByteArray
-    ): String {
-        val extension = entry.substringAfterLast('.', "jpg").lowercase().takeIf { it in setOf("jpg", "jpeg", "png", "webp") } ?: "jpg"
+        bytes: ByteArray,
+        stagingDirectory: File,
+        sequence: Int
+    ): StagedImportImage {
+        val extension = entry.substringAfterLast('.', "jpg").lowercase()
+            .takeIf { it in setOf("jpg", "jpeg", "png", "webp", "heic", "heif") } ?: "jpg"
         val digest = MessageDigest.getInstance("SHA-256").digest(bytes).take(6).joinToString("") { "%02x".format(it) }
         val directory = File(context.filesDir, "images").apply { mkdirs() }
         val target = File(directory, "import_${safeStableId(stableId)}_${role}_$digest.$extension")
-        if (!target.isFile || target.length() != bytes.size.toLong()) {
-            val temporary = File(directory, "${target.name}.tmp")
-            temporary.outputStream().use { it.write(bytes) }
-            if (target.exists()) target.delete()
-            check(temporary.renameTo(target)) { "无法保存备份图片" }
+        if (target.isFile && target.length() == bytes.size.toLong()) {
+            return StagedImportImage(target = target, staged = null)
         }
-        return target.absolutePath
+        val staged = File(stagingDirectory, "${sequence}_${target.name}.tmp")
+        staged.outputStream().use { it.write(bytes) }
+        check(staged.length() == bytes.size.toLong()) { "无法写入备份图片暂存文件" }
+        return StagedImportImage(target = target, staged = staged)
     }
+
+    private fun promoteStagedImages(
+        images: Collection<StagedImportImage>,
+        createdImagePaths: MutableSet<String>,
+        rollbackDirectory: File
+    ) {
+        data class PromotionJournal(val target: File, val previous: File?)
+        val journal = mutableListOf<PromotionJournal>()
+        try {
+            images.forEachIndexed { index, image ->
+                val staged = image.staged ?: return@forEachIndexed
+                image.target.parentFile?.mkdirs()
+                val previous = image.target.takeIf(File::isFile)?.let { target ->
+                    File(rollbackDirectory, "previous_${index}_${target.name}").also {
+                        target.copyTo(it, overwrite = true)
+                    }
+                }
+                val entry = PromotionJournal(image.target, previous)
+                journal += entry
+                val incoming = File(image.target.parentFile, ".${image.target.name}.incoming")
+                incoming.delete()
+                staged.copyTo(incoming, overwrite = true)
+                if (image.target.exists() && !image.target.delete()) {
+                    error("无法替换备份图片")
+                }
+                if (!incoming.renameTo(image.target)) {
+                    incoming.copyTo(image.target, overwrite = true)
+                    check(incoming.delete()) { "无法完成备份图片迁移" }
+                }
+                check(staged.delete()) { "无法清理备份图片暂存文件" }
+            }
+            createdImagePaths += journal.map { it.target.absolutePath }
+        } catch (error: Throwable) {
+            // Restore every target touched by this promotion, including the
+            // target currently being moved when a rename/copy fails halfway.
+            journal.asReversed().forEach { entry ->
+                runCatching {
+                    entry.target.delete()
+                    entry.previous?.takeIf(File::isFile)?.copyTo(entry.target, overwrite = true)
+                }
+                File(entry.target.parentFile, ".${entry.target.name}.incoming").delete()
+            }
+            createdImagePaths.clear()
+            throw error
+        }
+    }
+
+    private fun stagedImageKey(stableId: String, role: String, entry: String): String =
+        "$stableId\u001f$role\u001f$entry"
 
     private fun fingerprint(mistake: MistakeEntity): String = listOf(
         mistake.title.trim().lowercase(),
@@ -731,6 +1093,8 @@ object BackupService {
         mistake.createdAt.toString()
     ).joinToString("\u001f")
 
+    /** @deprecated Only reads the legacy backup field for preview compatibility. */
+    @Deprecated("Legacy backup preview compatibility only")
     private fun countReviewRecords(preferences: JSONObject?): Int {
         val mastery = preferences?.optJSONObject("reviewMastery") ?: return 0
         return mastery.keys().asSequence().sumOf { date -> mastery.optJSONObject(date)?.length() ?: 0 }

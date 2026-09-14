@@ -2,7 +2,7 @@ package com.tiji.mistakes.ui.image
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.tiji.mistakes.ui.design.TijiShapes
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -13,7 +13,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
+import com.tiji.mistakes.ui.design.TijiImage
 import coil.request.CachePolicy
 import coil.request.ImageRequest
 import com.tiji.mistakes.ui.common.imageReloadVersions
@@ -36,10 +36,10 @@ internal fun ClickableImageThumbnail(path: String, onDelete: () -> Unit) {
             .diskCachePolicy(CachePolicy.DISABLED)
             .build()
     }
-    AsyncImage(
+    TijiImage(
         model = imageModel,
         contentDescription = "已添加的识别图片，点击放大",
-        modifier = Modifier.size(84.dp).clip(RoundedCornerShape(10.dp)).clickable { expanded = true },
+        modifier = Modifier.size(84.dp).clip(TijiShapes.S).clickable { expanded = true },
         contentScale = ContentScale.Crop
     )
     if (expanded) {

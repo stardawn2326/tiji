@@ -3,11 +3,14 @@ package com.tiji.mistakes.service
 import android.annotation.SuppressLint
 import android.content.Context
 import org.json.JSONArray
+import org.json.JSONObject
 import java.util.UUID
 
 enum class AiSolveStatus {
     IDLE,
     RUNNING,
+    VERIFYING,
+    REPAIRING,
     COMPLETED,
     FAILED,
     CANCELED
@@ -25,6 +28,7 @@ data class PersistedAiSolveState(
     val status: AiSolveStatus = AiSolveStatus.IDLE,
     val sessionId: String = AiSolveRuntime.sessionId,
     val mode: AiRecognitionMode = AiRecognitionMode.VISION,
+    val reliabilityMode: AiSolveReliabilityMode = AiSolveReliabilityMode.RELIABLE,
     val configurationId: String = "",
     val visualConfigurationId: String = "",
     val modelName: String = "",
@@ -38,6 +42,13 @@ data class PersistedAiSolveState(
     val completeText: String? = null,
     val contentBlocks: String = "",
     val recognitionWarning: String = "",
+    val uncertainItems: List<String> = emptyList(),
+    val verification: AiVerificationResult = AiVerificationResult(),
+    /** One-step recovery snapshot for the latest explicit correction run. */
+    val previousCompleteText: String = "",
+    val previousVerification: AiVerificationResult = AiVerificationResult(),
+    val previousUpdatedAt: Long = 0L,
+    val diagnostics: AiSolveDiagnostics = AiSolveDiagnostics(),
     /** Non-null when the visible solve was restored from an existing history snapshot. */
     val historyRecordId: String? = null,
     val historyWriteError: String = "",
@@ -45,7 +56,9 @@ data class PersistedAiSolveState(
     val startedAt: Long = 0L,
     val updatedAt: Long = 0L
 ) {
-    val running: Boolean get() = status == AiSolveStatus.RUNNING
+    val running: Boolean get() = status == AiSolveStatus.RUNNING ||
+        status == AiSolveStatus.VERIFYING ||
+        status == AiSolveStatus.REPAIRING
 }
 
 /**
@@ -54,6 +67,8 @@ data class PersistedAiSolveState(
  * also the only source used by the result card and saved mistake record.
  */
 internal fun extractRecognizedQuestionFromSolution(value: String): String {
+    AiStructuredSolutionCodec.parse(value)?.section("recognition")?.displaySource()
+        ?.takeIf(String::isNotBlank)?.let { return it }
     var text = value.trimStart()
     if (text.startsWith("[[TIJI_META:")) {
         val metadataEnd = text.indexOf("]]" )
@@ -81,12 +96,15 @@ internal fun extractRecognizedQuestionFromSolution(value: String): String {
 
 class AiSolveStateStore(context: Context) {
     private val preferences = context.getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE)
+    private val durableTextStore = DurableTextStore(context, FILE_NAME)
 
     fun read(): PersistedAiSolveState {
         val legacyRunning = preferences.getBoolean(KEY_RUNNING, false)
-        val completeText = preferences.getString(KEY_COMPLETE_TEXT, null)
+        val completeText = durableTextStore.read(SLOT_COMPLETE_TEXT)
+            ?: preferences.getString(KEY_COMPLETE_TEXT, null)
         val error = preferences.getString(KEY_ERROR, null)
-        val streamedText = preferences.getString(KEY_STREAMED_TEXT, "").orEmpty().cleanNullStream()
+        val streamedText = (durableTextStore.read(SLOT_STREAMED_TEXT)
+            ?: preferences.getString(KEY_STREAMED_TEXT, "").orEmpty()).cleanNullStream()
         val status = preferences.getString(KEY_STATUS, null)
             ?.let { raw -> runCatching { AiSolveStatus.valueOf(raw) }.getOrNull() }
             ?: when {
@@ -106,6 +124,7 @@ class AiSolveStateStore(context: Context) {
             mode = preferences.getString(KEY_MODE, null)
                 ?.let { raw -> runCatching { AiRecognitionMode.valueOf(raw) }.getOrNull() }
                 ?: AiRecognitionMode.VISION,
+            reliabilityMode = AiSolveReliabilityMode.parse(preferences.getString(KEY_RELIABILITY_MODE, null)),
             configurationId = preferences.getString(KEY_CONFIGURATION_ID, "").orEmpty(),
             visualConfigurationId = preferences.getString(KEY_VISUAL_CONFIGURATION_ID, "").orEmpty(),
             modelName = preferences.getString(KEY_MODEL_NAME, "").orEmpty(),
@@ -117,8 +136,25 @@ class AiSolveStateStore(context: Context) {
             progress = preferences.getFloat(KEY_PROGRESS, 0f).coerceIn(0f, 1f),
             streamedText = streamedText,
             completeText = completeText,
-            contentBlocks = preferences.getString(KEY_CONTENT_BLOCKS, "").orEmpty(),
-            recognitionWarning = preferences.getString(KEY_RECOGNITION_WARNING, "").orEmpty(),
+            contentBlocks = durableTextStore.read(SLOT_CONTENT_BLOCKS)
+                ?: preferences.getString(KEY_CONTENT_BLOCKS, "").orEmpty(),
+            recognitionWarning = durableTextStore.read(SLOT_RECOGNITION_WARNING)
+                ?: preferences.getString(KEY_RECOGNITION_WARNING, "").orEmpty(),
+            uncertainItems = decodeStringList(preferences.getString(KEY_UNCERTAIN_ITEMS, null)),
+            verification = parsePersistedVerification(
+                preferences.getString(KEY_VERIFICATION, null)?.let { raw ->
+                    runCatching { JSONObject(raw) }.getOrNull()
+                }
+            ),
+            previousCompleteText = durableTextStore.read(SLOT_PREVIOUS_COMPLETE_TEXT)
+                ?: preferences.getString(KEY_PREVIOUS_COMPLETE_TEXT, "").orEmpty(),
+            previousVerification = parsePersistedVerification(
+                preferences.getString(KEY_PREVIOUS_VERIFICATION, null)?.let { raw ->
+                    runCatching { JSONObject(raw) }.getOrNull()
+                }
+            ),
+            previousUpdatedAt = preferences.getLong(KEY_PREVIOUS_UPDATED_AT, 0L),
+            diagnostics = parseDiagnostics(preferences.getString(KEY_DIAGNOSTICS, null)),
             historyRecordId = preferences.getString(KEY_HISTORY_RECORD_ID, null),
             historyWriteError = preferences.getString(KEY_HISTORY_WRITE_ERROR, "").orEmpty(),
             error = error,
@@ -128,6 +164,11 @@ class AiSolveStateStore(context: Context) {
     }
 
     fun write(state: PersistedAiSolveState) {
+        durableTextStore.write(SLOT_STREAMED_TEXT, state.streamedText)
+        durableTextStore.write(SLOT_COMPLETE_TEXT, state.completeText.orEmpty())
+        durableTextStore.write(SLOT_CONTENT_BLOCKS, state.contentBlocks)
+        durableTextStore.write(SLOT_RECOGNITION_WARNING, state.recognitionWarning)
+        durableTextStore.write(SLOT_PREVIOUS_COMPLETE_TEXT, state.previousCompleteText)
         val editor = preferences.edit()
             .putLong(KEY_REQUEST_ID, state.requestId)
             .putString(KEY_SOLVE_RUN_ID, state.solveRunId)
@@ -135,6 +176,7 @@ class AiSolveStateStore(context: Context) {
             .putBoolean(KEY_RUNNING, state.running)
             .putString(KEY_SESSION_ID, state.sessionId)
             .putString(KEY_MODE, state.mode.name)
+            .putString(KEY_RELIABILITY_MODE, state.reliabilityMode.name)
             .putString(KEY_CONFIGURATION_ID, state.configurationId)
             .putString(KEY_VISUAL_CONFIGURATION_ID, state.visualConfigurationId)
             .putString(KEY_MODEL_NAME, state.modelName)
@@ -144,10 +186,16 @@ class AiSolveStateStore(context: Context) {
             .putString(KEY_IMAGE_PATHS, JSONArray(state.imagePaths.filter(String::isNotBlank).distinct()).toString())
             .putString(KEY_GRAPHIC_IMAGE_PATH, state.graphicImagePath)
             .putFloat(KEY_PROGRESS, state.progress.coerceIn(0f, 1f))
-            .putString(KEY_STREAMED_TEXT, state.streamedText.take(MAX_TEXT_LENGTH))
-            .putString(KEY_COMPLETE_TEXT, state.completeText?.take(MAX_TEXT_LENGTH))
-            .putString(KEY_CONTENT_BLOCKS, state.contentBlocks.take(MAX_CONTENT_BLOCKS_LENGTH))
-            .putString(KEY_RECOGNITION_WARNING, state.recognitionWarning.take(MAX_TEXT_LENGTH))
+            .remove(KEY_STREAMED_TEXT)
+            .remove(KEY_COMPLETE_TEXT)
+            .remove(KEY_CONTENT_BLOCKS)
+            .remove(KEY_RECOGNITION_WARNING)
+            .putString(KEY_UNCERTAIN_ITEMS, JSONArray(state.uncertainItems.filter(String::isNotBlank).distinct()).toString())
+            .putString(KEY_VERIFICATION, encodeVerification(state.verification).toString())
+            .remove(KEY_PREVIOUS_COMPLETE_TEXT)
+            .putString(KEY_PREVIOUS_VERIFICATION, encodeVerification(state.previousVerification).toString())
+            .putLong(KEY_PREVIOUS_UPDATED_AT, state.previousUpdatedAt)
+            .putString(KEY_DIAGNOSTICS, encodeDiagnostics(state.diagnostics).toString())
             .putString(KEY_HISTORY_RECORD_ID, state.historyRecordId)
             .putString(KEY_HISTORY_WRITE_ERROR, state.historyWriteError)
             .putString(KEY_ERROR, state.error)
@@ -170,6 +218,7 @@ class AiSolveStateStore(context: Context) {
     @SuppressLint("ApplySharedPref")
     fun clear() {
         // commit() is intentional: closing the task must not leave a stale RUNNING flag.
+        durableTextStore.clear()
         preferences.edit().clear().commit()
     }
 
@@ -185,6 +234,13 @@ class AiSolveStateStore(context: Context) {
         }.distinct()
     }.getOrDefault(emptyList())
 
+    private fun decodeStringList(raw: String?): List<String> = runCatching {
+        val array = JSONArray(raw ?: "[]")
+        (0 until array.length()).mapNotNull { index ->
+            array.optString(index).trim().takeIf(String::isNotBlank)
+        }.distinct()
+    }.getOrDefault(emptyList())
+
     private companion object {
         const val FILE_NAME = "ai_solve_state"
         const val KEY_REQUEST_ID = "request_id"
@@ -193,6 +249,7 @@ class AiSolveStateStore(context: Context) {
         const val KEY_RUNNING = "running"
         const val KEY_SESSION_ID = "session_id"
         const val KEY_MODE = "mode"
+        const val KEY_RELIABILITY_MODE = "reliability_mode"
         const val KEY_CONFIGURATION_ID = "configuration_id"
         const val KEY_VISUAL_CONFIGURATION_ID = "visual_configuration_id"
         const val KEY_MODEL_NAME = "model_name"
@@ -206,12 +263,37 @@ class AiSolveStateStore(context: Context) {
         const val KEY_COMPLETE_TEXT = "complete_text"
         const val KEY_CONTENT_BLOCKS = "content_blocks"
         const val KEY_RECOGNITION_WARNING = "recognition_warning"
+        const val KEY_UNCERTAIN_ITEMS = "uncertain_items"
+        const val KEY_VERIFICATION = "verification"
+        const val KEY_PREVIOUS_COMPLETE_TEXT = "previous_complete_text"
+        const val KEY_PREVIOUS_VERIFICATION = "previous_verification"
+        const val KEY_PREVIOUS_UPDATED_AT = "previous_updated_at"
+        const val KEY_DIAGNOSTICS = "diagnostics"
         const val KEY_HISTORY_RECORD_ID = "history_record_id"
         const val KEY_HISTORY_WRITE_ERROR = "history_write_error"
         const val KEY_ERROR = "error"
         const val KEY_STARTED_AT = "started_at"
         const val KEY_UPDATED_AT = "updated_at"
-        const val MAX_TEXT_LENGTH = 24_000
-        const val MAX_CONTENT_BLOCKS_LENGTH = 24_000
+        const val SLOT_STREAMED_TEXT = "streamed"
+        const val SLOT_COMPLETE_TEXT = "complete"
+        const val SLOT_CONTENT_BLOCKS = "content_blocks"
+        const val SLOT_RECOGNITION_WARNING = "recognition_warning"
+        const val SLOT_PREVIOUS_COMPLETE_TEXT = "previous_complete"
+
+        private fun parseDiagnostics(raw: String?): AiSolveDiagnostics = runCatching {
+            val json = JSONObject(raw ?: return@runCatching AiSolveDiagnostics())
+            AiSolveDiagnostics(
+                solveDurationMs = json.optLong("solveDurationMs", 0L),
+                verifyDurationMs = json.optLong("verifyDurationMs", 0L),
+                repairDurationMs = json.optLong("repairDurationMs", 0L),
+                requestCount = json.optInt("requestCount", 0).coerceAtLeast(0)
+            )
+        }.getOrDefault(AiSolveDiagnostics())
+
+        private fun encodeDiagnostics(diagnostics: AiSolveDiagnostics): JSONObject = JSONObject()
+            .put("solveDurationMs", diagnostics.solveDurationMs.coerceAtLeast(0L))
+            .put("verifyDurationMs", diagnostics.verifyDurationMs.coerceAtLeast(0L))
+            .put("repairDurationMs", diagnostics.repairDurationMs.coerceAtLeast(0L))
+            .put("requestCount", diagnostics.requestCount.coerceAtLeast(0))
     }
 }

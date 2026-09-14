@@ -2,18 +2,16 @@
 
 package com.tiji.mistakes.ui.editor
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Card
+import com.tiji.mistakes.ui.design.TijiCard
 import androidx.compose.material3.CardDefaults
+import com.tiji.mistakes.ui.design.TijiIconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
+import com.tiji.mistakes.ui.design.TijiTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -26,8 +24,12 @@ import com.tiji.mistakes.service.ContentBlockRole
 import com.tiji.mistakes.service.QuestionContentBlock
 import com.tiji.mistakes.ui.math.FormulaPreview
 import com.tiji.mistakes.ui.math.MathText
-import com.tiji.mistakes.ui.TijiSurfaceCard
+import com.tiji.mistakes.ui.design.TijiPaperCard
 import com.tiji.mistakes.ui.solve.ContentBlockImages
+import com.tiji.mistakes.ui.common.difficultyLabel
+import com.tiji.mistakes.ui.common.difficultyOptions
+import com.tiji.mistakes.ui.common.difficultyPickerValue
+import com.tiji.mistakes.ui.design.TijiSegmentedControl
 
 @Composable
 internal fun MistakeFields(
@@ -55,23 +57,27 @@ internal fun MistakeFields(
     userAnswer: String = "",
     errorReason: String = "",
     onUserAnswer: (String) -> Unit = {},
-    onErrorReason: (String) -> Unit = {}
+    onErrorReason: (String) -> Unit = {},
+    showOptionalFields: Boolean = true,
+    showClassification: Boolean = true
 ) {
     val editorBodyTextStyle = MaterialTheme.typography.bodyLarge.copy(
         fontFamily = FontFamily.Serif
     )
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        OutlinedTextField(title, onTitle, label = { Text("标题") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        if (showRenderedPreview && title.isNotBlank()) {
-            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer), modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp)) {
-                    MathText(title, emphasized = true)
+        if (showOptionalFields) {
+            TijiTextField(title, onTitle, label = { Text("标题") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            if (showRenderedPreview && title.isNotBlank()) {
+                TijiCard(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer), modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp)) {
+                        MathText(title, emphasized = true)
+                    }
                 }
+            } else {
+                FormulaPreview(title)
             }
-        } else {
-            FormulaPreview(title)
         }
-        OutlinedTextField(
+        com.tiji.mistakes.ui.design.TijiMultilineField(
             question,
             onQuestion,
             label = { Text("题目") },
@@ -85,15 +91,17 @@ internal fun MistakeFields(
                 onDelete = onDeleteBlock
             )
         }
-        OutlinedTextField(
-            userAnswer,
-            onUserAnswer,
-            label = { Text("我的答案（选填）") },
-            textStyle = editorBodyTextStyle,
-            minLines = 2,
-            modifier = Modifier.fillMaxWidth()
-        )
-        OutlinedTextField(
+        if (showOptionalFields) {
+            com.tiji.mistakes.ui.design.TijiMultilineField(
+                userAnswer,
+                onUserAnswer,
+                label = { Text("我的答案（选填）") },
+                textStyle = editorBodyTextStyle,
+                minLines = 2,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+        com.tiji.mistakes.ui.design.TijiMultilineField(
             answer,
             onAnswer,
             label = { Text("正确答案") },
@@ -101,7 +109,7 @@ internal fun MistakeFields(
             minLines = 2,
             modifier = Modifier.fillMaxWidth()
         )
-        OutlinedTextField(
+        com.tiji.mistakes.ui.design.TijiMultilineField(
             explanation,
             onExplanation,
             label = { Text("解析") },
@@ -116,38 +124,25 @@ internal fun MistakeFields(
             FormulaPreview(answer)
             FormulaPreview(explanation, normalizeTerminalPeriod = true)
         }
-        OutlinedTextField(
-            note,
-            onNote,
-            label = { Text("我的总结") },
-            minLines = 2,
-            modifier = Modifier.fillMaxWidth()
-        )
-        ErrorReasonPicker(errorReason, onErrorReason)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            OutlinedTextField(
-                subject,
-                onSubject,
-                label = { Text("科目") },
-                singleLine = true,
-                modifier = Modifier.weight(1f)
-            )
-            OutlinedTextField(
-                questionType,
-                onQuestionType,
-                label = { Text("题目类型") },
-                singleLine = true,
-                modifier = Modifier.weight(1f)
-            )
+        if (showClassification) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                TijiTextField(
+                    subject,
+                    onSubject,
+                    label = { Text("科目") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f)
+                )
+                TijiTextField(
+                    questionType,
+                    onQuestionType,
+                    label = { Text("题目类型") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            DifficultyPicker(difficulty, onDifficulty)
         }
-        OutlinedTextField(
-            tags,
-            onTags,
-            label = { Text("分类 / 知识点标签") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth()
-        )
-        DifficultyPicker(difficulty, onDifficulty)
     }
 }
 
@@ -159,7 +154,7 @@ internal fun RenderedMistakeContentCard(
     contentBlocks: List<QuestionContentBlock> = emptyList(),
     onDeleteBlock: (QuestionContentBlock) -> Unit = {}
 ) {
-    TijiSurfaceCard {
+    TijiPaperCard {
         if (question.isNotBlank()) {
             Text("题目", style = MaterialTheme.typography.titleMedium)
             MathText(
@@ -199,20 +194,13 @@ internal fun RenderedMistakeContentCard(
 
 @Composable
 internal fun DifficultyPicker(difficulty: Int, onDifficulty: (Int) -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(3.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        (1..5).forEach { value ->
-            Text(
-                text = if (value <= difficulty) "★" else "☆",
-                color = if (value <= difficulty) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier
-                    .clickable { onDifficulty(value) }
-                    .semantics { contentDescription = "星级 $value" }
-            )
-        }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+        Text("难度", style = MaterialTheme.typography.labelLarge)
+        TijiSegmentedControl(
+            options = difficultyOptions.map { it.first },
+            selected = difficultyPickerValue(difficulty).takeIf { it in 1..5 },
+            onSelected = onDifficulty,
+            label = ::difficultyLabel
+        )
     }
 }

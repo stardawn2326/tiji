@@ -2,6 +2,8 @@ package com.tiji.mistakes.ui.common
 
 import com.tiji.mistakes.domain.ReviewGrade
 import com.tiji.mistakes.domain.ReviewPreview
+import com.tiji.mistakes.domain.Difficulty
+import com.tiji.mistakes.domain.difficultyLevels
 import com.tiji.mistakes.data.KnowledgePointNormalizer
 import java.text.DateFormat
 import java.text.SimpleDateFormat
@@ -37,22 +39,30 @@ internal fun reviewIntervalLabel(preview: ReviewPreview): String = when (preview
     else -> "${preview.intervalDays} 天后"
 }
 
-internal fun reviewGradeUiLabel(grade: ReviewGrade): String = when (grade) {
-    ReviewGrade.GOOD -> "会了"
-    else -> grade.label
-}
+internal fun reviewGradeUiLabel(grade: ReviewGrade): String = grade.label
 
 internal fun reviewGradeUiLabel(grade: String): String =
     runCatching { reviewGradeUiLabel(ReviewGrade.valueOf(grade)) }.getOrDefault(grade)
 
 internal fun parseTagValues(raw: String): List<String> = KnowledgePointNormalizer.parseTags(raw)
 
-internal fun difficultyFilterLabel(value: Int): String = when (value) {
-    1 -> "简单"
-    2 -> "中等"
-    else -> "困难"
+internal val difficultyOptions = difficultyLevels.map { it.value to it.label }
+
+internal fun difficultyLabel(value: Int): String = Difficulty.labelFor(value)
+
+internal fun difficultyPickerValue(value: Int): Int = Difficulty.fromValue(value)?.value ?: 0
+
+internal fun difficultyMatchesFilter(value: Int, filter: Int?): Boolean =
+    filter == null || value == filter
+
+internal fun difficultyFilterLabel(value: Int): String = difficultyLabel(value)
+
+internal fun reviewStatusFilterLabel(value: Int): String = when (value) {
+    0 -> "未复习"
+    else -> ReviewGrade.entries.getOrNull(value - 1)?.label ?: "未选择"
 }
 
+@Deprecated("ReviewGrade is the only product-facing review status")
 internal fun masteryLabel(value: Int): String = when (value) {
     0 -> "未掌握"
     1 -> "学习中"

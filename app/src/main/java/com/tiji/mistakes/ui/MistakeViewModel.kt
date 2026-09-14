@@ -12,7 +12,21 @@ import com.tiji.mistakes.data.MistakeEntity
 import com.tiji.mistakes.data.MistakeRepository
 import com.tiji.mistakes.data.ReviewRecordEntity
 import com.tiji.mistakes.domain.ReviewGrade
+import com.tiji.mistakes.domain.Difficulty
+import com.tiji.mistakes.domain.ReviewSessionController
+import com.tiji.mistakes.domain.ReviewSessionPlan
+import com.tiji.mistakes.domain.ReviewSessionSource
+import com.tiji.mistakes.domain.ReviewSessionStatus
 import com.tiji.mistakes.domain.ReviewSessionUiState
+import com.tiji.mistakes.domain.MistakeDuplicateService
+import com.tiji.mistakes.domain.MistakeAssetManager
+import com.tiji.mistakes.domain.DataResetCoordinator
+import com.tiji.mistakes.domain.DataResetMode
+import com.tiji.mistakes.domain.MistakeProgressCalculator
+import com.tiji.mistakes.domain.MistakeProgressSummary
+import com.tiji.mistakes.domain.MistakeListItem
+import com.tiji.mistakes.domain.latestReviewGrades
+import com.tiji.mistakes.domain.toMistakeListItems
 import com.tiji.mistakes.domain.time.LearningCalendar
 import com.tiji.mistakes.service.AiChatMessage
 import com.tiji.mistakes.service.AiChatStateStore
@@ -25,12 +39,16 @@ import com.tiji.mistakes.service.AiRecognitionMode
 import com.tiji.mistakes.service.AiRecognitionService
 import com.tiji.mistakes.service.AiRecognitionState
 import com.tiji.mistakes.service.AiRecognitionStateStore
+import com.tiji.mistakes.service.decodeAiMistakeClassification
 import com.tiji.mistakes.service.AiSolveHistoryRecord
 import com.tiji.mistakes.service.AiSolveHistoryStore
 import com.tiji.mistakes.service.AiSolveRuntime
+import com.tiji.mistakes.service.AiSolveReliabilityMode
 import com.tiji.mistakes.service.AiSolveService
+import com.tiji.mistakes.service.AiSolveDiagnostics
 import com.tiji.mistakes.service.AiSolveStateStore
 import com.tiji.mistakes.service.AiSolveStatus
+import com.tiji.mistakes.service.AiVerificationResult
 import com.tiji.mistakes.service.finishAiChatWithAvailableContent
 import com.tiji.mistakes.service.ImageStorage
 import com.tiji.mistakes.service.LocalOcrService
@@ -44,6 +62,7 @@ import com.tiji.mistakes.service.unreferencedImagePaths
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flatMapLatest
@@ -51,6 +70,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.Job
@@ -102,6 +122,7 @@ data class AiSolveState(
     val solveRunId: String = "",
     val status: AiSolveStatus = AiSolveStatus.IDLE,
     val mode: AiRecognitionMode = AiRecognitionMode.VISION,
+    val reliabilityMode: AiSolveReliabilityMode = AiSolveReliabilityMode.RELIABLE,
     val configurationId: String = "",
     val visualConfigurationId: String = "",
     val modelName: String = "",
@@ -115,13 +136,21 @@ data class AiSolveState(
     val streamedText: String = "",
     val completeText: String? = null,
     val recognitionWarning: String = "",
+    val uncertainItems: List<String> = emptyList(),
+    val verification: AiVerificationResult = AiVerificationResult(),
+    val previousCompleteText: String = "",
+    val previousVerification: AiVerificationResult = AiVerificationResult(),
+    val previousUpdatedAt: Long = 0L,
+    val diagnostics: AiSolveDiagnostics = AiSolveDiagnostics(),
     val historyRecordId: String? = null,
     val historyWriteError: String = "",
     val error: String? = null,
     val startedAt: Long = 0L,
     val updatedAt: Long = 0L
 ) {
-    val running: Boolean get() = status == AiSolveStatus.RUNNING
+    val running: Boolean get() = status == AiSolveStatus.RUNNING ||
+        status == AiSolveStatus.VERIFYING ||
+        status == AiSolveStatus.REPAIRING
 }
 
 data class AiChatState(
@@ -215,13 +244,28 @@ class MistakeViewModel(
             ?: AiMistakeSaveState(taskId = "", requestId = 0L, phase = AiMistakeSavePhase.IDLE)
     )
     private var aiMistakeSaveObserverJob: Job? = null
-
     // Home counts must never depend on the library's active search query.
     val allMistakes: StateFlow<List<MistakeEntity>> = repository.observe("")
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val searchQuery: StateFlow<String> = query
+    val reviewNow: StateFlow<Long> = reviewClock.asStateFlow()
     val mistakes: StateFlow<List<MistakeEntity>> = query.flatMapLatest(repository::observe)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val allMistakeItems: StateFlow<List<MistakeListItem>> = allMistakes
+        .flatMapLatest { rows ->
+            repository.observeLatestReviewRecordsForMistakes(rows.map(MistakeEntity::id))
+                .map { records -> rows.toMistakeListItems(latestReviewGrades(records)) }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val mistakeItems: StateFlow<List<MistakeListItem>> = mistakes
+        .flatMapLatest { rows ->
+            repository.observeLatestReviewRecordsForMistakes(rows.map(MistakeEntity::id))
+                .map { records -> rows.toMistakeListItems(latestReviewGrades(records)) }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val progressSummary: StateFlow<MistakeProgressSummary> = allMistakeItems
+        .map(MistakeProgressCalculator::calculate)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MistakeProgressSummary())
     val dueMistakes: StateFlow<List<MistakeEntity>> = reviewClock.flatMapLatest(repository::observeDue)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val totalCount: StateFlow<Int> = repository.observeCount()
@@ -233,6 +277,9 @@ class MistakeViewModel(
             LearningCalendar.startOfRecentDays(now, 30).toEpochMilli()
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    /** Full review history for calendar and progress consumers; Room is the fact source. */
+    val allReviewRecords: StateFlow<List<ReviewRecordEntity>> = repository.observeAllReviewRecords()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val knowledgePoints = repository.observeKnowledgePoints()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val knowledgePointLinks = repository.observeKnowledgePointLinks()
@@ -317,25 +364,57 @@ class MistakeViewModel(
     suspend fun focusedReviewQueue(stableId: String): List<MistakeEntity> =
         repository.listMistakesForKnowledgePoint(stableId)
 
-    /** Starts or restores the lightweight state for one review route. */
-    fun beginReviewSession(sessionKey: String, reviewIds: List<Long>): ReviewSessionUiState {
-        val normalizedIds = reviewIds.filter { it > 0L }.distinct()
+    /** Creates the one state machine used by daily, knowledge-point and library review. */
+    fun startReviewSession(plan: ReviewSessionPlan): ReviewSessionUiState {
+        val normalizedPlan = plan.copy(reviewIds = plan.reviewIds.filter { it > 0L }.distinct())
         val current = _reviewSession.value
-        if (current?.sessionKey == sessionKey && current.reviewIds == normalizedIds) return current
-        return ReviewSessionUiState(
-            sessionKey = sessionKey,
-            startedAt = System.currentTimeMillis(),
-            reviewIds = normalizedIds
-        ).also {
-            persistReviewSession(it)
-            _reviewSessionSummary.value = ReviewSessionSummaryState()
+        if (current?.sessionKey == normalizedPlan.sessionKey &&
+            current.reviewIds == normalizedPlan.reviewIds &&
+            current.status != ReviewSessionStatus.FINISHED
+        ) {
+            val resumed = ReviewSessionController.start(current)
+            persistReviewSession(resumed)
+            return resumed
         }
+        val started = ReviewSessionController.start(
+            ReviewSessionController.create(normalizedPlan, System.currentTimeMillis())
+        )
+        persistReviewSession(started)
+        _reviewSessionSummary.value = ReviewSessionSummaryState()
+        return started
     }
+
+    fun newReviewSessionId(): String = UUID.randomUUID().toString()
+
+    /** Compatibility entry point for callers that only have a queue. */
+    fun beginReviewSession(sessionKey: String, reviewIds: List<Long>): ReviewSessionUiState =
+        beginReviewSession(sessionKey, reviewIds, com.tiji.mistakes.domain.ReviewSessionContext(
+            source = ReviewSessionSource.KNOWLEDGE_POINT
+        ))
+
+    fun beginReviewSession(
+        sessionKey: String,
+        reviewIds: List<Long>,
+        context: com.tiji.mistakes.domain.ReviewSessionContext
+    ): ReviewSessionUiState = startReviewSession(
+        ReviewSessionPlan(
+            sessionKey = sessionKey,
+            source = context.source,
+            reviewIds = reviewIds,
+            knowledgePointStableId = context.knowledgePointStableId,
+            knowledgePointName = context.knowledgePointName
+        )
+    )
 
     fun moveReviewSession(sessionKey: String, delta: Int) {
         val current = _reviewSession.value?.takeIf { it.sessionKey == sessionKey } ?: return
-        val nextIndex = (current.currentIndex + delta).takeIf { it in current.reviewIds.indices } ?: return
-        persistReviewSession(current.copy(currentIndex = nextIndex))
+        persistReviewSession(ReviewSessionController.move(current, delta))
+    }
+
+    /** Removes one queued question without discarding the rest of the session. */
+    fun removeMistakeFromReviewSession(sessionKey: String, mistakeId: Long) {
+        val current = _reviewSession.value?.takeIf { it.sessionKey == sessionKey } ?: return
+        persistReviewSession(ReviewSessionController.removeMistake(current, mistakeId))
     }
 
     fun clearReviewSession(sessionKey: String) {
@@ -364,12 +443,13 @@ class MistakeViewModel(
         }
     }
 
-    /** Completes a focused session in the ViewModel so rotation cannot cancel its write barrier. */
-    fun completeFocusedReviewSession(sessionKey: String) {
+    /** Completes any source session in the ViewModel so rotation cannot cancel its write barrier. */
+    fun completeReviewSession(sessionKey: String) {
         val current = _reviewSession.value?.takeIf { it.sessionKey == sessionKey } ?: return
         if (current.summaryVisible) return
         val existing = _reviewSessionSummary.value
         if (existing.sessionKey == sessionKey && (existing.isLoading || existing.isLoaded)) return
+        persistReviewSession(ReviewSessionController.beginCompletion(current))
         _reviewSessionSummary.value = ReviewSessionSummaryState(sessionKey = sessionKey, isLoading = true)
         viewModelScope.launch {
             awaitReviewSessionWrites(sessionKey)
@@ -380,9 +460,12 @@ class MistakeViewModel(
                 records = records,
                 isLoaded = true
             )
-            persistReviewSession(latest.copy(summaryVisible = true))
+            persistReviewSession(ReviewSessionController.showSummary(latest))
         }
     }
+
+    /** Kept for older callers while all new routes use completeReviewSession. */
+    fun completeFocusedReviewSession(sessionKey: String) = completeReviewSession(sessionKey)
 
     private suspend fun awaitReviewSessionWrites(sessionKey: String) {
         reviewSessionJobs[sessionKey]?.values?.toList()?.joinAll()
@@ -408,7 +491,12 @@ class MistakeViewModel(
         visualEndpoint: String? = null,
         visualModel: String? = null,
         visualApiKey: String? = null,
-        visualConfigurationId: String? = null
+        visualConfigurationId: String? = null,
+        recognitionCorrection: String? = null,
+        reliabilityMode: AiSolveReliabilityMode = AiSolveReliabilityMode.RELIABLE,
+        previousCompleteText: String = "",
+        previousVerification: AiVerificationResult = AiVerificationResult(),
+        previousUpdatedAt: Long = 0L
     ) {
         if (_aiSolve.value.running) return
         activeAiSolveHistoryId = null
@@ -420,6 +508,7 @@ class MistakeViewModel(
             solveRunId = solveRunId,
             status = AiSolveStatus.RUNNING,
             mode = mode,
+            reliabilityMode = reliabilityMode,
             configurationId = configurationId,
             visualConfigurationId = visualConfigurationId.orEmpty(),
             modelName = model,
@@ -428,6 +517,9 @@ class MistakeViewModel(
             imagePath = imagePaths.firstOrNull() ?: imagePath,
             imagePaths = imagePaths.filter(String::isNotBlank).distinct(),
             graphicImagePath = graphicImagePath,
+            previousCompleteText = previousCompleteText,
+            previousVerification = previousVerification,
+            previousUpdatedAt = previousUpdatedAt,
             startedAt = now,
             updatedAt = now
         )
@@ -451,12 +543,17 @@ class MistakeViewModel(
                     supplementalText = supplementalText,
                     graphicImagePath = graphicImagePath,
                     mode = mode,
+                    reliabilityMode = reliabilityMode,
                     correctionContext = correctionContext,
                     correctionImagePaths = correctionImagePaths,
+                    recognitionCorrection = recognitionCorrection,
                     visualEndpoint = visualEndpoint,
                     visualModel = visualModel,
                     visualApiKey = visualApiKey,
-                    visualConfigurationId = visualConfigurationId
+                    visualConfigurationId = visualConfigurationId,
+                    previousCompleteText = previousCompleteText,
+                    previousVerification = previousVerification,
+                    previousUpdatedAt = previousUpdatedAt
                 )
             )
         }.onFailure { error ->
@@ -467,6 +564,33 @@ class MistakeViewModel(
             )
             aiSolveStore.write(failed.toPersisted())
             _aiSolve.value = failed
+        }
+    }
+
+    /** Restores the immediately preceding correction without another provider request. */
+    fun undoAiSolveCorrection() {
+        val current = _aiSolve.value
+        val previous = current.previousCompleteText.takeIf(String::isNotBlank) ?: return
+        val restored = current.copy(
+            status = AiSolveStatus.COMPLETED,
+            progress = 1f,
+            streamedText = "",
+            completeText = previous,
+            verification = current.previousVerification,
+            previousCompleteText = "",
+            previousVerification = AiVerificationResult(),
+            previousUpdatedAt = 0L,
+            error = null,
+            updatedAt = current.previousUpdatedAt.takeIf { it > 0L } ?: System.currentTimeMillis()
+        )
+        aiSolveStore.write(restored.toPersisted())
+        _aiSolve.value = restored
+        updateActiveHistory { record ->
+            record.copy(
+                completeText = previous,
+                verification = restored.verification,
+                question = restored.question.orEmpty()
+            )
         }
     }
 
@@ -495,7 +619,7 @@ class MistakeViewModel(
         aiSolveRequestId = 0L
     }
 
-    /** Remove a solve-result image from state and delete the app-owned file itself. */
+    /** Remove a solve-result image and reclaim it only when no owner remains. */
     fun removeAiSolveContentBlock(path: String) {
         if (path.isBlank()) return
         val current = _aiSolve.value
@@ -510,7 +634,7 @@ class MistakeViewModel(
         aiSolveStore.write(updated.toPersisted())
         _aiSolve.value = updated
         updateActiveHistory { record -> record.removeContentBlock(path).first }
-        deleteImagesNow(listOf(path))
+        deleteImagesIfUnreferenced(listOf(path))
     }
 
     /** Removes the current source image and all derived blocks sourced from it. */
@@ -532,7 +656,7 @@ class MistakeViewModel(
         aiSolveStore.write(updated.toPersisted())
         _aiSolve.value = updated
         updateActiveHistory { record -> record.removeImage(path).first }
-        deleteImagesNow(listOf(path))
+        deleteImagesIfUnreferenced(listOf(path))
     }
 
     /** Restores a snapshot into the normal solve screen without starting a request. */
@@ -547,6 +671,7 @@ class MistakeViewModel(
             solveRunId = record.solveRunId.ifBlank { "history-${record.id}" },
             status = AiSolveStatus.COMPLETED,
             mode = record.mode,
+            reliabilityMode = record.reliabilityMode,
             configurationId = record.configurationId,
             visualConfigurationId = record.visualConfigurationId,
             modelName = record.modelName,
@@ -559,6 +684,9 @@ class MistakeViewModel(
             progress = 1f,
             completeText = record.completeText,
             recognitionWarning = record.recognitionWarning,
+            uncertainItems = record.uncertainItems,
+            verification = record.verification,
+            diagnostics = record.diagnostics,
             historyRecordId = record.id,
             startedAt = record.completedAt,
             updatedAt = record.completedAt
@@ -655,15 +783,6 @@ class MistakeViewModel(
         }
     }
 
-    /** Deletes the selected app-owned image files after the owning record was updated. */
-    fun deleteImagesNow(paths: Collection<String>) {
-        val candidates = paths.filter(String::isNotBlank).distinct()
-        if (candidates.isEmpty()) return
-        viewModelScope.launch {
-            ImageStorage.deletePrivateFiles(getApplication(), candidates)
-        }
-    }
-
     /** Deletes an image only after confirming no other persisted state still references it. */
     fun deleteImagesIfUnreferenced(paths: Collection<String>) {
         if (paths.isEmpty()) return
@@ -675,17 +794,16 @@ class MistakeViewModel(
         if (candidates.isEmpty()) return
         val currentSolve = _aiSolve.value
         val currentRecognition = _aiRecognition.value
-        val currentPaths = buildSet {
-            addAll(currentSolve.imagePaths)
-            currentSolve.imagePath?.takeIf(String::isNotBlank)?.let(::add)
-            currentSolve.graphicImagePath?.takeIf(String::isNotBlank)?.let(::add)
-            addAll(QuestionContentBlockCodec.decode(currentSolve.contentBlocks).flatMap { listOfNotNull(it.path, it.sourcePath) })
-            addAll(currentRecognition.imagePaths)
-            addAll(currentRecognition.result?.diagramBlocks.orEmpty().mapNotNull { it.cropPath })
-            addAll(_aiChat.value.currentImagePaths)
-            addAll(_aiChat.value.lastImagePaths)
-            addAll(_aiChat.value.messages.flatMap(AiChatMessage::imagePaths))
-        }
+        val currentPaths = MistakeAssetManager.collectAiState(
+            imagePaths = currentSolve.imagePaths + currentRecognition.imagePaths,
+            imagePath = currentSolve.imagePath,
+            graphicImagePath = currentSolve.graphicImagePath,
+            contentBlocks = currentSolve.contentBlocks,
+            extraPaths = currentRecognition.result?.diagramBlocks.orEmpty().mapNotNull { it.cropPath } +
+                _aiChat.value.currentImagePaths +
+                _aiChat.value.lastImagePaths +
+                _aiChat.value.messages.flatMap(AiChatMessage::imagePaths)
+        ).paths
         val referenced = aiSolveHistoryStore.referencedImagePaths() +
             repository.allReferencedImagePaths() + currentPaths
         ImageStorage.deletePrivateFiles(
@@ -789,6 +907,24 @@ class MistakeViewModel(
         aiChatRequestId = 0L
     }
 
+    /** Keeps a correction request visible in the follow-up history while the main solve is rebuilt. */
+    fun appendAiChatMessage(message: AiChatMessage) {
+        if (message.prompt.isBlank() || message.reply.isBlank()) return
+        val current = aiChatStore.read()
+        if (current.running) return
+        val next = current.copy(
+            requestId = maxOf(current.requestId, _aiChat.value.requestId),
+            lastPrompt = message.prompt,
+            lastImagePaths = message.imagePaths,
+            status = "COMPLETED",
+            error = null,
+            messages = current.messages + message
+        )
+        aiChatStore.write(next)
+        _aiChat.value = next.toUiState()
+        updateActiveHistory { record -> record.copy(chatMessages = next.messages) }
+    }
+
     private fun observeAiChat(requestId: Long) {
         aiChatObserverJob?.cancel()
         aiChatObserverJob = viewModelScope.launch {
@@ -813,12 +949,22 @@ class MistakeViewModel(
         }
     }
 
-    fun save(mistake: MistakeEntity, onFailure: (Throwable) -> Unit = { throw it }, onSaved: (Long) -> Unit = {}) = viewModelScope.launch {
+    fun save(
+        mistake: MistakeEntity,
+        onFailure: (Throwable) -> Unit = { throw it },
+        onSaved: (Long) -> Unit = {},
+        preserveReviewPlan: Boolean = false
+    ) = viewModelScope.launch {
         try {
             val blocks = QuestionContentBlockCodec.sanitize(
                 getApplication(), QuestionContentBlockCodec.decode(mistake.contentBlocks)
             )
-            onSaved(repository.save(mistake.copy(contentBlocks = QuestionContentBlockCodec.encode(blocks))))
+            onSaved(
+                repository.save(
+                    mistake.copy(contentBlocks = QuestionContentBlockCodec.encode(blocks)),
+                    preserveReviewPlan = preserveReviewPlan
+                )
+            )
         } catch (error: kotlinx.coroutines.CancellationException) {
             throw error
         } catch (error: Exception) {
@@ -850,28 +996,83 @@ class MistakeViewModel(
         }
     }
 
-    /** Saves locally, then dispatches durable background classification. */
-    fun saveAiMistake(
-        draft: MistakeEntity,
+    /**
+     * Starts the one classification request associated with a save sheet. The service can finish
+     * before a row exists (the result is persisted for the sheet) or after the local save (the
+     * result is merged into the bound mistake id).
+     */
+    fun beginAiMistakeClassification(
+        requestId: Long,
+        configurationId: String,
         endpoint: String,
         model: String,
-        apiKey: String,
+        solvedContent: String
+    ): String? {
+        if (solvedContent.isBlank() || configurationId.isBlank()) return null
+        val taskId = UUID.randomUUID().toString()
+        val pending = AiMistakeSaveState(
+            taskId = taskId,
+            requestId = requestId,
+            phase = AiMistakeSavePhase.CLASSIFICATION_PENDING,
+            startedAt = System.currentTimeMillis(),
+            message = "正在根据当前解题内容整理分类…",
+            configurationId = configurationId,
+            endpoint = endpoint,
+            model = model,
+            classificationSource = solvedContent,
+            read = false
+        )
+        aiMistakeSaveStore.upsert(pending)
+        _aiMistakeSave.value = pending
+        runCatching {
+            ContextCompat.startForegroundService(
+                getApplication(),
+                AiMistakeClassificationService.createIntent(getApplication(), taskId)
+            )
+        }.onFailure { error ->
+            val failed = pending.copy(
+                phase = AiMistakeSavePhase.CLASSIFICATION_FAILED,
+                completedAt = System.currentTimeMillis(),
+                success = false,
+                message = "自动分类暂不可用，可手动补充",
+                diagnostic = (error.message ?: error.javaClass.simpleName).take(240),
+                canRetry = false,
+                read = false
+            )
+            aiMistakeSaveStore.upsert(failed)
+            _aiMistakeSave.value = failed
+        }
+        return taskId
+    }
+
+    /** Saves the solved draft locally and binds any already-running classification task. */
+    fun saveAiMistake(
+        draft: MistakeEntity,
         requestId: Long = 0L,
-        configurationId: String = ""
+        preserveReviewPlan: Boolean = false,
+        classificationTaskId: String? = null
     ) {
         if (_aiMistakeSave.value.running) return
         // Every completed click creates a new mistake record, including when
         // the same solved question is intentionally added more than once.
-        val taskId = UUID.randomUUID().toString()
-        val startedAt = System.currentTimeMillis()
-        val saving = AiMistakeSaveState(
+        val now = System.currentTimeMillis()
+        val existing = classificationTaskId?.let(aiMistakeSaveStore::find)
+        val taskId = existing?.taskId ?: UUID.randomUUID().toString()
+        val saving = (existing ?: AiMistakeSaveState(
             taskId = taskId,
             requestId = requestId,
+            startedAt = now,
+            read = false
+        )).copy(
+            requestId = requestId,
+            mistakeId = null,
             phase = AiMistakeSavePhase.SAVING,
-            startedAt = startedAt,
-            configurationId = configurationId,
-            endpoint = endpoint,
-            model = model,
+            startedAt = existing?.startedAt?.takeIf { it > 0L } ?: now,
+            completedAt = 0L,
+            success = null,
+            message = "正在保存到错题库…",
+            diagnostic = "",
+            canRetry = false,
             read = false
         )
         aiMistakeSaveStore.upsert(saving)
@@ -885,34 +1086,52 @@ class MistakeViewModel(
                     "mistake_${taskId.take(8)}"
                 )
                 ownedCopies = copiedPaths
-                val id = repository.save(ownedDraft)
-                val classifying = saving.copy(
-                    mistakeId = id,
-                    phase = AiMistakeSavePhase.SAVED,
-                    message = "已保存，正在补充分类",
-                    success = true,
-                    read = false
-                )
-                aiMistakeSaveStore.upsert(classifying)
-                _aiMistakeSave.value = classifying
-                runCatching {
-                    ContextCompat.startForegroundService(
-                        getApplication(),
-                        AiMistakeClassificationService.createIntent(getApplication(), taskId)
-                    )
-                }.onFailure { error ->
-                    val failed = classifying.copy(
-                        phase = AiMistakeSavePhase.CLASSIFICATION_FAILED,
+                val id = repository.save(ownedDraft, preserveReviewPlan = preserveReviewPlan)
+                // The service may have completed while the images were copied. Re-read its
+                // result and apply it exactly once to the newly-created row. If it is still in
+                // flight, bind the id so the service applies the same result when it returns.
+                val latest = aiMistakeSaveStore.find(taskId) ?: saving
+                val classification = decodeAiMistakeClassification(latest.classificationJson)
+                val saved = if (classification != null) {
+                    val alreadyAppliedByService = latest.mistakeId == id &&
+                        latest.phase == AiMistakeSavePhase.CLASSIFICATION_COMPLETED
+                    if (!alreadyAppliedByService) {
+                        repository.applyAiClassification(id, classification)
+                    }
+                    latest.copy(
+                        mistakeId = id,
+                        phase = AiMistakeSavePhase.CLASSIFICATION_COMPLETED,
                         completedAt = System.currentTimeMillis(),
-                        success = false,
-                        message = "错题已保存，自动分类失败",
-                        diagnostic = (error.message ?: error.javaClass.simpleName).take(240),
-                        canRetry = true,
+                        message = "已保存并完成自动分类",
+                        success = true,
+                        canRetry = false,
                         read = false
                     )
-                    aiMistakeSaveStore.upsert(failed)
-                    _aiMistakeSave.value = failed
+                } else {
+                    val waitingForClassification = latest.phase == AiMistakeSavePhase.CLASSIFICATION_PENDING ||
+                        latest.phase == AiMistakeSavePhase.CLASSIFYING_PRE_SAVE ||
+                        (latest.phase == AiMistakeSavePhase.SAVING && latest.classificationSource.isNotBlank())
+                    val failedBeforeSave = latest.phase == AiMistakeSavePhase.CLASSIFICATION_FAILED
+                    latest.copy(
+                        mistakeId = id,
+                        phase = when {
+                            waitingForClassification -> AiMistakeSavePhase.CLASSIFYING
+                            failedBeforeSave -> AiMistakeSavePhase.CLASSIFICATION_FAILED
+                            else -> AiMistakeSavePhase.LOCAL_SAVED
+                        },
+                        completedAt = if (waitingForClassification) 0L else System.currentTimeMillis(),
+                        message = when {
+                            waitingForClassification -> "已保存，正在补充分类"
+                            failedBeforeSave -> "已保存到错题库，自动分类失败"
+                            else -> "已保存到错题库"
+                        },
+                        success = true,
+                        canRetry = failedBeforeSave,
+                        read = false
+                    )
                 }
+                aiMistakeSaveStore.upsert(saved)
+                _aiMistakeSave.value = saved
             } catch (error: Throwable) {
                 ImageStorage.deletePrivateFiles(getApplication(), ownedCopies)
                 val failed = saving.copy(
@@ -925,6 +1144,68 @@ class MistakeViewModel(
                 )
                 aiMistakeSaveStore.upsert(failed)
                 _aiMistakeSave.value = failed
+            }
+        }
+    }
+
+    /** Updates a selected duplicate while retaining its review identity/history. */
+    fun updateExistingMistakeFromDuplicate(
+        existingId: Long,
+        incoming: MistakeEntity,
+        onSaved: (Long) -> Unit = {},
+        onFailure: (Throwable) -> Unit = {}
+    ) {
+        if (existingId <= 0L || _aiMistakeSave.value.running) return
+        val taskId = UUID.randomUUID().toString()
+        val now = System.currentTimeMillis()
+        val saving = AiMistakeSaveState(
+            taskId = taskId,
+            requestId = 0L,
+            mistakeId = existingId,
+            phase = AiMistakeSavePhase.SAVING,
+            startedAt = now,
+            message = "正在更新已有错题…",
+            read = false
+        )
+        aiMistakeSaveStore.upsert(saving)
+        _aiMistakeSave.value = saving
+        viewModelScope.launch {
+            try {
+                val existing = requireNotNull(repository.find(existingId)) { "已有错题不存在" }
+                val merged = MistakeDuplicateService.mergeForExplicitUpdate(existing, incoming)
+                val id = repository.save(merged, preserveReviewPlan = true)
+                val replacement = MistakeAssetManager.replacement(existing, merged)
+                // The database update succeeded; only now is it safe to collect
+                // the old/new difference and reclaim files no longer referenced
+                // by the saved row or AI/capture state.
+                deleteImagesIfUnreferencedNow(replacement.obsoleteCandidates)
+                val completed = saving.copy(
+                    mistakeId = id,
+                    phase = AiMistakeSavePhase.LOCAL_SAVED,
+                    completedAt = System.currentTimeMillis(),
+                    success = true,
+                    message = "已更新已有错题，复习记录已保留",
+                    read = false
+                )
+                aiMistakeSaveStore.upsert(completed)
+                _aiMistakeSave.value = completed
+                onSaved(id)
+            } catch (error: Throwable) {
+                // The capture screen still owns incoming files after a failed
+                // update and lets the learner retry or leave the draft. Do not
+                // reclaim them here; leaveCapture() performs the same global
+                // reference check once that UI owner is gone.
+                val failed = saving.copy(
+                    phase = AiMistakeSavePhase.SAVE_FAILED,
+                    completedAt = System.currentTimeMillis(),
+                    success = false,
+                    message = "更新失败：${error.message ?: "未知错误"}",
+                    diagnostic = (error.message ?: error.javaClass.simpleName).take(240),
+                    read = false
+                )
+                aiMistakeSaveStore.upsert(failed)
+                _aiMistakeSave.value = failed
+                onFailure(error)
             }
         }
     }
@@ -998,6 +1279,43 @@ class MistakeViewModel(
         onUpdated()
     }
 
+    /** Adds active rows to tomorrow's plan while leaving their mastery untouched. */
+    fun addMistakesToTomorrow(ids: Collection<Long>, onUpdated: (Int) -> Unit = {}) = viewModelScope.launch {
+        val count = repository.addToReviewPlanForNextStudyDay(ids)
+        refreshReviewClock()
+        onUpdated(count)
+    }
+
+    /** Applies only fields explicitly supplied by the batch editor. */
+    fun batchUpdateMistakes(
+        ids: Collection<Long>,
+        subject: String? = null,
+        questionType: String? = null,
+        tags: String? = null,
+        difficulty: Int? = null,
+        inReviewPlan: Boolean? = null,
+        onFinished: () -> Unit = {}
+    ) = viewModelScope.launch {
+        val now = System.currentTimeMillis()
+        val tomorrow = if (inReviewPlan == true) LearningCalendar.nextStudyDayStart(now) else null
+        val updates = ids.filter { it > 0L }.distinct().mapNotNull { id ->
+            repository.find(id)?.let { current ->
+                current.copy(
+                    subject = subject?.trim()?.ifBlank { current.subject } ?: current.subject,
+                    questionType = questionType?.trim()?.ifBlank { current.questionType } ?: current.questionType,
+                    tags = tags?.trim() ?: current.tags,
+                    difficulty = difficulty?.let(Difficulty::normalize) ?: current.difficulty,
+                    inReviewPlan = inReviewPlan ?: current.inReviewPlan,
+                    nextReviewAt = tomorrow ?: current.nextReviewAt,
+                    updatedAt = System.currentTimeMillis()
+                )
+            }
+        }
+        if (updates.isNotEmpty()) repository.saveAll(updates)
+        refreshReviewClock()
+        onFinished()
+    }
+
     fun startAiRecognition(
         endpoint: String,
         model: String,
@@ -1062,6 +1380,18 @@ class MistakeViewModel(
         aiRecognitionRequestId = 0L
     }
 
+    /** Drops an uncommitted recognition request and reclaims only files no longer owned elsewhere. */
+    fun discardAiRecognition(retainedPaths: Collection<String> = emptyList()) {
+        val retained = retainedPaths.filter(String::isNotBlank).toSet()
+        val current = _aiRecognition.value
+        val transientPaths = buildList {
+            addAll(current.imagePaths)
+            addAll(current.result?.diagramBlocks.orEmpty().mapNotNull { it.cropPath })
+        }.filterNot { it in retained }
+        clearAiRecognition()
+        deleteImagesIfUnreferenced(transientPaths)
+    }
+
     fun stopAiRecognition() {
         val current = _aiRecognition.value
         if (!current.running) return
@@ -1087,14 +1417,34 @@ class MistakeViewModel(
         val updated = current.copy(result = updatedResult)
         aiRecognitionStore.write(updated)
         _aiRecognition.value = updated
+        deleteImagesIfUnreferenced(listOf(path))
     }
 
     suspend fun resetAllData() {
+        check(DataResetCoordinator.plan(DataResetMode.LEARNING_DATA).clearsMistakes) {
+            "学习数据清除契约未启用"
+        }
         repository.resetAllData()
         refreshReviewClock()
+        aiSolveObserverJob?.cancel()
+        AiSolveService.clearAndStop(getApplication())
+        aiSolveStore.clear()
+        _aiSolve.value = AiSolveState()
+        aiSolveRequestId = 0L
         aiSolveHistoryStore.clear()
         activeAiSolveHistoryId = null
+        aiChatObserverJob?.cancel()
+        AiFollowUpService.cancel(getApplication())
         aiChatStore.clear()
+        _aiChat.value = AiChatState()
+        aiChatRequestId = 0L
+        aiRecognitionObserverJob?.cancel()
+        AiRecognitionService.cancel(getApplication())
+        aiRecognitionStore.clear()
+        _aiRecognition.value = AiRecognitionState()
+        aiRecognitionRequestId = 0L
+        aiMistakeSaveStore.clear()
+        _aiMistakeSave.value = AiMistakeSaveState(taskId = "", requestId = 0L, phase = AiMistakeSavePhase.IDLE)
         _aiSolveHistory.value = emptyList()
         ImageStorage.deleteAllPrivateFiles(getApplication())
     }
@@ -1123,25 +1473,26 @@ class MistakeViewModel(
 
     private fun reserveReviewSessionGrade(sessionKey: String, mistakeId: Long, grade: ReviewGrade): Boolean {
         val current = _reviewSession.value?.takeIf { it.sessionKey == sessionKey } ?: return false
-        if (current.summaryVisible || current.gradesByMistake.containsKey(mistakeId)) return false
         val inFlight = reviewSessionInFlightIds.getOrPut(sessionKey) { mutableSetOf() }
         if (!inFlight.add(mistakeId)) return false
-        persistReviewSession(
-            current.copy(gradesByMistake = current.gradesByMistake + (mistakeId to grade.name))
-        )
+        val reserved = ReviewSessionController.reserveGrade(current, mistakeId, grade)
+        if (reserved == null) {
+            inFlight.remove(mistakeId)
+            return false
+        }
+        persistReviewSession(reserved)
         return true
     }
 
     private fun markReviewSessionRecorded(sessionKey: String, record: ReviewRecordEntity) {
         val current = _reviewSession.value?.takeIf { it.sessionKey == sessionKey } ?: return
-        if (record.id <= 0L || record.id in current.recordedReviewIds) return
-        persistReviewSession(current.copy(recordedReviewIds = current.recordedReviewIds + record.id))
+        persistReviewSession(ReviewSessionController.record(current, record))
     }
 
     private fun releaseReviewSessionGrade(sessionKey: String, mistakeId: Long) {
         reviewSessionInFlightIds[sessionKey]?.remove(mistakeId)
         val current = _reviewSession.value?.takeIf { it.sessionKey == sessionKey } ?: return
-        persistReviewSession(current.copy(gradesByMistake = current.gradesByMistake - mistakeId))
+        persistReviewSession(ReviewSessionController.releaseGrade(current, mistakeId))
     }
 
     private fun trackReviewSessionJob(sessionKey: String, mistakeId: Long, job: Job) {
@@ -1170,14 +1521,35 @@ class MistakeViewModel(
         val recordedIds = (savedStateHandle.get<LongArray>(KEY_RECORDED_IDS) ?: LongArray(0)).toList()
         val currentIndex = (savedStateHandle.get<Int>(KEY_CURRENT_INDEX) ?: 0)
             .coerceIn(0, (reviewIds.size - 1).coerceAtLeast(0))
-        return ReviewSessionUiState(
+        val source = savedStateHandle.get<String>(KEY_SOURCE)
+            ?.let { key -> ReviewSessionSource.entries.firstOrNull { it.key == key } }
+            ?: ReviewSessionSource.KNOWLEDGE_POINT
+        val status = savedStateHandle.get<String>(KEY_STATUS)
+            ?.let { value -> runCatching { ReviewSessionStatus.valueOf(value) }.getOrNull() }
+            ?: if (savedStateHandle.get<Boolean>(KEY_SUMMARY_VISIBLE) == true) {
+                ReviewSessionStatus.SUMMARY
+            } else {
+                ReviewSessionStatus.IN_PROGRESS
+            }
+        val plan = ReviewSessionPlan(
             sessionKey = sessionKey,
-            startedAt = savedStateHandle.get<Long>(KEY_STARTED_AT) ?: System.currentTimeMillis(),
+            source = source,
             reviewIds = reviewIds,
-            currentIndex = currentIndex,
-            gradesByMistake = grades,
-            recordedReviewIds = recordedIds,
-            summaryVisible = savedStateHandle.get<Boolean>(KEY_SUMMARY_VISIBLE) ?: false
+            knowledgePointStableId = savedStateHandle.get<String>(KEY_KNOWLEDGE_POINT_STABLE_ID),
+            knowledgePointName = savedStateHandle.get<String>(KEY_KNOWLEDGE_POINT_NAME),
+            returnDestination = savedStateHandle.get<String>(KEY_RETURN_DESTINATION)
+        )
+        return ReviewSessionUiState(
+            plan = plan,
+            progress = com.tiji.mistakes.domain.ReviewSessionProgress(
+                startedAt = savedStateHandle.get<Long>(KEY_STARTED_AT) ?: System.currentTimeMillis(),
+                status = status,
+                currentIndex = currentIndex,
+                gradesByMistake = grades.mapNotNull { (id, value) ->
+                    runCatching { id to ReviewGrade.valueOf(value) }.getOrNull()
+                }.toMap(),
+                recordedReviewIds = recordedIds
+            )
         )
     }
 
@@ -1189,6 +1561,13 @@ class MistakeViewModel(
         }
         val sortedGrades = state.gradesByMistake.toSortedMap()
         savedStateHandle[KEY_SESSION_KEY] = state.sessionKey
+        savedStateHandle[KEY_SOURCE] = state.plan.source.key
+        state.plan.knowledgePointStableId?.let { savedStateHandle[KEY_KNOWLEDGE_POINT_STABLE_ID] = it }
+            ?: savedStateHandle.remove<String>(KEY_KNOWLEDGE_POINT_STABLE_ID)
+        state.plan.knowledgePointName?.let { savedStateHandle[KEY_KNOWLEDGE_POINT_NAME] = it }
+            ?: savedStateHandle.remove<String>(KEY_KNOWLEDGE_POINT_NAME)
+        state.plan.returnDestination?.let { savedStateHandle[KEY_RETURN_DESTINATION] = it }
+            ?: savedStateHandle.remove<String>(KEY_RETURN_DESTINATION)
         savedStateHandle[KEY_STARTED_AT] = state.startedAt
         savedStateHandle[KEY_REVIEW_IDS] = state.reviewIds.toLongArray()
         savedStateHandle[KEY_CURRENT_INDEX] = state.currentIndex
@@ -1196,6 +1575,7 @@ class MistakeViewModel(
         savedStateHandle[KEY_GRADE_VALUES] = ArrayList(sortedGrades.values)
         savedStateHandle[KEY_RECORDED_IDS] = state.recordedReviewIds.toLongArray()
         savedStateHandle[KEY_SUMMARY_VISIBLE] = state.summaryVisible
+        savedStateHandle[KEY_STATUS] = state.status.name
         _reviewSession.value = state
     }
 
@@ -1207,6 +1587,10 @@ class MistakeViewModel(
     private companion object {
         const val REVIEW_CLOCK_INTERVAL_MS = 30_000L
         const val KEY_SESSION_KEY = "review_session_key"
+        const val KEY_SOURCE = "review_session_source"
+        const val KEY_KNOWLEDGE_POINT_STABLE_ID = "review_session_knowledge_point_stable_id"
+        const val KEY_KNOWLEDGE_POINT_NAME = "review_session_knowledge_point_name"
+        const val KEY_RETURN_DESTINATION = "review_session_return_destination"
         const val KEY_STARTED_AT = "review_session_started_at"
         const val KEY_REVIEW_IDS = "review_session_review_ids"
         const val KEY_CURRENT_INDEX = "review_session_current_index"
@@ -1214,15 +1598,21 @@ class MistakeViewModel(
         const val KEY_GRADE_VALUES = "review_session_grade_values"
         const val KEY_RECORDED_IDS = "review_session_recorded_ids"
         const val KEY_SUMMARY_VISIBLE = "review_session_summary_visible"
+        const val KEY_STATUS = "review_session_status"
         val SESSION_KEYS = listOf(
             KEY_SESSION_KEY,
+            KEY_SOURCE,
+            KEY_KNOWLEDGE_POINT_STABLE_ID,
+            KEY_KNOWLEDGE_POINT_NAME,
+            KEY_RETURN_DESTINATION,
             KEY_STARTED_AT,
             KEY_REVIEW_IDS,
             KEY_CURRENT_INDEX,
             KEY_GRADE_IDS,
             KEY_GRADE_VALUES,
             KEY_RECORDED_IDS,
-            KEY_SUMMARY_VISIBLE
+            KEY_SUMMARY_VISIBLE,
+            KEY_STATUS
         )
     }
 }
@@ -1233,6 +1623,7 @@ private fun AiSolveState.toPersisted() = PersistedAiSolveState(
     status = status,
     sessionId = AiSolveRuntime.sessionId,
     mode = mode,
+    reliabilityMode = reliabilityMode,
     configurationId = configurationId,
     visualConfigurationId = visualConfigurationId,
     modelName = modelName,
@@ -1246,6 +1637,12 @@ private fun AiSolveState.toPersisted() = PersistedAiSolveState(
     streamedText = streamedText,
     completeText = completeText,
     recognitionWarning = recognitionWarning,
+    uncertainItems = uncertainItems,
+    verification = verification,
+    previousCompleteText = previousCompleteText,
+    previousVerification = previousVerification,
+    previousUpdatedAt = previousUpdatedAt,
+    diagnostics = diagnostics,
     historyRecordId = historyRecordId,
     historyWriteError = historyWriteError,
     error = error,
@@ -1258,6 +1655,7 @@ private fun PersistedAiSolveState.toUiState() = AiSolveState(
     solveRunId = solveRunId,
     status = status,
     mode = mode,
+    reliabilityMode = reliabilityMode,
     configurationId = configurationId,
     visualConfigurationId = visualConfigurationId,
     modelName = modelName,
@@ -1271,6 +1669,12 @@ private fun PersistedAiSolveState.toUiState() = AiSolveState(
     streamedText = streamedText,
     completeText = completeText,
     recognitionWarning = recognitionWarning,
+    uncertainItems = uncertainItems,
+    verification = verification,
+    previousCompleteText = previousCompleteText,
+    previousVerification = previousVerification,
+    previousUpdatedAt = previousUpdatedAt,
+    diagnostics = diagnostics,
     historyRecordId = historyRecordId,
     historyWriteError = historyWriteError,
     error = error,

@@ -3,12 +3,12 @@ package com.tiji.mistakes.ui.settings.components
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.tiji.mistakes.ui.design.TijiShapes
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
+import com.tiji.mistakes.ui.design.TijiSurface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -25,9 +25,9 @@ internal fun OcrFrameBadgeIcon() {
             tint = MaterialTheme.colorScheme.primary,
             modifier = Modifier.size(26.dp)
         )
-        Surface(
+        TijiSurface(
             color = MaterialTheme.colorScheme.primaryContainer,
-            shape = RoundedCornerShape(2.dp),
+            shape = TijiShapes.XS,
             modifier = Modifier.align(Alignment.BottomEnd)
         ) {
             Text(

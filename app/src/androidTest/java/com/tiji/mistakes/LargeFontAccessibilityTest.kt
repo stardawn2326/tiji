@@ -32,7 +32,7 @@ class LargeFontAccessibilityTest {
 
     @Test
     fun navigationKeepsLabelsAndClickSemanticsAtLargeFont() {
-        listOf("home", "library", "solve", "review", "profile").forEach { route ->
+        listOf("home", "library", "solve", "review", "settings").forEach { route ->
             composeRule.onNodeWithTag("nav_$route").assertExists().performClick()
         }
     }
@@ -44,7 +44,7 @@ class LargeFontAccessibilityTest {
         composeRule.activityRule.scenario.recreate()
         composeRule.waitForIdle()
 
-        listOf("home", "library", "solve", "review", "profile").forEach { route ->
+        listOf("home", "library", "solve", "review", "settings").forEach { route ->
             composeRule.onNodeWithTag("nav_$route").assertExists().performClick()
         }
     }

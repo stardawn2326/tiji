@@ -10,6 +10,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -47,6 +48,7 @@ class AppPreferences(private val context: Context) {
     private val aiVisualProfilesKey = stringPreferencesKey("ai_visual_profiles")
     private val aiVisualBindingsKey = stringPreferencesKey("ai_visual_bindings")
     private val aiSolveInputModeKey = stringPreferencesKey("ai_solve_input_mode")
+    private val aiSolveReliabilityModeKey = stringPreferencesKey("ai_solve_reliability_mode")
     private val aiCaptureInputModeKey = stringPreferencesKey("ai_capture_input_mode")
     private val aiUploadConsentKey = booleanPreferencesKey("ai_upload_consent")
     private val aiExcludeSourceImageByDefaultKey = booleanPreferencesKey("ai_exclude_source_image_by_default")
@@ -78,6 +80,9 @@ class AppPreferences(private val context: Context) {
         decodeVisualBindings(it[aiVisualBindingsKey])
     }
     val aiSolveInputMode: Flow<String> = context.tijiDataStore.data.map { it[aiSolveInputModeKey] ?: DEFAULT_INPUT_MODE }
+    val aiSolveReliabilityMode: Flow<String> = context.tijiDataStore.data.map {
+        it[aiSolveReliabilityModeKey] ?: "RELIABLE"
+    }
     val aiCaptureInputMode: Flow<String> = context.tijiDataStore.data.map { it[aiCaptureInputModeKey] ?: DEFAULT_INPUT_MODE }
     val aiUploadConsent: Flow<Boolean> = context.tijiDataStore.data.map { it[aiUploadConsentKey] ?: false }
     val aiExcludeSourceImageByDefault: Flow<Boolean> = context.tijiDataStore.data.map {
@@ -89,10 +94,15 @@ class AppPreferences(private val context: Context) {
     val reviewPlanEnabled: Flow<Boolean> = context.tijiDataStore.data.map { it[reviewPlanEnabledKey] ?: false }
     val randomReview: Flow<Boolean> = context.tijiDataStore.data.map { it[randomReviewKey] ?: false }
     val reviewCheckIns: Flow<Set<String>> = context.tijiDataStore.data.map { decodeStringSet(it[reviewCheckInsKey]) }
-    val reviewProgress: Flow<Map<String, Int>> = context.tijiDataStore.data.map { decodeProgress(it[reviewProgressKey]) }
-    val reviewMastery: Flow<Map<String, Map<Long, String>>> = context.tijiDataStore.data.map {
-        decodeReviewMastery(it[reviewMasteryKey])
-    }
+    /**
+     * Deprecated compatibility surfaces. ReviewRecordEntity is now the only
+     * source of review results; these legacy score stores are intentionally no
+     * longer read by product code.
+     */
+    @Deprecated("ReviewRecordEntity is the only review fact source")
+    val reviewProgress: Flow<Map<String, Int>> = flowOf(emptyMap())
+    @Deprecated("ReviewRecordEntity is the only review fact source")
+    val reviewMastery: Flow<Map<String, Map<Long, String>>> = flowOf(emptyMap())
     val reviewPlanSnapshots: Flow<Map<String, List<Long>>> = context.tijiDataStore.data.map {
         decodeReviewPlanSnapshots(it[reviewPlanSnapshotsKey])
     }
@@ -135,18 +145,27 @@ class AppPreferences(private val context: Context) {
                 addAll(uniqueProfiles.filterNot { it.id == DEFAULT_PROFILE_ID })
             }
             preferences[aiProfilesKey] = encodeProfiles(normalized)
-            val activeId = preferences[activeAiProfileKey] ?: DEFAULT_PROFILE_ID
-            normalized.firstOrNull { it.id == activeId }?.let {
-                preferences[aiEndpointKey] = it.endpoint.trim().trimEnd('/')
-                preferences[aiModelKey] = it.model.trim()
-            }
+            val profileIds = normalized.map(AiProfile::id).toSet()
+            val visualBindings = decodeVisualBindings(preferences[aiVisualBindingsKey])
+                .filterKeys { it in profileIds }
+            preferences[aiVisualBindingsKey] = encodeVisualBindings(visualBindings)
+            val requestedActiveId = preferences[activeAiProfileKey]
+            val active = normalized.firstOrNull { it.id == requestedActiveId }
+                ?: normalized.firstOrNull { it.id == DEFAULT_PROFILE_ID }
+                ?: normalized.first()
+            preferences[activeAiProfileKey] = active.id
+            preferences[aiEndpointKey] = active.endpoint.trim().trimEnd('/')
+            preferences[aiModelKey] = active.model.trim()
         }
     }
 
     suspend fun setActiveAiProfile(id: String, profiles: List<AiProfile>) {
         context.tijiDataStore.edit {
-            it[activeAiProfileKey] = id
-            profiles.firstOrNull { profile -> profile.id == id }?.let { active ->
+            val active = profiles.firstOrNull { profile -> profile.id == id }
+                ?: profiles.firstOrNull { profile -> profile.id == DEFAULT_PROFILE_ID }
+                ?: profiles.firstOrNull()
+            if (active != null) {
+                it[activeAiProfileKey] = active.id
                 it[aiEndpointKey] = active.endpoint.trim().trimEnd('/')
                 it[aiModelKey] = active.model.trim()
             }
@@ -155,7 +174,12 @@ class AppPreferences(private val context: Context) {
 
     suspend fun setAiVisualProfiles(value: List<AiVisualProfile>) {
         context.tijiDataStore.edit { preferences ->
-            preferences[aiVisualProfilesKey] = encodeVisualProfiles(value.distinctBy { it.id })
+            val profiles = value.distinctBy { it.id }
+            val ids = profiles.map(AiVisualProfile::id).toSet()
+            val bindings = decodeVisualBindings(preferences[aiVisualBindingsKey])
+                .filterValues { it in ids }
+            preferences[aiVisualProfilesKey] = encodeVisualProfiles(profiles)
+            preferences[aiVisualBindingsKey] = encodeVisualBindings(bindings)
         }
     }
 
@@ -193,8 +217,23 @@ class AppPreferences(private val context: Context) {
         }
     }
 
+    /** Restores the complete text/visual/binding group after an undo action. */
+    suspend fun restoreAiVisualState(
+        profiles: List<AiVisualProfile>,
+        bindings: Map<String, String>
+    ) {
+        context.tijiDataStore.edit { preferences ->
+            preferences[aiVisualProfilesKey] = encodeVisualProfiles(profiles.distinctBy { it.id })
+            preferences[aiVisualBindingsKey] = encodeVisualBindings(bindings.filterKeys(String::isNotBlank).filterValues(String::isNotBlank))
+        }
+    }
+
     suspend fun setAiSolveInputMode(value: String) {
         context.tijiDataStore.edit { it[aiSolveInputModeKey] = value }
+    }
+
+    suspend fun setAiSolveReliabilityMode(value: String) {
+        context.tijiDataStore.edit { it[aiSolveReliabilityModeKey] = value }
     }
 
     suspend fun setAiCaptureInputMode(value: String) {
@@ -223,15 +262,9 @@ class AppPreferences(private val context: Context) {
     suspend fun setReviewPlanEnabled(value: Boolean) { context.tijiDataStore.edit { it[reviewPlanEnabledKey] = value } }
     suspend fun setRandomReview(value: Boolean) { context.tijiDataStore.edit { it[randomReviewKey] = value } }
 
-    suspend fun recordReviewStatus(date: String, questionId: Long, status: String) {
-        context.tijiDataStore.edit { preferences ->
-            val records = decodeReviewMastery(preferences[reviewMasteryKey]).mapValues { it.value.toMutableMap() }.toMutableMap()
-            val dateRecords = records[date] ?: mutableMapOf()
-            dateRecords[questionId] = status
-            records[date] = dateRecords
-            preferences[reviewMasteryKey] = encodeReviewMastery(records)
-        }
-    }
+    /** @deprecated Legacy migration shim; new review facts are written by Room. */
+    @Deprecated("Use MistakeRepository.recordReview")
+    suspend fun recordReviewStatus(date: String, questionId: Long, status: String) = Unit
 
     suspend fun ensureReviewPlanSnapshot(date: String, questionIds: List<Long>) {
         val normalized = questionIds.distinct().filter { it > 0L }
@@ -263,16 +296,9 @@ class AppPreferences(private val context: Context) {
         }
     }
 
-    suspend fun recordReview(date: String = localDateKey()) {
-        context.tijiDataStore.edit { preferences ->
-            val progress = decodeProgress(preferences[reviewProgressKey]).toMutableMap()
-            progress[date] = (progress[date] ?: 0) + 1
-            preferences[reviewProgressKey] = JSONObject(progress).toString()
-            val checkIns = decodeStringSet(preferences[reviewCheckInsKey]).toMutableSet()
-            checkIns += date
-            preferences[reviewCheckInsKey] = JSONArray(checkIns.sorted()).toString()
-        }
-    }
+    /** @deprecated Legacy migration shim; it no longer stores review scores. */
+    @Deprecated("ReviewRecordEntity is the only review fact source")
+    suspend fun recordReview(date: String = localDateKey()) = Unit
 
     suspend fun toggleReviewCheckIn(date: String) {
         context.tijiDataStore.edit { preferences ->
@@ -295,15 +321,6 @@ class AppPreferences(private val context: Context) {
     /** Serializes only portable, non-secret settings. API keys and transient AI state live elsewhere. */
     suspend fun exportBackupJson(idToStableId: Map<Long, String>): JSONObject {
         val preferences = context.tijiDataStore.data.first()
-        val mastery = JSONObject().apply {
-            decodeReviewMastery(preferences[reviewMasteryKey]).forEach { (date, records) ->
-                put(date, JSONObject().apply {
-                    records.forEach { (questionId, status) ->
-                        idToStableId[questionId]?.let { stableId -> put(stableId, status) }
-                    }
-                })
-            }
-        }
         val snapshots = JSONObject().apply {
             decodeReviewPlanSnapshots(preferences[reviewPlanSnapshotsKey]).forEach { (date, questionIds) ->
                 put(date, JSONArray(questionIds.mapNotNull(idToStableId::get).distinct()))
@@ -317,6 +334,11 @@ class AppPreferences(private val context: Context) {
             .put("aiModel", preferences[aiModelKey] ?: DEFAULT_MODEL)
             .put("aiProfiles", JSONArray(preferences[aiProfilesKey] ?: encodeProfiles(listOf(defaultProfile()))))
             .put("activeAiProfile", preferences[activeAiProfileKey] ?: DEFAULT_PROFILE_ID)
+            .put("aiVisualProfiles", JSONArray(preferences[aiVisualProfilesKey] ?: "[]"))
+            .put("aiVisualBindings", JSONObject(preferences[aiVisualBindingsKey] ?: "{}"))
+            .put("aiSolveInputMode", preferences[aiSolveInputModeKey] ?: DEFAULT_INPUT_MODE)
+            .put("aiSolveReliabilityMode", preferences[aiSolveReliabilityModeKey] ?: "RELIABLE")
+            .put("aiCaptureInputMode", preferences[aiCaptureInputModeKey] ?: DEFAULT_INPUT_MODE)
             .put("aiUploadConsent", preferences[aiUploadConsentKey] ?: false)
             .put("aiExcludeSourceImageByDefault", preferences[aiExcludeSourceImageByDefaultKey] ?: true)
             .put("dailyReviewLimit", (preferences[dailyReviewLimitKey] ?: 20).coerceIn(1, 100))
@@ -325,8 +347,6 @@ class AppPreferences(private val context: Context) {
             .put("reviewPlanEnabled", preferences[reviewPlanEnabledKey] ?: false)
             .put("randomReview", preferences[randomReviewKey] ?: false)
             .put("reviewCheckIns", JSONArray(preferences[reviewCheckInsKey] ?: "[]"))
-            .put("reviewProgress", JSONObject(preferences[reviewProgressKey] ?: "{}"))
-            .put("reviewMastery", mastery)
             .put("reviewPlanSnapshots", snapshots)
     }
 
@@ -339,21 +359,10 @@ class AppPreferences(private val context: Context) {
             if (replace) {
                 context.tijiDataStore.edit { preferences ->
                     preferences[reviewCheckInsKey] = "[]"
-                    preferences[reviewProgressKey] = "{}"
-                    preferences[reviewMasteryKey] = "{}"
                     preferences[reviewPlanSnapshotsKey] = "{}"
                 }
             }
             return
-        }
-        fun importedMastery(): Map<String, Map<Long, String>> {
-            val root = json.optJSONObject("reviewMastery") ?: return emptyMap()
-            return root.keys().asSequence().associateWith { date ->
-                val records = root.optJSONObject(date) ?: JSONObject()
-                records.keys().asSequence().mapNotNull { stableId ->
-                    stableIdToLocalId[stableId]?.let { localId -> localId to records.optString(stableId) }
-                }.toMap()
-            }
         }
         fun importedSnapshots(): Map<String, List<Long>> {
             val root = json.optJSONObject("reviewPlanSnapshots") ?: return emptyMap()
@@ -365,19 +374,37 @@ class AppPreferences(private val context: Context) {
             }
         }
 
+        val importedEndpoint = json.optString("aiEndpoint", DEFAULT_ENDPOINT).trim().trimEnd('/')
+        val importedModel = json.optString("aiModel", DEFAULT_MODEL).trim()
+        val importedProfiles = decodeProfiles(
+            json.optJSONArray("aiProfiles")?.toString(),
+            importedEndpoint,
+            importedModel
+        )
+        val importedActiveId = importedProfiles.firstOrNull { it.id == json.optString("activeAiProfile") }?.id
+            ?: importedProfiles.firstOrNull()?.id
+            ?: DEFAULT_PROFILE_ID
+        val importedVisualProfiles = decodeVisualProfiles(json.optJSONArray("aiVisualProfiles")?.toString())
+            .filter { it.textProfileId in importedProfiles.map(AiProfile::id) }
+        val visualProfileIds = importedVisualProfiles.map(AiVisualProfile::id).toSet()
+        val importedVisualBindings = decodeVisualBindings(json.optJSONObject("aiVisualBindings")?.toString())
+            .filterKeys { it in importedProfiles.map(AiProfile::id) }
+            .filterValues { it in visualProfileIds }
+
         context.tijiDataStore.edit { preferences ->
             preferences[themeModeKey] = json.optString("themeMode", "system")
             preferences[themePaletteKey] = json.optString("themePalette", "blue")
-            preferences[aiEndpointKey] = json.optString("aiEndpoint", DEFAULT_ENDPOINT).trim().trimEnd('/')
-            preferences[aiModelKey] = json.optString("aiModel", DEFAULT_MODEL).trim()
-            preferences[aiProfilesKey] = (json.optJSONArray("aiProfiles") ?: JSONArray().put(
-                JSONObject()
-                    .put("id", DEFAULT_PROFILE_ID)
-                    .put("name", "默认 AI")
-                    .put("endpoint", json.optString("aiEndpoint", DEFAULT_ENDPOINT))
-                    .put("model", json.optString("aiModel", DEFAULT_MODEL))
-            )).toString()
-            preferences[activeAiProfileKey] = json.optString("activeAiProfile", DEFAULT_PROFILE_ID)
+            preferences[aiProfilesKey] = encodeProfiles(importedProfiles)
+            preferences[activeAiProfileKey] = importedActiveId
+            preferences[aiVisualProfilesKey] = encodeVisualProfiles(importedVisualProfiles)
+            preferences[aiVisualBindingsKey] = encodeVisualBindings(importedVisualBindings)
+            importedProfiles.firstOrNull { it.id == importedActiveId }?.let { active ->
+                preferences[aiEndpointKey] = active.endpoint.trim().trimEnd('/')
+                preferences[aiModelKey] = active.model.trim()
+            }
+            preferences[aiSolveInputModeKey] = json.optString("aiSolveInputMode", DEFAULT_INPUT_MODE)
+            preferences[aiSolveReliabilityModeKey] = json.optString("aiSolveReliabilityMode", "RELIABLE")
+            preferences[aiCaptureInputModeKey] = json.optString("aiCaptureInputMode", DEFAULT_INPUT_MODE)
             preferences[aiUploadConsentKey] = json.optBoolean("aiUploadConsent", false)
             preferences[aiExcludeSourceImageByDefaultKey] = json.optBoolean("aiExcludeSourceImageByDefault", true)
             preferences[dailyReviewLimitKey] = json.optInt("dailyReviewLimit", 20).coerceIn(1, 100)
@@ -390,20 +417,6 @@ class AppPreferences(private val context: Context) {
             val currentCheckIns = if (replace) emptySet() else decodeStringSet(preferences[reviewCheckInsKey])
             preferences[reviewCheckInsKey] = JSONArray((currentCheckIns + importedCheckIns).sorted()).toString()
 
-            val importedProgress = decodeProgress(json.optJSONObject("reviewProgress")?.toString())
-            val progress = (if (replace) emptyMap() else decodeProgress(preferences[reviewProgressKey])).toMutableMap()
-            importedProgress.forEach { (date, count) -> progress[date] = maxOf(progress[date] ?: 0, count) }
-            preferences[reviewProgressKey] = JSONObject(progress).toString()
-
-            val mastery = (if (replace) emptyMap() else decodeReviewMastery(preferences[reviewMasteryKey]))
-                .mapValues { it.value.toMutableMap() }.toMutableMap()
-            importedMastery().forEach { (date, records) ->
-                val merged = mastery[date] ?: mutableMapOf()
-                merged.putAll(records)
-                mastery[date] = merged
-            }
-            preferences[reviewMasteryKey] = encodeReviewMastery(mastery)
-
             val snapshots = (if (replace) emptyMap() else decodeReviewPlanSnapshots(preferences[reviewPlanSnapshotsKey]))
                 .mapValues { it.value.toMutableList() }.toMutableMap()
             importedSnapshots().forEach { (date, ids) ->
@@ -411,6 +424,11 @@ class AppPreferences(private val context: Context) {
             }
             preferences[reviewPlanSnapshotsKey] = encodeReviewPlanSnapshots(snapshots)
         }
+    }
+
+    /** Clears user preferences for a factory reset. Secure API keys live in SecureKeyStore. */
+    suspend fun clearAll() {
+        context.tijiDataStore.edit { it.clear() }
     }
 
     companion object {
