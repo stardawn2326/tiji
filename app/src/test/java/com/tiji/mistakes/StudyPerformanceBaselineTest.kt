@@ -31,7 +31,6 @@ class StudyPerformanceBaselineTest {
             activeMistakes = active,
             dueMistakes = due,
             recentRecords = emptyList(),
-            knowledgeInsights = emptyList(),
             dailyLimit = 100,
             now = now
         )

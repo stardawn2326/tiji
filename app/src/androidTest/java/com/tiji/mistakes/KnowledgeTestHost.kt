@@ -11,9 +11,11 @@ import com.tiji.mistakes.data.KnowledgePointEntity
 import com.tiji.mistakes.data.MistakeEntity
 import com.tiji.mistakes.data.MistakeRepository
 import com.tiji.mistakes.data.ReviewRecordEntity
-import com.tiji.mistakes.domain.KnowledgePointInsight
+import com.tiji.mistakes.domain.KnowledgePointProgress
+import com.tiji.mistakes.domain.MistakeProgressCalculator
 import com.tiji.mistakes.domain.ReviewSessionPlan
-import com.tiji.mistakes.domain.WeaknessCalculator
+import com.tiji.mistakes.domain.latestReviewGrades
+import com.tiji.mistakes.domain.toMistakeListItems
 import com.tiji.mistakes.ui.MistakeViewModel
 import com.tiji.mistakes.ui.ThemeMode
 import com.tiji.mistakes.ui.ThemePalette
@@ -23,7 +25,7 @@ import com.tiji.mistakes.ui.review.ReviewQuestionScreen
 
 internal data class KnowledgeTestData(
     val point: KnowledgePointEntity,
-    val insight: KnowledgePointInsight?,
+    val progress: KnowledgePointProgress?,
     val relatedMistakes: List<MistakeEntity>,
     val reviewRecords: List<ReviewRecordEntity>
 )
@@ -42,13 +44,15 @@ internal suspend fun loadKnowledgeTestData(context: Context, stableId: String): 
         .filter { it.mistakeId in relatedIds }
         .sortedWith(compareByDescending<ReviewRecordEntity> { it.reviewedAt }.thenByDescending { it.id })
         .take(5)
-    val insight = WeaknessCalculator.calculate(
-        points = database.knowledgePointDao().listAll(),
-        links = database.mistakeKnowledgePointDao().listAll(),
-        mistakes = database.mistakeDao().listAll(),
-        records = allRecords
-    ).firstOrNull { it.point.stableId == stableId }
-    return KnowledgeTestData(point, insight, relatedMistakes, reviewRecords)
+    val latestGrades = latestReviewGrades(allRecords)
+    val progress = MistakeProgressCalculator.calculate(
+        database.mistakeDao().listAll().toMistakeListItems(latestGrades),
+        database.knowledgePointDao().listAll(),
+        database.mistakeKnowledgePointDao().listAll()
+    ).bySubject
+        .flatMap { it.knowledgePoints }
+        .firstOrNull { it.stableId == stableId }
+    return KnowledgeTestData(point, progress, relatedMistakes, reviewRecords)
 }
 
 @Composable
@@ -61,7 +65,7 @@ internal fun KnowledgeTestHost(
     TijiTheme(mode = ThemeMode.LIGHT, palette = ThemePalette.BLUE) {
         KnowledgeDetailScreen(
             point = data.point,
-            insight = data.insight,
+            progress = data.progress,
             relatedMistakes = data.relatedMistakes,
             reviewRecords = data.reviewRecords,
             onBack = onBack,
@@ -84,7 +88,7 @@ internal fun FocusedReviewTestHost(
         if (showKnowledgeDetail && detail != null) {
             KnowledgeDetailScreen(
                 point = detail.point,
-                insight = detail.insight,
+                progress = detail.progress,
                 relatedMistakes = detail.relatedMistakes,
                 reviewRecords = detail.reviewRecords,
                 onBack = { showKnowledgeDetail = false },

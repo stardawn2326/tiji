@@ -24,10 +24,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material.icons.outlined.FilterList
-import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Lightbulb
 import androidx.compose.material.icons.outlined.Print
 import androidx.compose.material.icons.outlined.Replay
@@ -38,7 +36,6 @@ import com.tiji.mistakes.ui.design.TijiButton
 import com.tiji.mistakes.ui.design.TijiChip
 import androidx.compose.material3.Icon
 import com.tiji.mistakes.ui.design.TijiIconButton
-import com.tiji.mistakes.ui.design.TijiProgress
 import androidx.compose.material3.MaterialTheme
 import com.tiji.mistakes.ui.design.TijiSecondaryButton
 import com.tiji.mistakes.ui.design.TijiScreen
@@ -64,8 +61,9 @@ import androidx.compose.ui.unit.dp
 import com.tiji.mistakes.data.KnowledgePointEntity
 import com.tiji.mistakes.data.MistakeEntity
 import com.tiji.mistakes.data.ReviewRecordEntity
-import com.tiji.mistakes.domain.KnowledgePointInsight
+import com.tiji.mistakes.domain.KnowledgePointProgress
 import com.tiji.mistakes.domain.ReviewGrade
+import com.tiji.mistakes.domain.time.LearningCalendar
 import com.tiji.mistakes.service.HtmlPdfExportService
 import com.tiji.mistakes.service.PdfExportOptions
 import com.tiji.mistakes.service.PdfTemplate
@@ -91,7 +89,7 @@ import kotlinx.coroutines.launch
 @Composable
 internal fun KnowledgeDetailScreen(
     point: KnowledgePointEntity?,
-    insight: KnowledgePointInsight?,
+    progress: KnowledgePointProgress?,
     relatedMistakes: List<MistakeEntity>,
     reviewRecords: List<ReviewRecordEntity>,
     latestReviewGrades: Map<Long, ReviewGrade?> = emptyMap(),
@@ -119,13 +117,15 @@ internal fun KnowledgeDetailScreen(
         return
     }
 
-    val averageMastery = relatedMistakes.map { it.mastery.coerceIn(0, 3) }.average().takeUnless(Double::isNaN) ?: 0.0
-    val resolvedInsight = insight ?: KnowledgePointInsight(point, relatedMistakes.size, 0, 0, 0f, "稳定")
-    val reasons = buildList {
-        if (averageMastery <= 1.0) add("关联错题平均掌握度偏低")
-        if (resolvedInsight.recentForgotCount > 0) add("近 30 天有 ${resolvedInsight.recentForgotCount} 次“忘记”")
-        if (resolvedInsight.mistakeCount >= 5) add("该知识点累计有 ${resolvedInsight.mistakeCount} 道错题")
-        if (isEmpty()) add("最近没有明显风险，继续保持规律复习")
+    val resolvedProgress = progress ?: KnowledgePointProgress(
+        stableId = point.stableId,
+        name = point.name,
+        total = relatedMistakes.size,
+        mastered = 0
+    )
+    val recentReviewCount = remember(reviewRecords) {
+        val start = LearningCalendar.startOfRecentDays(System.currentTimeMillis(), 30).toEpochMilli()
+        reviewRecords.count { it.reviewedAt >= start }
     }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -298,14 +298,13 @@ internal fun KnowledgeDetailScreen(
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             TijiTag(point.subject)
                             Text(point.name, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                            Text("学习状态：${resolvedInsight.label}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+                            Text(
+                                "错题 ${resolvedProgress.total} 道 · 已掌握 ${resolvedProgress.mastered} 道 · 掌握率 ${String.format(java.util.Locale.ROOT, "%.1f%%", resolvedProgress.masteryRate * 100f)}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.primary
+                            )
                         }
                     }
-                    TijiProgress(
-                        progress = { resolvedInsight.weakness },
-                        modifier = Modifier.fillMaxWidth().height(8.dp),
-                        trackColor = MaterialTheme.colorScheme.primaryContainer
-                    )
                     TijiButton(
                         onClick = { onStartFocusedReview(point.stableId, point.name) },
                         enabled = relatedMistakes.isNotEmpty(),
@@ -331,34 +330,14 @@ internal fun KnowledgeDetailScreen(
                 TijiPaperCard {
                     TijiSectionHeader("学习概览")
                     Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        KnowledgeMetric("关联错题", relatedMistakes.size.toString(), Modifier.weight(1f))
+                        KnowledgeMetric("关联错题", resolvedProgress.total.toString(), Modifier.weight(1f))
                         KnowledgeMetric(
                             "近30天复习",
-                            resolvedInsight.recentReviewCount.toString(),
+                            recentReviewCount.toString(),
                             Modifier.weight(1f),
                             valueTestTag = "knowledge_recent_30_count"
                         )
-                        KnowledgeMetric("近30天忘记", resolvedInsight.recentForgotCount.toString(), Modifier.weight(1f))
-                    }
-                }
-            }
-            item {
-                TijiPaperCard {
-                    TijiSectionHeader("主要原因")
-                    reasons.forEach { reason ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(top = 7.dp),
-                            verticalAlignment = Alignment.Top,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(
-                                if (reason.startsWith("最近没有")) Icons.Outlined.CheckCircle else Icons.Outlined.Info,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Text(reason, style = MaterialTheme.typography.bodyMedium)
-                        }
+                        KnowledgeMetric("复习记录", reviewRecords.size.toString(), Modifier.weight(1f))
                     }
                 }
             }
