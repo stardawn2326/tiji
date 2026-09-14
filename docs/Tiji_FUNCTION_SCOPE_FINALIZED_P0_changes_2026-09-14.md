@@ -71,9 +71,10 @@
 - 功能提交：`95fb280c1bdac3091d1c432962e67ff9d7b771d8`
 - PR：[ #11 · feat: close function scope P0 review flow](https://github.com/stardawn2326/tiji/pull/11)
 - PR CI：通过；push run [`34811064733`](https://github.com/stardawn2326/tiji/actions/runs/34811064733)，PR run [`34811094057`](https://github.com/stardawn2326/tiji/actions/runs/34811094057)，两次均通过编译/package 与 API30 instrumentation。
+- 最新文档回填 head 的 CI：通过；push run [`34811603094`](https://github.com/stardawn2326/tiji/actions/runs/34811603094)，PR run [`34811606279`](https://github.com/stardawn2326/tiji/actions/runs/34811606279)，两次均通过编译/package 与 API30 instrumentation。
 - `main` 合并提交：尚未执行；当前请求已完成分支推送和 PR 创建，未直接改写共享 `main`。
 - 合并后 `main` CI：待合并后执行。
-- 远端文件树和文件内容校验：分支推送完成后回填。
+- 远端文件树和文件内容校验：PASS；分支 ref 为 `6592f7831d77f665d2b56bb362035e5f1dd775ff`，文档 blob 为 `76d36116f8d12512a1e53b7c38bb26154a8ac122`，均与本地提交一致。
 
 ## 范围说明
 
