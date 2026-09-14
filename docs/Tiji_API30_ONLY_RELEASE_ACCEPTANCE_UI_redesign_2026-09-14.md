@@ -128,8 +128,8 @@ UI-09 PDF / Dialog / Sheet / Auxiliary
 ## GitHub 发布记录
 
 - 本轮分支：`codex/release-acceptance-api30`。
-- 分支提交：`a124b03b3438dc7e46e42223ba1dd871fe3d75df`。
+- Release gate 提交：`a124b03b3438dc7e46e42223ba1dd871fe3d75df`；Fresh Install 证据文档提交：`1f400e2932b74d2f59eac3c06ffe0395f35d2aff`。
 - 分支基线：`MAIN_AFTER_PR11 = 36406bb3ef21c41181501580b8718cadfce34d27`。
-- 分支 CI：[Actions run 34825384649](https://github.com/stardawn2326/tiji/actions/runs/34825384649)，`success`；compile/package job `103916204901` 与 API30 instrumentation job `103916205193` 均成功。API30 日志为 `Starting 71 tests`、`Finished 75 tests`、`4 skipped`、`0 failed`。
+- 分支 CI：[Actions run 34826015855](https://github.com/stardawn2326/tiji/actions/runs/34826015855)，`success`；compile/package job `103918247883` 与 API30 instrumentation job `103918248077` 均成功。API30 日志为 `Starting 71 tests`、`Finished 75 tests`、`4 skipped`、`0 failed`。
 - 不创建 tag、不创建 GitHub Release、不发布 APK。
 - API35 不进入分支、CI 或验收门禁。
