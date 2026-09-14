@@ -54,6 +54,10 @@ jobs:
               -noprompt
           fi
 
+      - name: Self-check release harness
+        shell: bash
+        run: ./scripts/verify-release-test.sh
+
       - name: Verify Android project
         run: ./gradlew :app:compileDebugKotlin :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --no-daemon
 
