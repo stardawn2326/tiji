@@ -40,10 +40,12 @@ EOF
   local status=0
   set +e
   output="$(
-    export VERIFY_RELEASE_SOURCE_ONLY=1
-    source ./scripts/verify-release.sh
-    read_badging "$fake_aapt" "$temp_dir/tiji.apk"
-  2>&1)"
+    {
+      export VERIFY_RELEASE_SOURCE_ONLY=1
+      source ./scripts/verify-release.sh
+      read_badging "$fake_aapt" "$temp_dir/tiji.apk"
+    } 2>&1
+  )"
   status=$?
   set -e
   (( status != 0 )) || fail "metadata tool failure unexpectedly succeeded"
@@ -56,10 +58,12 @@ run_unknown_field_test() {
   local status=0
   set +e
   output="$(
-    export VERIFY_RELEASE_SOURCE_ONLY=1
-    source ./scripts/verify-release.sh
-    require_known "targetSdk" "unknown"
-  2>&1)"
+    {
+      export VERIFY_RELEASE_SOURCE_ONLY=1
+      source ./scripts/verify-release.sh
+      require_known "targetSdk" "unknown"
+    } 2>&1
+  )"
   status=$?
   set -e
   (( status != 0 )) || fail "unknown metadata unexpectedly succeeded"
