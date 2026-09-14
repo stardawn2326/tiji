@@ -58,7 +58,12 @@ object DailyStudyPlanner {
             .mapNotNull(activeById::get)
             .toList()
 
-        val selectedDue = selectDueForDay(dueIds, limit, input.subjectPreferences)
+        val selectedDue = selectDueForDay(
+            eligible = dueIds,
+            dailyLimit = limit,
+            subjectPreferences = input.subjectPreferences,
+            latestRecords = latestRecord
+        )
         val reasons = selectedDue.associate { mistake ->
             mistake.id to reasonFor(
                 mistake = mistake,
@@ -81,7 +86,8 @@ object DailyStudyPlanner {
     internal fun selectDueForDay(
         eligible: List<MistakeEntity>,
         dailyLimit: Int,
-        subjectPreferences: Map<String, Int> = emptyMap()
+        subjectPreferences: Map<String, Int> = emptyMap(),
+        latestRecords: Map<Long, ReviewRecordEntity?> = emptyMap()
     ): List<MistakeEntity> {
         val limit = dailyLimit.coerceAtLeast(0)
         if (limit == 0) return emptyList()
@@ -97,6 +103,8 @@ object DailyStudyPlanner {
                 compareBy<MistakeEntity> { it.nextReviewAt }
                     .thenBy(::subjectRank)
                     .thenBy { it.mastery.coerceIn(0, 3) }
+                    .thenByDescending { latestRecords[it.id]?.grade == ReviewGrade.FORGOT.name }
+                    .thenByDescending { latestRecords[it.id]?.reviewedAt ?: Long.MIN_VALUE }
                     .thenBy { it.updatedAt }
                     .thenBy { it.stableId }
                     .thenBy { it.id }
@@ -182,7 +190,8 @@ object FutureReviewPlan {
         dailyLimit: Int = Int.MAX_VALUE,
         subjectPreferences: Map<String, Int> = emptyMap(),
         reviewSubjectsRaw: String = "",
-        todayPlannedIds: Set<Long> = emptySet()
+        todayPlannedIds: Set<Long> = emptySet(),
+        latestRecords: Map<Long, ReviewRecordEntity?> = emptyMap()
     ): List<FutureReviewPlanDay> {
         val startDate = LearningCalendar.localDate(now, zoneId)
         val eligible = activeMistakes.asSequence()
@@ -202,7 +211,8 @@ object FutureReviewPlan {
             val selected = DailyStudyPlanner.selectDueForDay(
                 eligible = eligible.filter { it.id !in forecasted && it.nextReviewAt <= cutoff },
                 dailyLimit = dailyLimit,
-                subjectPreferences = preferences
+                subjectPreferences = preferences,
+                latestRecords = latestRecords
             )
             forecasted += selected.map(MistakeEntity::id)
             val ids = selected.map(MistakeEntity::id)

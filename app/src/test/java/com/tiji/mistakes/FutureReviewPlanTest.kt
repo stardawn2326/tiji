@@ -1,7 +1,9 @@
 package com.tiji.mistakes
 
 import com.tiji.mistakes.data.MistakeEntity
+import com.tiji.mistakes.data.ReviewRecordEntity
 import com.tiji.mistakes.domain.FutureReviewPlan
+import com.tiji.mistakes.domain.ReviewGrade
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -138,6 +140,27 @@ class FutureReviewPlanTest {
         assertEquals(first, second)
     }
 
+    @Test
+    fun futureForecastUsesTheSameRecentRecordOrderingAsToday() {
+        val tomorrow = LocalDate.of(2026, 9, 15)
+        val first = scheduled(1L, tomorrow).copy(subject = "数学", updatedAt = 100L)
+        val forgotten = scheduled(2L, tomorrow).copy(subject = "数学", updatedAt = 100L)
+        val latestRecords: Map<Long, ReviewRecordEntity?> = mapOf(
+            first.id to reviewRecord(1L, first.id, ReviewGrade.GOOD, 10L),
+            forgotten.id to reviewRecord(2L, forgotten.id, ReviewGrade.FORGOT, 20L)
+        )
+
+        val result = FutureReviewPlan.calculate(
+            listOf(first, forgotten),
+            now,
+            zone,
+            dailyLimit = 2,
+            latestRecords = latestRecords
+        )
+
+        assertEquals(listOf(forgotten.id, first.id), result.first().mistakeIds)
+    }
+
     private fun scheduled(id: Long, date: LocalDate) = MistakeEntity(
         id = id,
         stableId = "future-plan-$id",
@@ -150,4 +173,22 @@ class FutureReviewPlanTest {
 
     private fun at(value: String): Long =
         LocalDateTime.parse(value).atZone(zone).toInstant().toEpochMilli()
+
+    private fun reviewRecord(
+        id: Long,
+        mistakeId: Long,
+        grade: ReviewGrade,
+        reviewedAt: Long
+    ) = ReviewRecordEntity(
+        id = id,
+        mistakeId = mistakeId,
+        reviewedAt = reviewedAt,
+        grade = grade.name,
+        masteryBefore = 1,
+        masteryAfter = 1,
+        intervalBeforeDays = 1,
+        intervalAfterDays = 1,
+        previousNextReviewAt = 0L,
+        nextReviewAt = reviewedAt + 86_400_000L
+    )
 }

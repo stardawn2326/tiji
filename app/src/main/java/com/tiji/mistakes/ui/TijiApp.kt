@@ -105,6 +105,13 @@ fun TijiApp() {
     val knowledgePoints by viewModel.knowledgePoints.collectAsStateWithLifecycle()
     val knowledgePointLinks by viewModel.knowledgePointLinks.collectAsStateWithLifecycle()
     val reviewAnalytics = remember(recentReviewRecords) { ReviewAnalytics.summarize(recentReviewRecords) }
+    val latestReviewRecordByMistake = remember(recentReviewRecords) {
+        recentReviewRecords
+            .groupBy { it.mistakeId }
+            .mapValues { (_, records) ->
+                records.maxWithOrNull(compareBy({ it.reviewedAt }, { it.id }))
+            }
+    }
     val dailyStudyPlan = remember(
         allMistakes,
         dueMistakes,
@@ -136,7 +143,8 @@ fun TijiApp() {
         dailyReviewLimit,
         reviewSubjects,
         reviewPlanEnabled,
-        dailyStudyPlan
+        dailyStudyPlan,
+        latestReviewRecordByMistake
     ) {
         FutureReviewPlan.calculate(
             activeMistakes = allMistakes,
@@ -144,7 +152,8 @@ fun TijiApp() {
             days = 3,
             dailyLimit = dailyReviewLimit,
             reviewSubjectsRaw = reviewSubjects,
-            todayPlannedIds = if (reviewPlanEnabled) dailyStudyPlan.orderedIds.toSet() else emptySet()
+            todayPlannedIds = if (reviewPlanEnabled) dailyStudyPlan.orderedIds.toSet() else emptySet(),
+            latestRecords = latestReviewRecordByMistake
         )
     }
     val navController = rememberNavController()

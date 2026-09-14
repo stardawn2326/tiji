@@ -95,6 +95,51 @@ class DailyStudyPlannerTest {
         assertTrue(plan.due.any { it == english.id })
     }
 
+    @Test
+    fun preservesForgottenPriorityForEqualQueueKeys() {
+        val mastered = mistake(30L, mastery = 1, nextReviewAt = now - 50L, createdAt = 1L)
+            .copy(subject = "数学", updatedAt = 100L)
+        val forgotten = mistake(31L, mastery = 1, nextReviewAt = now - 50L, createdAt = 2L)
+            .copy(subject = "数学", updatedAt = 100L)
+        val latestRecords: Map<Long, ReviewRecordEntity?> = mapOf(
+            mastered.id to reviewRecord(1L, mastered.id, ReviewGrade.GOOD, reviewedAt = 20L),
+            forgotten.id to reviewRecord(2L, forgotten.id, ReviewGrade.FORGOT, reviewedAt = 10L)
+        )
+
+        val selected = DailyStudyPlanner.selectDueForDay(
+            eligible = listOf(mastered, forgotten),
+            dailyLimit = 2,
+            latestRecords = latestRecords
+        )
+        val plan = DailyStudyPlanner.plan(
+            input(listOf(mastered, forgotten), listOf(mastered, forgotten), limit = 2)
+                .copy(recentRecords = latestRecords.values.filterNotNull())
+        )
+
+        assertEquals(listOf(forgotten.id, mastered.id), selected.map { it.id })
+        assertEquals(listOf(forgotten.id, mastered.id), plan.due)
+    }
+
+    @Test
+    fun prefersMoreRecentlyReviewedWhenGradesMatch() {
+        val older = mistake(40L, mastery = 1, nextReviewAt = now - 50L, createdAt = 1L)
+            .copy(subject = "数学", updatedAt = 100L)
+        val newer = mistake(41L, mastery = 1, nextReviewAt = now - 50L, createdAt = 2L)
+            .copy(subject = "数学", updatedAt = 100L)
+        val latestRecords: Map<Long, ReviewRecordEntity?> = mapOf(
+            older.id to reviewRecord(3L, older.id, ReviewGrade.HARD, reviewedAt = 10L),
+            newer.id to reviewRecord(4L, newer.id, ReviewGrade.HARD, reviewedAt = 20L)
+        )
+
+        val selected = DailyStudyPlanner.selectDueForDay(
+            eligible = listOf(older, newer),
+            dailyLimit = 1,
+            latestRecords = latestRecords
+        )
+
+        assertEquals(listOf(newer.id), selected.map { it.id })
+    }
+
     private fun input(
         active: List<MistakeEntity>,
         due: List<MistakeEntity>,
@@ -128,5 +173,23 @@ class DailyStudyPlannerTest {
         inReviewPlan = inReviewPlan,
         archived = archived,
         deletedAt = deletedAt
+    )
+
+    private fun reviewRecord(
+        id: Long,
+        mistakeId: Long,
+        grade: ReviewGrade,
+        reviewedAt: Long
+    ) = ReviewRecordEntity(
+        id = id,
+        mistakeId = mistakeId,
+        reviewedAt = reviewedAt,
+        grade = grade.name,
+        masteryBefore = 1,
+        masteryAfter = 1,
+        intervalBeforeDays = 1,
+        intervalAfterDays = 1,
+        previousNextReviewAt = 0L,
+        nextReviewAt = now
     )
 }
