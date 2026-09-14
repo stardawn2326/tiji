@@ -6,6 +6,7 @@
 - 对照方案：
   - `C:\Users\23260\Downloads\Tiji_RELEASE_ACCEPTANCE验收与下一步_发布工具链P0修复_正式签名_RC收口方案_2026-09-14.md`
   - `C:\Users\23260\Downloads\Tiji_RELEASE_ACCEPTANCE_复验与下一步_SignerLineage_ExactSignedRC_收口方案_2026-09-14.md`
+  - `C:\Users\23260\Downloads\Tiji_RELEASE_ACCEPTANCE_最新验收与下一步_FirstFormalRelease_or_Continuity_RC收口方案_2026-09-14.md`
 - 仓库：[stardawn2326/tiji](https://github.com/stardawn2326/tiji)
 - 验证环境：既有 Android 11 / API 30 `emulator-5554`
 - API35：`OUT_OF_SCOPE`
@@ -154,6 +155,20 @@ SIGNER_LINEAGE = UNPROVEN
 
 这不是把“未找到证据”伪装成“历史绝对不存在”。按照最新方案，Path A 不能成立；Path B 的旧正式 APK/私钥不匹配事实也未成立；Path C 需要同时明确 `NO_PREVIOUS_ACCEPTED_APK = TRUE` 和用户批准 `FIRST_FORMAL_RELEASE = TRUE`，因此本轮不创建首次正式发布模式、不伪造 signer 连续性，也不生成所谓正式 RC。正式签名材料和历史验收事实仍是后续 Release Acceptance 的外部输入。
 
+## FirstFormalRelease / Continuity 分叉执行记录
+
+最新方案把当前 `codex/release-acceptance-api30` 定义为只读的 `EVIDENCE_BRANCH`，要求不要在该分支继续堆代码。当前分叉状态保持为：
+
+```text
+PATH A = NOT ENTERED        # 没有可证明的 previous accepted APK / matching keystore
+PATH B = NOT ENTERED        # 没有发现旧正式 signer 与丢失私钥的事实
+PATH C = NOT AUTHORIZED     # 证据只有 NO_EVIDENCE，未形成 TRUE 的发布事实声明
+```
+
+因此本轮没有创建 `codex/first-formal-release-signing`，没有修改 `verify-release.sh` 的 release mode 合同，也没有改变业务、UI、Room、Backup、OCR 或 AI 代码。若后续确认 Path C，方案要求从 `main@087710bcbb9d45ba0fcd3e6535ef5e0246edd48b` 新建分支，增加互斥的 `TIJI_FIRST_FORMAL_RELEASE=true` 模式和负向自检；若确认 Path A，则直接提供匹配旧 signer 的正式 keystore 并使用现有 continuity harness。
+
+在任一路径具备正式 keystore 前，当前 API30 安装只能作为技术 smoke，不能升级为正式 signed RC 验收；不会把 Debug 证书或 `NO_EVIDENCE` 改写成正式发布基线。
+
 ## 当前 Release Acceptance 门禁
 
 | 门禁 | 结果 | 说明 |
@@ -163,6 +178,7 @@ SIGNER_LINEAGE = UNPROVEN
 | `PROVENANCE_METADATA_FAIL_CLOSED` | PASS | 缺工具、工具失败、空输出、`unknown` 或格式错误均非零退出。 |
 | `SIGNER_CONTINUITY_LOGIC` | PASS | 保留历史 signer SHA256 比对，秘密不写入仓库或文档。 |
 | `PREVIOUS_ACCEPTED_APK` | NO EVIDENCE | 已知本地/仓库/CI 范围未找到可证明的 accepted APK；手工分发和旧磁盘无法由本机证据排除。 |
+| `FIRST_FORMAL_RELEASE` | NOT AUTHORIZED | 未把 NO_EVIDENCE 自动升级为首次正式发布事实；未创建 first-release 分支或模式。 |
 | `FORMAL_SIGNER_READY` | NO | 没有正式 keystore、四项签名变量或可核对的历史 signer lineage。 |
 | `FORMAL_EXACT_RC` | NOT CREATED | 未满足 continuity 或 first-release 的前置事实，未生成正式签名 RC。 |
 | `RELEASE_SIGNING_GATE` | FAIL | 当前环境没有四项正式签名变量与历史 accepted signer。 |
