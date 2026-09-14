@@ -85,6 +85,9 @@ internal fun TijiNavGraph(
             .groupBy { reviewDateKey(it.reviewedAt) }
             .mapValues { (_, records) -> records.associate { it.mistakeId to it.grade } }
     }
+    val knowledgeProgress = remember(state.progressSummary) {
+        state.progressSummary.bySubject.flatMap { it.knowledgePoints }
+    }
     NavHost(
                 navController,
                 startDestination = TijiRoutes.HOME,
@@ -243,7 +246,7 @@ internal fun TijiNavGraph(
                 composable(TijiRoutes.KNOWLEDGE) {
                     KnowledgeListScreen(
                         points = state.knowledgePoints,
-                        insights = state.weaknessInsights,
+                        progress = knowledgeProgress,
                         resetScrollToken = state.knowledgeVisitToken,
                         onBack = { navController.popBackStack() },
                         onOpenDetail = { stableId -> navController.navigate(TijiRoutes.knowledgeDetail(stableId)) }
@@ -257,7 +260,7 @@ internal fun TijiNavGraph(
                         .collectAsStateWithLifecycle(emptyList())
                     KnowledgeDetailScreen(
                         point = state.knowledgePoints.firstOrNull { it.stableId == stableId },
-                        insight = state.weaknessInsights.firstOrNull { it.point.stableId == stableId },
+                        progress = knowledgeProgress.firstOrNull { it.stableId == stableId },
                         relatedMistakes = relatedMistakes,
                         reviewRecords = reviewHistory,
                         latestReviewGrades = state.allMistakeItems.associate { it.mistake.id to it.latestReviewGrade },
@@ -478,16 +481,13 @@ internal fun TijiNavGraph(
                     if (session == null) {
                         ReviewSessionUnavailableScreen(onBack = { navController.popBackStack() })
                     } else {
-                        val pointLabel = state.weaknessInsights
-                            .firstOrNull { it.point.stableId == session.plan.knowledgePointStableId }
-                            ?.label
                         ReviewQuestionScreen(
                             viewModel = viewModel,
                             id = session.reviewIds.firstOrNull() ?: 0L,
                             reviewIds = session.reviewIds,
                             reviewStatuses = emptyMap(),
                             sessionKey = session.sessionId,
-                            sessionContext = session.plan.context(pointLabel),
+                            sessionContext = session.plan.context(),
                             onBack = {
                                 navController.popBackStack()
                             },

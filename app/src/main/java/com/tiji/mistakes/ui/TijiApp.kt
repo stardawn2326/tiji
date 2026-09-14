@@ -44,7 +44,6 @@ import com.tiji.mistakes.data.AppPreferences
 import com.tiji.mistakes.domain.DailyStudyPlanner
 import com.tiji.mistakes.domain.DailyStudyPlannerInput
 import com.tiji.mistakes.domain.ReviewAnalytics
-import com.tiji.mistakes.domain.WeaknessCalculator
 import com.tiji.mistakes.domain.FutureReviewPlan
 import com.tiji.mistakes.domain.time.LearningCalendar
 import com.tiji.mistakes.service.OcrModelManager
@@ -106,16 +105,10 @@ fun TijiApp() {
     val knowledgePoints by viewModel.knowledgePoints.collectAsStateWithLifecycle()
     val knowledgePointLinks by viewModel.knowledgePointLinks.collectAsStateWithLifecycle()
     val reviewAnalytics = remember(recentReviewRecords) { ReviewAnalytics.summarize(recentReviewRecords) }
-    val weaknessInsights = remember(allMistakes, recentReviewRecords, knowledgePoints, knowledgePointLinks) {
-        WeaknessCalculator.calculate(knowledgePoints, knowledgePointLinks, allMistakes, recentReviewRecords)
-    }
     val dailyStudyPlan = remember(
         allMistakes,
         dueMistakes,
         recentReviewRecords,
-        weaknessInsights,
-        knowledgePoints,
-        knowledgePointLinks,
         dailyReviewLimit,
         reviewSubjects,
         reviewPlanEnabled,
@@ -130,9 +123,6 @@ fun TijiApp() {
                     activeMistakes = allMistakes,
                     dueMistakes = dueMistakes,
                     recentRecords = recentReviewRecords,
-                    knowledgeInsights = weaknessInsights,
-                    knowledgePoints = knowledgePoints,
-                    knowledgePointLinks = knowledgePointLinks,
                     dailyLimit = dailyReviewLimit,
                     subjectPreferences = DailyStudyPlanner.parseSubjectPreferences(reviewSubjects, todayWeekday),
                     now = reviewNow
@@ -140,13 +130,21 @@ fun TijiApp() {
             )
         }
     }
-    val futureReviewPlan = remember(allMistakes, reviewNow, dailyReviewLimit, reviewSubjects, todayWeekday) {
+    val futureReviewPlan = remember(
+        allMistakes,
+        reviewNow,
+        dailyReviewLimit,
+        reviewSubjects,
+        reviewPlanEnabled,
+        dailyStudyPlan
+    ) {
         FutureReviewPlan.calculate(
             activeMistakes = allMistakes,
             now = reviewNow,
             days = 3,
             dailyLimit = dailyReviewLimit,
-            subjectPreferences = DailyStudyPlanner.parseSubjectPreferences(reviewSubjects, todayWeekday)
+            reviewSubjectsRaw = reviewSubjects,
+            todayPlannedIds = if (reviewPlanEnabled) dailyStudyPlan.orderedIds.toSet() else emptySet()
         )
     }
     val navController = rememberNavController()
@@ -191,7 +189,6 @@ fun TijiApp() {
         knowledgePoints = knowledgePoints,
         knowledgePointLinks = knowledgePointLinks,
         reviewAnalytics = reviewAnalytics,
-        weaknessInsights = weaknessInsights,
         dailyStudyPlan = dailyStudyPlan,
         futureReviewPlan = futureReviewPlan,
         reviewPlanSnapshots = reviewPlanSnapshots,

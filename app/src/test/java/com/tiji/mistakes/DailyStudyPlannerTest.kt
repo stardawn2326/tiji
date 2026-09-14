@@ -1,13 +1,10 @@
 package com.tiji.mistakes
 
-import com.tiji.mistakes.data.KnowledgePointEntity
 import com.tiji.mistakes.data.MistakeEntity
-import com.tiji.mistakes.data.MistakeKnowledgePointCrossRef
 import com.tiji.mistakes.data.ReviewRecordEntity
 import com.tiji.mistakes.domain.DailyStudyBucket
 import com.tiji.mistakes.domain.DailyStudyPlanner
 import com.tiji.mistakes.domain.DailyStudyPlannerInput
-import com.tiji.mistakes.domain.KnowledgePointInsight
 import com.tiji.mistakes.domain.ReviewGrade
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -16,16 +13,6 @@ import org.junit.Test
 
 class DailyStudyPlannerTest {
     private val now = 1_000_000L
-    private val point = KnowledgePointEntity(
-        id = 10L,
-        stableId = "math:function",
-        subject = "数学",
-        name = "函数",
-        normalizedName = "函数",
-        createdAt = 1L,
-        updatedAt = 1L
-    )
-
     @Test
     fun schedulesOnlyDueRowsWithinDailyLimit() {
         val due = mistake(1L, mastery = 2, nextReviewAt = now - 10L, createdAt = 1L)
@@ -34,8 +21,6 @@ class DailyStudyPlannerTest {
         val plan = DailyStudyPlanner.plan(input(listOf(due, weak, optional), listOf(due), limit = 2))
 
         assertEquals(listOf(1L), plan.due)
-        assertTrue(plan.weakBoost.isEmpty())
-        assertTrue(plan.optional.isEmpty())
         assertEquals(listOf(1L), plan.orderedIds)
         assertEquals(DailyStudyBucket.DUE, plan.bucketFor(1L))
         assertTrue(plan.reasons.getValue(1L).contains("今天到期"))
@@ -58,9 +43,8 @@ class DailyStudyPlannerTest {
     }
 
     @Test
-    fun ignoresKnowledgePointWeaknessWhenScheduling() {
+    fun schedulesOnlyRowsExplicitlyMarkedDue() {
         val weak = mistake(8L, mastery = 0, createdAt = 1L, lastReviewedAt = now - 3 * 86_400_000L)
-        val insight = KnowledgePointInsight(point, 1, 1, 0, 0.8f, "需加强")
         val record = ReviewRecordEntity(
             id = 1L,
             mistakeId = 8L,
@@ -75,9 +59,7 @@ class DailyStudyPlannerTest {
         )
         val plan = DailyStudyPlanner.plan(
             input(listOf(weak), emptyList(), limit = 1).copy(
-                recentRecords = listOf(record),
-                knowledgeInsights = listOf(insight),
-                knowledgePointLinks = listOf(MistakeKnowledgePointCrossRef(8L, point.id))
+                recentRecords = listOf(record)
             )
         )
 
@@ -121,9 +103,6 @@ class DailyStudyPlannerTest {
         activeMistakes = active,
         dueMistakes = due,
         recentRecords = emptyList(),
-        knowledgeInsights = if (active.any { it.id == 2L }) listOf(KnowledgePointInsight(point, 1, 0, 0, 0.8f, "需加强")) else emptyList(),
-        knowledgePoints = listOf(point),
-        knowledgePointLinks = active.filter { it.id == 2L }.map { MistakeKnowledgePointCrossRef(it.id, point.id) },
         dailyLimit = limit,
         now = now
     )

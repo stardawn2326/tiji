@@ -65,7 +65,7 @@ import androidx.compose.ui.unit.dp
 import com.tiji.mistakes.data.KnowledgePointEntity
 import com.tiji.mistakes.data.MistakeEntity
 import com.tiji.mistakes.data.ReviewRecordEntity
-import com.tiji.mistakes.domain.KnowledgePointInsight
+import com.tiji.mistakes.domain.KnowledgePointProgress
 import com.tiji.mistakes.service.HtmlPdfExportService
 import com.tiji.mistakes.service.PdfExportOptions
 import com.tiji.mistakes.service.PdfTemplate
@@ -85,51 +85,53 @@ import com.tiji.mistakes.ui.common.PendingPdfExportStore
 import com.tiji.mistakes.ui.common.discardPdfPreview
 import com.tiji.mistakes.ui.common.launchDurablePdfExport
 import java.io.File
+import java.util.Locale
 import kotlinx.coroutines.launch
 
 private enum class KnowledgeSort(val label: String) {
-    WEAKNESS("薄弱优先"),
     MISTAKE_COUNT("错题数"),
-    RECENT_REVIEW("最近复习"),
     NAME("名称")
 }
+
+private data class KnowledgePointRow(
+    val point: KnowledgePointEntity,
+    val progress: KnowledgePointProgress
+)
 
 @Composable
 internal fun KnowledgeListScreen(
     points: List<KnowledgePointEntity>,
-    insights: List<KnowledgePointInsight>,
+    progress: List<KnowledgePointProgress>,
     resetScrollToken: Int,
     onBack: () -> Unit,
     onOpenDetail: (String) -> Unit
 ) {
     var selectedSubject by rememberSaveable { mutableStateOf<String?>(null) }
     var search by rememberSaveable { mutableStateOf("") }
-    var sort by rememberSaveable { mutableStateOf(KnowledgeSort.WEAKNESS.name) }
+    var sort by rememberSaveable { mutableStateOf(KnowledgeSort.MISTAKE_COUNT.name) }
     var sortExpanded by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
-    val insightByStableId = remember(insights) { insights.associateBy { it.point.stableId } }
-    val subjects = remember(insights) {
-        listOf("全部") + insights.map { it.point.subject }.distinct().sorted()
+    val progressByStableId = remember(progress) { progress.associateBy { it.stableId } }
+    val pointRows = remember(points, progressByStableId) {
+        points.mapNotNull { point ->
+            progressByStableId[point.stableId]?.let { metric -> KnowledgePointRow(point, metric) }
+        }
     }
-    val visiblePoints = remember(points, insightByStableId, selectedSubject, sort, search) {
-        val filtered = points.mapNotNull { point ->
-            insightByStableId[point.stableId]?.takeIf {
-                (selectedSubject == null || selectedSubject == point.subject) && (search.isBlank() || point.name.contains(search, ignoreCase = true) || point.subject.contains(search, ignoreCase = true))
-            }
+    val subjects = remember(pointRows) {
+        listOf("全部") + pointRows.map { it.point.subject }.distinct().sorted()
+    }
+    val visiblePoints = remember(pointRows, selectedSubject, sort, search) {
+        val filtered = pointRows.filter { row ->
+            (selectedSubject == null || selectedSubject == row.point.subject) &&
+                (search.isBlank() || row.point.name.contains(search, ignoreCase = true) || row.point.subject.contains(search, ignoreCase = true))
         }
         when (KnowledgeSort.valueOf(sort)) {
-            KnowledgeSort.WEAKNESS -> filtered.sortedWith(
-                compareByDescending<KnowledgePointInsight> { it.weakness }
-                    .thenByDescending { it.mistakeCount }
-                    .thenBy { it.point.normalizedName }
-            )
             KnowledgeSort.MISTAKE_COUNT -> filtered.sortedWith(
-                compareByDescending<KnowledgePointInsight> { it.mistakeCount }
-                    .thenByDescending { it.weakness }
+                compareByDescending<KnowledgePointRow> { it.progress.total }
                     .thenBy { it.point.normalizedName }
+                    .thenBy { it.point.stableId }
             )
-            KnowledgeSort.RECENT_REVIEW -> filtered.sortedByDescending { it.recentReviewCount }
-            KnowledgeSort.NAME -> filtered.sortedWith(compareBy({ it.point.subject }, { it.point.normalizedName }))
+            KnowledgeSort.NAME -> filtered.sortedWith(compareBy({ it.point.subject }, { it.point.normalizedName }, { it.point.stableId }))
         }
     }
     LaunchedEffect(resetScrollToken) {
@@ -213,8 +215,8 @@ internal fun KnowledgeListScreen(
                     }
                 }
             } else {
-                items(visiblePoints, key = { it.point.stableId }) { insight ->
-                    KnowledgePointCard(insight, onClick = { onOpenDetail(insight.point.stableId) })
+                items(visiblePoints, key = { it.point.stableId }) { row ->
+                    KnowledgePointCard(row, onClick = { onOpenDetail(row.point.stableId) })
                 }
             }
         }
@@ -222,9 +224,9 @@ internal fun KnowledgeListScreen(
 }
 
 @Composable
-private fun KnowledgePointCard(insight: KnowledgePointInsight, onClick: () -> Unit) {
+private fun KnowledgePointCard(row: KnowledgePointRow, onClick: () -> Unit) {
     TijiPaperCard(
-        modifier = Modifier.testTag("knowledge_card_${insight.point.stableId}"),
+        modifier = Modifier.testTag("knowledge_card_${row.point.stableId}"),
         onClick = onClick,
         contentPadding = 12.dp
     ) {
@@ -239,22 +241,17 @@ private fun KnowledgePointCard(insight: KnowledgePointInsight, onClick: () -> Un
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text(insight.point.name, style = MaterialTheme.typography.titleMedium)
-                        Text(insight.point.subject, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(row.point.name, style = MaterialTheme.typography.titleMedium)
+                        Text(row.point.subject, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    Text(insight.label, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
+                    Text("掌握率 ${String.format(Locale.ROOT, "%.1f%%", row.progress.masteryRate * 100f)}", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
                     Spacer(Modifier.width(4.dp))
-                    Icon(Icons.Outlined.ChevronRight, contentDescription = "打开${insight.point.name}", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Icon(Icons.Outlined.ChevronRight, contentDescription = "打开${row.point.name}", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Text(
-                    "${insight.mistakeCount} 道错题 · 近30天复习 ${insight.recentReviewCount} 次",
+                    "${row.progress.total} 道错题 · 已掌握 ${row.progress.mastered} 道",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                TijiProgress(
-                    progress = { insight.weakness },
-                    modifier = Modifier.fillMaxWidth().height(6.dp),
-                    trackColor = MaterialTheme.colorScheme.primaryContainer
                 )
             }
         }

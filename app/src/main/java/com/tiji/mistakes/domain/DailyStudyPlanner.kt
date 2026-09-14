@@ -1,8 +1,6 @@
 package com.tiji.mistakes.domain
 
-import com.tiji.mistakes.data.KnowledgePointEntity
 import com.tiji.mistakes.data.MistakeEntity
-import com.tiji.mistakes.data.MistakeKnowledgePointCrossRef
 import com.tiji.mistakes.data.ReviewRecordEntity
 import com.tiji.mistakes.domain.time.LearningCalendar
 import java.time.LocalDate
@@ -14,12 +12,9 @@ enum class DailyStudyBucket(val label: String) {
 
 data class DailyStudyPlan(
     val due: List<Long> = emptyList(),
-    /** Deprecated compatibility fields; the final planner never schedules by weakness. */
-    val weakBoost: List<Long> = emptyList(),
-    val optional: List<Long> = emptyList(),
     val reasons: Map<Long, String> = emptyMap()
 ) {
-    val orderedIds: List<Long> get() = (due + weakBoost + optional).distinct()
+    val orderedIds: List<Long> get() = due.distinct()
 
     fun bucketFor(mistakeId: Long): DailyStudyBucket? = when {
         mistakeId in due -> DailyStudyBucket.DUE
@@ -31,9 +26,6 @@ data class DailyStudyPlannerInput(
     val activeMistakes: List<MistakeEntity>,
     val dueMistakes: List<MistakeEntity>,
     val recentRecords: List<ReviewRecordEntity>,
-    val knowledgeInsights: List<KnowledgePointInsight>,
-    val knowledgePoints: List<KnowledgePointEntity> = emptyList(),
-    val knowledgePointLinks: List<MistakeKnowledgePointCrossRef> = emptyList(),
     val dailyLimit: Int,
     val subjectPreferences: Map<String, Int> = emptyMap(),
     val now: Long,
@@ -59,32 +51,14 @@ object DailyStudyPlanner {
         val latestRecord = recordsByMistake.mapValues { (_, records) ->
             records.maxWithOrNull(compareBy<ReviewRecordEntity> { it.reviewedAt }.thenBy { it.id })
         }
-        val preferredSubjects = input.subjectPreferences
-            .mapKeys { it.key.trim() }
-            .filterKeys(String::isNotBlank)
-
-        // Subject settings only break ties between due rows; they never introduce extra rows.
-        fun subjectRank(mistake: MistakeEntity): Int =
-            -(preferredSubjects[mistake.subject.trim()]?.coerceAtLeast(0) ?: 0)
-
         val dueIds = input.dueMistakes.asSequence()
             .map { it.id }
             .filter { it in activeById }
             .distinct()
             .mapNotNull(activeById::get)
-            .sortedWith(
-                compareBy<MistakeEntity> { it.nextReviewAt }
-                    .thenBy(::subjectRank)
-                    .thenBy { it.mastery.coerceIn(0, 3) }
-                    .thenByDescending { latestRecord[it.id]?.grade == ReviewGrade.FORGOT.name }
-                    .thenByDescending { latestRecord[it.id]?.reviewedAt ?: Long.MIN_VALUE }
-                    .thenBy { it.updatedAt }
-                    .thenBy { it.stableId }
-                    .thenBy { it.id }
-            )
             .toList()
 
-        val selectedDue = fairTakeBySubject(dueIds, limit)
+        val selectedDue = selectDueForDay(dueIds, limit, input.subjectPreferences)
         val reasons = selectedDue.associate { mistake ->
             mistake.id to reasonFor(
                 mistake = mistake,
@@ -97,6 +71,38 @@ object DailyStudyPlanner {
             due = selectedDue.map(MistakeEntity::id),
             reasons = reasons
         )
+    }
+
+    /**
+     * The one deterministic selector shared by today's formal queue and the
+     * future forecast. Callers provide already eligible rows; this function
+     * only orders them and applies the daily allowance.
+     */
+    internal fun selectDueForDay(
+        eligible: List<MistakeEntity>,
+        dailyLimit: Int,
+        subjectPreferences: Map<String, Int> = emptyMap()
+    ): List<MistakeEntity> {
+        val limit = dailyLimit.coerceAtLeast(0)
+        if (limit == 0) return emptyList()
+        val preferredSubjects = subjectPreferences
+            .mapKeys { it.key.trim() }
+            .filterKeys(String::isNotBlank)
+        fun subjectRank(mistake: MistakeEntity): Int =
+            -(preferredSubjects[mistake.subject.trim()]?.coerceAtLeast(0) ?: 0)
+        val ordered = eligible.asSequence()
+            .filter { it.id > 0L }
+            .distinctBy(MistakeEntity::id)
+            .sortedWith(
+                compareBy<MistakeEntity> { it.nextReviewAt }
+                    .thenBy(::subjectRank)
+                    .thenBy { it.mastery.coerceIn(0, 3) }
+                    .thenBy { it.updatedAt }
+                    .thenBy { it.stableId }
+                    .thenBy { it.id }
+            )
+            .toList()
+        return fairTakeBySubject(ordered, limit)
     }
 
     fun parseSubjectPreferences(raw: String, dayOfWeek: Int): Map<String, Int> = raw.split(';')
@@ -174,28 +180,32 @@ object FutureReviewPlan {
         zoneId: ZoneId = ZoneId.systemDefault(),
         days: Int = 3,
         dailyLimit: Int = Int.MAX_VALUE,
-        subjectPreferences: Map<String, Int> = emptyMap()
+        subjectPreferences: Map<String, Int> = emptyMap(),
+        reviewSubjectsRaw: String = "",
+        todayPlannedIds: Set<Long> = emptySet()
     ): List<FutureReviewPlanDay> {
         val startDate = LearningCalendar.localDate(now, zoneId)
-        val byDate = activeMistakes.asSequence()
+        val eligible = activeMistakes.asSequence()
             .filter { it.id > 0L && !it.archived && it.deletedAt == null && it.inReviewPlan }
             .distinctBy(MistakeEntity::id)
-            .groupBy { LearningCalendar.localDate(it.nextReviewAt, zoneId) }
-        val preferred = subjectPreferences.mapKeys { it.key.trim() }.filterKeys(String::isNotBlank)
-        fun subjectRank(mistake: MistakeEntity): Int =
-            -(preferred[mistake.subject.trim()]?.coerceAtLeast(0) ?: 0)
+            .filterNot { it.id in todayPlannedIds }
+            .toList()
+        val forecasted = mutableSetOf<Long>()
         return (1..days.coerceAtLeast(0)).map { offset ->
             val date = startDate.plusDays(offset.toLong())
-            val ids = byDate[date].orEmpty()
-                .sortedWith(
-                    compareBy<MistakeEntity> { it.nextReviewAt }
-                        .thenBy(::subjectRank)
-                        .thenBy { it.updatedAt }
-                        .thenBy { it.stableId }
-                        .thenBy { it.id }
-                )
-                .take(dailyLimit.coerceAtLeast(0))
-                .map(MistakeEntity::id)
+            val cutoff = LearningCalendar.startOfDay(date.plusDays(1), zoneId).toEpochMilli() - 1L
+            val preferences = if (reviewSubjectsRaw.isBlank()) {
+                subjectPreferences
+            } else {
+                DailyStudyPlanner.parseSubjectPreferences(reviewSubjectsRaw, date.dayOfWeek.value)
+            }
+            val selected = DailyStudyPlanner.selectDueForDay(
+                eligible = eligible.filter { it.id !in forecasted && it.nextReviewAt <= cutoff },
+                dailyLimit = dailyLimit,
+                subjectPreferences = preferences
+            )
+            forecasted += selected.map(MistakeEntity::id)
+            val ids = selected.map(MistakeEntity::id)
             FutureReviewPlanDay(date, ids)
         }
     }
