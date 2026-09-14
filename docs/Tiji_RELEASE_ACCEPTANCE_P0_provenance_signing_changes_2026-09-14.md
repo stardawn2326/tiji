@@ -3,7 +3,9 @@
 ## 文档信息
 
 - 日期：2026-09-14
-- 对照方案：`C:\Users\23260\Downloads\Tiji_RELEASE_ACCEPTANCE验收与下一步_发布工具链P0修复_正式签名_RC收口方案_2026-09-14.md`
+- 对照方案：
+  - `C:\Users\23260\Downloads\Tiji_RELEASE_ACCEPTANCE验收与下一步_发布工具链P0修复_正式签名_RC收口方案_2026-09-14.md`
+  - `C:\Users\23260\Downloads\Tiji_RELEASE_ACCEPTANCE_复验与下一步_SignerLineage_ExactSignedRC_收口方案_2026-09-14.md`
 - 仓库：[stardawn2326/tiji](https://github.com/stardawn2326/tiji)
 - 验证环境：既有 Android 11 / API 30 `emulator-5554`
 - API35：`OUT_OF_SCOPE`
@@ -108,6 +110,50 @@ PR11 的功能范围已先合并并通过 exact-main 验证：
 
 这证明 API30 的安装和启动技术路径可用，但当前产物是 debug certificate，不能把技术 smoke 升级为正式 signed RC 的 `FRESH_INSTALL_GATE` 或 `RELEASE_APK_RUNTIME_GATE` PASS。
 
+针对本次 SignerLineage 复验，又在同一 `emulator-5554` 上执行当前 `compile/target 34` APK 的保留数据安装：
+
+    adb install -r -d -g tiji-v1.0.0-release.apk -> Success
+    am start -W com.tiji.mistakes/.MainActivity -> Status: ok
+    API30 = 30
+    PID = 16059
+    crash/ANR check = empty
+
+本次安装使用的文件副本 SHA-256 仍为 `9D8E2F0E4079431765ECF438C02F64722437A27A221D31653E112C969A42B0E5`，只为规避中文路径传参问题复制到 ASCII 临时目录，未改变 APK 字节。
+
+## SignerLineage 复验
+
+本次按最新 SignerLineage 方案先做证据核验，没有继续改业务代码、没有添加 first-release mode，也没有删除或覆盖任何历史 APK。检查使用 `Get-FileHash`、`aapt dump badging` 和 `apksigner verify --verbose --print-certs`；因仓库路径含中文，`aapt` 检查时将只读副本放到 ASCII 临时目录，原文件未改变。
+
+### 已知本地候选
+
+扫描范围为本仓库的 `app/build/outputs`、`outputs`、`.codex-tmp`，以及 `C:\Users\23260\Downloads`。所有可识别的应用候选都使用同一 Android Debug 证书 `24300ED6EC1BA17E7004CD3156FDE97E5568D09B8C6D921D9C9BB24C597EC9F1`，没有发现正式发布 signer。
+
+| 候选 | SHA-256 | compile/target | 备注 |
+| --- | --- | --- | --- |
+| `app/build/outputs/apk/release/tiji-v1.0.0-release.apk` | `9D8E2F0E4079431765ECF438C02F64722437A27A221D31653E112C969A42B0E5` | 34/34 | 当前 API30 技术 smoke 包，Android Debug |
+| `app/build/outputs/apk/debug/tiji-v1.0.0-debug.apk` | `7BE36F8DF6B161675BA8EFEB4CAF49242C57B915AA5BAE5A01A5AD1A82468F5C` | 34/34 | Debug 构建 |
+| `outputs/apk/tiji-ui2-paper-blue-correction-debug.apk` | `E55FE4220654D496019139ED03AC5F21B0AC51E3891F1064D3DB916793600AD3` | 34/34 | 历史 UI Debug 构建 |
+| `outputs/apk/releases/t.apk`、`tij.0.-release.apk`、`tije.apk` | `61EBD4799D10D42864CFB931F7F836A0ECE521844C34E5D251340C9BCC937B35`、`BF23E32DCC9A19375604921694BB372211A61E6A832DF887F9EDB040637D5873`、`7C00305CA737A0936C5F729ADF0666B76FCF373D8A0CE6D98BD825FEFB2FF18C` | 35/35 | 历史 Debug 产物，API35，未用于验证 |
+| `outputs/apk/releases/tiji-v1.0.0.apk`、`tiji-v3.0.0-release.apk` | `C0DC11C6273B8310D64779FBF2AAE74DDBDC2465F166CA29DED29908C78333D6`、`191B8D0A55DF76B460A177CC6C4EBC42DD4CBDBD9CC72E25FE82D0B6CB7439FA` | 35/35 | 历史 Debug 产物，API35，未用于验证 |
+| `outputs/apk/tiji-ui2-paper-blue-debug.apk`、`outputs/ui-refresh-20260909/tiji-ui-refresh-debug.apk` | `393356DB5843EEB356C62197FF2EBA197D9510E8D46CE506D42AED8CFD2CA9D0`、`E4CA6291ED2589C293BF683F29794997E60E99A1BAF410C6623340AD29BB8070` | 35/35 | 历史 Debug 产物，API35，未用于验证 |
+| `C:\Users\23260\Downloads\tiji-v50-release.apk` | `381B0033521C725FA511D63912F8BF975203F8F65AD7993C137B7CFCC8E08D25` | 35/35 | 下载目录候选，Android Debug，未用于验证 |
+| `.codex-tmp/baseline-240f22f/.../tiji-v1.0.0-debug.apk` | `FCB96B44F37D91F4D3C437AC4411BCE722A73DB591A9024056AAEE6742BB07DB` | 35/35 | 临时 baseline，Android Debug，未用于验证 |
+
+本地 Git 索引没有跟踪 APK、AAB 或 keystore 文件；仓库、Downloads 和本机 SDK 范围没有发现 `.jks`、`.keystore`、`.p12` 或 `.pfx`。本次环境快照中 `TIJI_SIGNING_STORE_FILE`、`TIJI_SIGNING_STORE_PASSWORD`、`TIJI_SIGNING_KEY_ALIAS`、`TIJI_SIGNING_KEY_PASSWORD` 和 `TIJI_PREVIOUS_SIGNER_SHA256` 均未提供。
+
+### GitHub 与分叉结论
+
+指定仓库当前 `Release_COUNT = 0`、`Actions_ARTIFACT_COUNT = 0`。这排除了 GitHub Release/Artifact 中的候选，但不能排除手工发送、旧磁盘或网盘中的 APK。已知本地候选只有构建产物，且没有验收记录、正式 signer 或 signer lineage 证明，因此本轮结论为：
+
+```text
+PREVIOUS_ACCEPTED_APK = NO_EVIDENCE
+FORMAL_SIGNER_READY = NO
+FORMAL_EXACT_RC = NOT_CREATED
+SIGNER_LINEAGE = UNPROVEN
+```
+
+这不是把“未找到证据”伪装成“历史绝对不存在”。按照最新方案，Path A 不能成立；Path B 的旧正式 APK/私钥不匹配事实也未成立；Path C 需要同时明确 `NO_PREVIOUS_ACCEPTED_APK = TRUE` 和用户批准 `FIRST_FORMAL_RELEASE = TRUE`，因此本轮不创建首次正式发布模式、不伪造 signer 连续性，也不生成所谓正式 RC。正式签名材料和历史验收事实仍是后续 Release Acceptance 的外部输入。
+
 ## 当前 Release Acceptance 门禁
 
 | 门禁 | 结果 | 说明 |
@@ -116,6 +162,9 @@ PR11 的功能范围已先合并并通过 exact-main 验证：
 | `RELEASE_HARDENING_CODE` | PASS | provenance fail-closed、包名校验、字段校验和 CI 自检已实现。 |
 | `PROVENANCE_METADATA_FAIL_CLOSED` | PASS | 缺工具、工具失败、空输出、`unknown` 或格式错误均非零退出。 |
 | `SIGNER_CONTINUITY_LOGIC` | PASS | 保留历史 signer SHA256 比对，秘密不写入仓库或文档。 |
+| `PREVIOUS_ACCEPTED_APK` | NO EVIDENCE | 已知本地/仓库/CI 范围未找到可证明的 accepted APK；手工分发和旧磁盘无法由本机证据排除。 |
+| `FORMAL_SIGNER_READY` | NO | 没有正式 keystore、四项签名变量或可核对的历史 signer lineage。 |
+| `FORMAL_EXACT_RC` | NOT CREATED | 未满足 continuity 或 first-release 的前置事实，未生成正式签名 RC。 |
 | `RELEASE_SIGNING_GATE` | FAIL | 当前环境没有四项正式签名变量与历史 accepted signer。 |
 | `ARTIFACT_PROVENANCE_GATE` | FAIL | 当前可安装 R8 产物使用 Android Debug certificate，尚未生成正式签名 RC。 |
 | `FRESH_INSTALL_GATE` | NOT VERIFIED | API30 技术 Fresh Install 已完成，但未使用正式 signed RC。 |
