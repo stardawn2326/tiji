@@ -18,6 +18,9 @@ interface KnowledgePointDao {
     @Query("SELECT * FROM knowledge_points WHERE stableId = :stableId LIMIT 1")
     suspend fun findByStableId(stableId: String): KnowledgePointEntity?
 
+    @Query("SELECT * FROM knowledge_points WHERE id = :id LIMIT 1")
+    suspend fun findById(id: Long): KnowledgePointEntity?
+
     @Query("SELECT * FROM knowledge_points WHERE subject = :subject AND normalizedName = :normalizedName LIMIT 1")
     suspend fun findBySubjectAndName(subject: String, normalizedName: String): KnowledgePointEntity?
 
@@ -32,6 +35,9 @@ interface KnowledgePointDao {
 
     @Query("DELETE FROM knowledge_points")
     suspend fun deleteAll()
+
+    @Query("DELETE FROM knowledge_points WHERE id = :id")
+    suspend fun deleteById(id: Long)
 
     /** Removes points no longer referenced by any mistake relationship. */
     @Query(

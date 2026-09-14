@@ -15,6 +15,7 @@ import org.json.JSONArray
 
 class MistakeRepository(private val database: AppDatabase) {
     private val dao = database.mistakeDao()
+    private val knowledgePointAliasDao = database.knowledgePointAliasDao()
 
     fun observe(query: String): Flow<List<MistakeEntity>> {
         val keywords = query
@@ -73,6 +74,8 @@ class MistakeRepository(private val database: AppDatabase) {
 
     fun observeKnowledgePointLinks(): Flow<List<MistakeKnowledgePointCrossRef>> = database.mistakeKnowledgePointDao().observeAll()
 
+    fun observeKnowledgePointAliases(): Flow<List<KnowledgePointAliasEntity>> = knowledgePointAliasDao.observeAll()
+
     suspend fun listMistakeIdsForKnowledgePoint(stableId: String): List<Long> {
         val point = database.knowledgePointDao().findByStableId(stableId) ?: return emptyList()
         return database.mistakeKnowledgePointDao().listMistakeIdsForKnowledgePoint(point.id)
@@ -111,6 +114,7 @@ class MistakeRepository(private val database: AppDatabase) {
                 dao.upsert(prepared)
             }
             syncKnowledgePointsForMistake(prepared.copy(id = id))
+            cleanupDuplicateKnowledgePointsInTransaction()
             database.knowledgePointDao().deleteOrphans()
             sanitizeKnowledgePointParentsInTransaction()
             id
@@ -136,6 +140,7 @@ class MistakeRepository(private val database: AppDatabase) {
         )
         dao.update(merged)
         syncKnowledgePointsForMistake(merged)
+        cleanupDuplicateKnowledgePointsInTransaction()
         database.knowledgePointDao().deleteOrphans()
         sanitizeKnowledgePointParentsInTransaction()
         merged
@@ -145,6 +150,7 @@ class MistakeRepository(private val database: AppDatabase) {
         mistakes.forEach { mistake ->
             if (mistake.id > 0L) syncKnowledgePointsForMistake(mistake)
         }
+        cleanupDuplicateKnowledgePointsInTransaction()
         database.knowledgePointDao().deleteOrphans()
         sanitizeKnowledgePointParentsInTransaction()
     }
@@ -246,9 +252,15 @@ class MistakeRepository(private val database: AppDatabase) {
     suspend fun backfillLegacyTags(): Int = database.withTransaction {
         var linked = 0
         dao.listAll().forEach { mistake -> linked += syncKnowledgePointsForMistake(mistake) }
+        cleanupDuplicateKnowledgePointsInTransaction()
         database.knowledgePointDao().deleteOrphans()
         sanitizeKnowledgePointParentsInTransaction()
         linked
+    }
+
+    /** One-time, repeatable cleanup for duplicate semantic point names. */
+    suspend fun cleanupDuplicateKnowledgePoints(): Int = database.withTransaction {
+        cleanupDuplicateKnowledgePointsInTransaction()
     }
 
     /** Rebuilds structured knowledge links only for the imported mistake IDs. */
@@ -270,6 +282,7 @@ class MistakeRepository(private val database: AppDatabase) {
         dao.findByIds(distinctIds).forEach { mistake ->
             linked += syncKnowledgePointsForMistake(mistake)
         }
+        cleanupDuplicateKnowledgePointsInTransaction()
         database.knowledgePointDao().deleteOrphans()
         sanitizeKnowledgePointParentsInTransaction()
         return linked
@@ -300,19 +313,22 @@ class MistakeRepository(private val database: AppDatabase) {
         if (mistake.id <= 0L) return 0
         val pointDao = database.knowledgePointDao()
         val crossRefDao = database.mistakeKnowledgePointDao()
+        val aliasDao = database.knowledgePointAliasDao()
         val pointsByStableId = pointDao.listAll().associateBy(KnowledgePointEntity::stableId).toMutableMap()
+        val aliases = aliasDao.listAll()
         crossRefDao.deleteForMistake(mistake.id)
         val subject = mistake.subject.trim().ifBlank { "未分类" }
         var linked = 0
         KnowledgePointNormalizer.parseTags(mistake.tags).forEach { name ->
-            val normalizedName = KnowledgePointNormalizer.normalizeName(name)
+            val resolution = KnowledgePointCanonicalizer.resolve(subject, name, pointsByStableId.values, aliases)
+            val normalizedName = KnowledgePointNormalizer.normalizeName(resolution.canonicalName)
             val stableId = KnowledgePointNormalizer.stableId(subject, normalizedName)
-            val point = pointsByStableId[stableId] ?: run {
+            val point = pointsByStableId[stableId] ?: pointDao.findBySubjectAndName(subject, normalizedName) ?: run {
                 val now = System.currentTimeMillis()
                 val candidate = KnowledgePointEntity(
                     stableId = stableId,
                     subject = subject,
-                    name = name,
+                    name = resolution.canonicalName,
                     normalizedName = normalizedName,
                     createdAt = now,
                     updatedAt = now
@@ -325,9 +341,104 @@ class MistakeRepository(private val database: AppDatabase) {
             }
             pointsByStableId[stableId] = point
             crossRefDao.insert(MistakeKnowledgePointCrossRef(mistake.id, point.id))
+            if (resolution.shouldStoreAlias &&
+                KnowledgePointNormalizer.normalizeName(name) != point.normalizedName
+            ) {
+                val aliasNormalized = KnowledgePointNormalizer.normalizeName(name)
+                val existingAlias = aliasDao.findBySubjectAndAlias(subject, aliasNormalized)
+                if (existingAlias == null || existingAlias.knowledgePointId == point.id) {
+                    aliasDao.insertIgnore(
+                        KnowledgePointAliasEntity(
+                            knowledgePointId = point.id,
+                            subject = subject,
+                            alias = KnowledgePointNormalizer.cleanName(name),
+                            normalizedAlias = aliasNormalized,
+                            legacyStableId = KnowledgePointNormalizer.stableId(subject, aliasNormalized),
+                            createdAt = point.createdAt,
+                            updatedAt = System.currentTimeMillis()
+                        )
+                    )
+                }
+            }
             linked += 1
         }
         return linked
+    }
+
+    /**
+     * Merges only points that the canonicalizer can prove are aliases. The
+     * operation moves every relationship and alias before deleting the duplicate
+     * and is therefore safe to retry in the same Room transaction.
+     */
+    private suspend fun cleanupDuplicateKnowledgePointsInTransaction(): Int {
+        val pointDao = database.knowledgePointDao()
+        val crossRefDao = database.mistakeKnowledgePointDao()
+        var merged = 0
+        while (true) {
+            val points = pointDao.listAll()
+            val aliases = knowledgePointAliasDao.listAll()
+            var changed = false
+            for (duplicate in points.sortedBy(KnowledgePointEntity::id)) {
+                val candidates = points.filter { it.id != duplicate.id }
+                val resolution = runCatching {
+                    KnowledgePointCanonicalizer.resolve(duplicate.subject, duplicate.name, candidates, aliases)
+                }.getOrNull() ?: continue
+                val target = candidates.firstOrNull {
+                    it.subject.trim() == duplicate.subject.trim() &&
+                        KnowledgePointNormalizer.normalizeName(it.normalizedName) ==
+                        KnowledgePointNormalizer.normalizeName(resolution.normalizedName)
+                } ?: continue
+                if (target.id == duplicate.id) continue
+
+                crossRefDao.listMistakeIdsForKnowledgePoint(duplicate.id)
+                    .distinct()
+                    .forEach { mistakeId ->
+                        crossRefDao.insert(MistakeKnowledgePointCrossRef(mistakeId, target.id))
+                    }
+                crossRefDao.deleteForKnowledgePoint(duplicate.id)
+
+                pointDao.listAll()
+                    .filter { it.parentId == duplicate.id }
+                    .forEach { pointDao.update(it.copy(parentId = target.id, updatedAt = System.currentTimeMillis())) }
+
+                knowledgePointAliasDao.listAll()
+                    .filter { it.knowledgePointId == duplicate.id }
+                    .forEach { alias ->
+                        val existing = knowledgePointAliasDao.findBySubjectAndAlias(alias.subject, alias.normalizedAlias)
+                        when {
+                            existing == null -> {
+                                knowledgePointAliasDao.update(alias.copy(knowledgePointId = target.id, updatedAt = System.currentTimeMillis()))
+                            }
+                            existing.knowledgePointId == target.id && existing.id != alias.id -> {
+                                knowledgePointAliasDao.deleteById(alias.id)
+                            }
+                        }
+                    }
+                val duplicateAliasName = KnowledgePointNormalizer.cleanName(duplicate.name)
+                val duplicateAliasNormalized = KnowledgePointNormalizer.normalizeName(duplicateAliasName)
+                if (duplicateAliasNormalized != KnowledgePointNormalizer.normalizeName(target.normalizedName)) {
+                    knowledgePointAliasDao.insertIgnore(
+                        KnowledgePointAliasEntity(
+                            knowledgePointId = target.id,
+                            subject = target.subject,
+                            alias = duplicateAliasName,
+                            normalizedAlias = duplicateAliasNormalized,
+                            legacyStableId = duplicate.stableId,
+                            createdAt = duplicate.createdAt,
+                            updatedAt = System.currentTimeMillis()
+                        )
+                    )
+                }
+                pointDao.deleteById(duplicate.id)
+                merged += 1
+                changed = true
+                break
+            }
+            if (!changed) break
+        }
+        pointDao.deleteOrphans()
+        sanitizeKnowledgePointParentsInTransaction()
+        return merged
     }
 
     /** Removes every local mistake row and returns the image paths it referenced. */
@@ -340,6 +451,7 @@ class MistakeRepository(private val database: AppDatabase) {
             database.reviewRecordDao().deleteAll()
             database.mistakeKnowledgePointDao().deleteAll()
             database.knowledgePointDao().deleteAll()
+            database.knowledgePointAliasDao().deleteAll()
             // Import markers are transient transaction-bound state. A data
             // reset must remove them so a later startup cannot mistake an
             // abandoned import for a committed one.

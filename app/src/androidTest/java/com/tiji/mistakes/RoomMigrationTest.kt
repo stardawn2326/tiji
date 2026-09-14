@@ -5,6 +5,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.tiji.mistakes.data.AppDatabase
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -228,6 +229,53 @@ class RoomMigrationTest {
             assertEquals(500L, cursor.getLong(4))
         }
         database.close()
+    }
+
+    @Test
+    fun migrateV11ToV12CreatesKnowledgePointAliasTable() {
+        val databaseName = "migration-v11-v12-aliases"
+        helper.createDatabase(databaseName, 8).apply {
+            execSQL(CREATE_V8_TABLE)
+            CREATE_V8_INDICES.forEach(::execSQL)
+            close()
+        }
+        val databaseV10 = helper.runMigrationsAndValidate(
+            databaseName,
+            10,
+            true,
+            *AppDatabase.MIGRATIONS_8_10
+        )
+        databaseV10.execSQL(
+            """INSERT INTO knowledge_points
+                (stableId, subject, name, normalizedName, parentId, createdAt, updatedAt)
+                VALUES ('kp-alias', '数学', '二重积分', '二重积分', null, 1, 1)"""
+        )
+        databaseV10.close()
+
+        helper.runMigrationsAndValidate(
+            databaseName,
+            11,
+            true,
+            *AppDatabase.MIGRATIONS_10_11
+        ).close()
+
+        val upgraded = helper.runMigrationsAndValidate(
+            databaseName,
+            12,
+            true,
+            *AppDatabase.MIGRATIONS_11_12
+        )
+        upgraded.execSQL(
+            """INSERT INTO knowledge_point_aliases
+                (knowledgePointId, subject, alias, normalizedAlias, legacyStableId, createdAt, updatedAt)
+                VALUES (1, '数学', '二重积分计算', '二重积分计算', 'legacy-kp', 1, 1)"""
+        )
+        upgraded.query("SELECT alias, legacyStableId FROM knowledge_point_aliases").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals("二重积分计算", cursor.getString(0))
+            assertEquals("legacy-kp", cursor.getString(1))
+        }
+        upgraded.close()
     }
 
     private companion object {

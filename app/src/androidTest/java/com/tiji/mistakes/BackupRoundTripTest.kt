@@ -71,11 +71,11 @@ class BackupRoundTripTest {
         assertEquals(1, beforePoints.size)
 
         val preview = BackupService.writeBackup(context, Uri.fromFile(archive)).getOrThrow()
-        assertEquals(3, preview.schemaVersion)
+        assertEquals(4, preview.schemaVersion)
         assertTrue(preview.reviewRecordCount >= beforeReviews.size)
         assertTrue(preview.knowledgePointCount >= beforePoints.size)
         val manifest = readManifest(archive)
-        assertEquals(3, manifest.optInt("schemaVersion"))
+        assertEquals(4, manifest.optInt("schemaVersion"))
         assertEquals(3, manifest.optInt("minReaderSchemaVersion"))
 
         database.mistakeDao().deleteMany(listOf(beforeMistake.id))

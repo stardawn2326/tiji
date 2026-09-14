@@ -145,15 +145,7 @@ internal fun TijiNavGraph(
                 composable(TijiRoutes.HOME) {
                     HomeScreen(
                         progressSummary = state.progressSummary,
-                        dueCount = state.dueCount,
-                        reviewTotal = state.reviewPlanSnapshots[state.todayDate].orEmpty().size.takeIf { it > 0 } ?: state.dueCount,
-                        reviewCompleted = reviewRecordsByDate[state.todayDate].orEmpty().keys.count { id -> id in state.reviewPlanSnapshots[state.todayDate].orEmpty() },
-                        resetScrollToken = state.homeVisitToken,
-                        onNavigate = navController::navigate,
-                        onSubject = { subject ->
-                            onLibrarySubject(subject)
-                            navController.navigate(TijiRoutes.LIBRARY)
-                        }
+                        resetScrollToken = state.homeVisitToken
                     )
                 }
                 composable(TijiRoutes.LIBRARY) {
@@ -181,6 +173,7 @@ internal fun TijiNavGraph(
                     ReviewScreen(
                         allMistakes = state.allMistakes,
                         dailyStudyPlan = state.dailyStudyPlan,
+                        futureReviewPlan = state.futureReviewPlan,
                         now = state.reviewNow,
                         todayDate = state.todayDate,
                         activeSession = activeReviewSession,
@@ -205,6 +198,7 @@ internal fun TijiNavGraph(
                             navController.navigate(TijiRoutes.reviewSession(plan.sessionId))
                         },
                         onResumeSession = { session -> navController.navigate(TijiRoutes.reviewSession(session.sessionId)) },
+                        onOpenMistake = { id -> navController.navigate(TijiRoutes.detail(id)) },
                         resetScrollToken = state.reviewVisitToken
                     )
                 }

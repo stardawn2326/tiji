@@ -12,16 +12,18 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         MistakeEntity::class,
         ReviewRecordEntity::class,
         KnowledgePointEntity::class,
+        KnowledgePointAliasEntity::class,
         MistakeKnowledgePointCrossRef::class,
         BackupImportCommitMarkerEntity::class
     ],
-    version = 11,
+    version = 12,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun mistakeDao(): MistakeDao
     abstract fun reviewRecordDao(): ReviewRecordDao
     abstract fun knowledgePointDao(): KnowledgePointDao
+    abstract fun knowledgePointAliasDao(): KnowledgePointAliasDao
     abstract fun mistakeKnowledgePointDao(): MistakeKnowledgePointDao
     abstract fun backupImportCommitMarkerDao(): BackupImportCommitMarkerDao
 
@@ -54,11 +56,23 @@ abstract class AppDatabase : RoomDatabase() {
         internal val MIGRATIONS_10_11: Array<Migration>
             get() = arrayOf(MIGRATION_10_11)
 
+        internal val MIGRATIONS_11_12: Array<Migration>
+            get() = arrayOf(MIGRATION_11_12)
+
+        internal val MIGRATIONS_10_12: Array<Migration>
+            get() = arrayOf(MIGRATION_10_11, MIGRATION_11_12)
+
         internal val MIGRATIONS_9_11: Array<Migration>
             get() = arrayOf(MIGRATION_9_10, MIGRATION_10_11)
 
+        internal val MIGRATIONS_9_12: Array<Migration>
+            get() = arrayOf(MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12)
+
         internal val MIGRATIONS_7_11: Array<Migration>
             get() = arrayOf(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
+
+        internal val MIGRATIONS_7_12: Array<Migration>
+            get() = arrayOf(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12)
 
         private val ALL_MIGRATIONS: Array<Migration>
             get() = arrayOf(
@@ -71,7 +85,8 @@ abstract class AppDatabase : RoomDatabase() {
                 MIGRATION_7_8,
                 MIGRATION_8_9,
                 MIGRATION_9_10,
-                MIGRATION_10_11
+                MIGRATION_10_11,
+                MIGRATION_11_12
             )
 
         private val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -192,6 +207,36 @@ abstract class AppDatabase : RoomDatabase() {
                         committedAt INTEGER NOT NULL,
                         PRIMARY KEY(importId)
                     )"""
+                )
+            }
+        }
+
+        private val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """CREATE TABLE IF NOT EXISTS knowledge_point_aliases (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        knowledgePointId INTEGER NOT NULL,
+                        subject TEXT NOT NULL,
+                        alias TEXT NOT NULL,
+                        normalizedAlias TEXT NOT NULL,
+                        legacyStableId TEXT,
+                        createdAt INTEGER NOT NULL,
+                        updatedAt INTEGER NOT NULL,
+                        FOREIGN KEY(knowledgePointId) REFERENCES knowledge_points(id) ON UPDATE NO ACTION ON DELETE CASCADE
+                    )"""
+                )
+                database.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_knowledge_point_aliases_subject_normalizedAlias " +
+                        "ON knowledge_point_aliases(subject, normalizedAlias)"
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_knowledge_point_aliases_knowledgePointId " +
+                        "ON knowledge_point_aliases(knowledgePointId)"
+                )
+                database.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_knowledge_point_aliases_legacyStableId " +
+                        "ON knowledge_point_aliases(legacyStableId)"
                 )
             }
         }

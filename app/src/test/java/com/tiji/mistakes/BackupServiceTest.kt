@@ -75,6 +75,29 @@ class BackupServiceTest {
     }
 
     @Test
+    fun inspectsSchemaFourKnowledgeAliases() {
+        val entries = mapOf(
+            "manifest.json" to bytes(
+                """{"format":"tiji-backup","schemaVersion":4,"minReaderSchemaVersion":3,"appVersion":"1.5.0","exportedAt":123,"knowledgePointCount":1,"knowledgePointAliasCount":1}"""
+            ),
+            "data/mistakes.json" to bytes("[]"),
+            "data/preferences.json" to bytes("{}"),
+            "data/knowledge_points.json" to bytes(
+                """[{"stableId":"kp-1","subject":"数学","name":"二重积分","normalizedName":"二重积分","createdAt":1,"updatedAt":1}]"""
+            ),
+            "data/mistake_knowledge_points.json" to bytes("[]"),
+            "data/knowledge_point_aliases.json" to bytes(
+                """[{"knowledgePointStableId":"kp-1","subject":"数学","alias":"二重积分计算","normalizedAlias":"二重积分计算","legacyStableId":"legacy-kp-1","createdAt":1,"updatedAt":1}]"""
+            )
+        )
+
+        val preview = BackupService.inspectEntries(entries)
+
+        assertEquals(4, preview.schemaVersion)
+        assertEquals(1, preview.knowledgePointAliasCount)
+    }
+
+    @Test
     fun legacySchemaTwoReaderRejectsSchemaThreeWriterContract() {
         val writerManifest = JSONObject()
             .put("format", "tiji-backup")
@@ -88,7 +111,7 @@ class BackupServiceTest {
     fun rejectsUnsupportedFutureSchema() {
         val entries = mapOf(
             "manifest.json" to bytes(
-                """{"format":"tiji-backup","schemaVersion":4,"minReaderSchemaVersion":3}"""
+                """{"format":"tiji-backup","schemaVersion":5,"minReaderSchemaVersion":3}"""
             ),
             "data/mistakes.json" to bytes("[]")
         )

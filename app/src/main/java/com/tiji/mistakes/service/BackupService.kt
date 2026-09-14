@@ -7,6 +7,7 @@ import com.tiji.mistakes.BuildConfig
 import com.tiji.mistakes.data.AppDatabase
 import com.tiji.mistakes.data.AppPreferences
 import com.tiji.mistakes.data.KnowledgePointEntity
+import com.tiji.mistakes.data.KnowledgePointAliasEntity
 import com.tiji.mistakes.data.KnowledgePointNormalizer
 import com.tiji.mistakes.data.MistakeEntity
 import com.tiji.mistakes.data.MistakeKnowledgePointCrossRef
@@ -38,6 +39,7 @@ data class BackupPreview(
     val reviewRecordCount: Int,
     val legacy: Boolean,
     val knowledgePointCount: Int = 0,
+    val knowledgePointAliasCount: Int = 0,
     /** Dry-run import plan; no database rows are changed while inspecting. */
     val willAdd: Int = 0,
     val willUpdate: Int = 0,
@@ -56,7 +58,7 @@ data class BackupImportResult(
 /** Versioned, app-readable .tiji archive. It deliberately excludes API keys and AI working state. */
 object BackupService {
     private const val FORMAT = "tiji-backup"
-    private const val SCHEMA_VERSION = 3
+    private const val SCHEMA_VERSION = 4
     private const val MIN_READER_SCHEMA_VERSION = 3
     private const val MAX_ENTRY_BYTES = 40L * 1024L * 1024L
     private const val MAX_ARCHIVE_BYTES = 160L * 1024L * 1024L
@@ -75,9 +77,11 @@ object BackupService {
             val reviewRecordJson = JSONArray()
             val knowledgePoints = database.knowledgePointDao().listAll()
             val knowledgePointById = knowledgePoints.associateBy(KnowledgePointEntity::id)
+            val knowledgePointAliases = database.knowledgePointAliasDao().listAll()
             val knowledgePointRecords = JSONArray()
             val crossRefs = database.mistakeKnowledgePointDao().listAll()
             val crossRefRecords = JSONArray()
+            val aliasRecords = JSONArray()
             val images = mutableListOf<ExportImage>()
 
             mistakes.forEach { mistake ->
@@ -142,6 +146,10 @@ object BackupService {
                         .put("knowledgePointStableId", pointStableId)
                 )
             }
+            knowledgePointAliases.forEach { alias ->
+                val pointStableId = knowledgePointById[alias.knowledgePointId]?.stableId ?: return@forEach
+                aliasRecords.put(knowledgePointAliasToJson(alias, pointStableId))
+            }
 
             val exportedAt = System.currentTimeMillis()
             val manifest = JSONObject()
@@ -154,6 +162,7 @@ object BackupService {
                 .put("imageCount", images.size)
                 .put("reviewRecordCount", reviewRecordJson.length())
                 .put("knowledgePointCount", knowledgePoints.size)
+                .put("knowledgePointAliasCount", aliasRecords.length())
 
             context.contentResolver.openOutputStream(uri, "w")?.use { output ->
                 ZipOutputStream(output.buffered()).use { zip ->
@@ -163,6 +172,7 @@ object BackupService {
                     putJson(zip, "data/review_records.json", reviewRecordJson)
                     putJson(zip, "data/knowledge_points.json", knowledgePointRecords)
                     putJson(zip, "data/mistake_knowledge_points.json", crossRefRecords)
+                    putJson(zip, "data/knowledge_point_aliases.json", aliasRecords)
                     images.distinctBy(ExportImage::entry).forEach { image ->
                         zip.putNextEntry(ZipEntry(image.entry))
                         image.file.inputStream().buffered().use { it.copyTo(zip) }
@@ -179,6 +189,7 @@ object BackupService {
                 imageCount = images.distinctBy(ExportImage::entry).size,
                 reviewRecordCount = reviewRecordJson.length(),
                 knowledgePointCount = knowledgePoints.size,
+                knowledgePointAliasCount = aliasRecords.length(),
                 legacy = false
             )
         }
@@ -358,6 +369,7 @@ object BackupService {
             val dao = database.mistakeDao()
             val reviewDao = database.reviewRecordDao()
             val knowledgePointDao = database.knowledgePointDao()
+            val knowledgePointAliasDao = database.knowledgePointAliasDao()
             val crossRefDao = database.mistakeKnowledgePointDao()
             val beforeImportMistakes = dao.listAll()
             preferenceSnapshot = preferences?.exportBackupJson(
@@ -395,6 +407,7 @@ object BackupService {
                     crossRefDao.deleteAll()
                     dao.deleteAll()
                     knowledgePointDao.deleteAll()
+                    knowledgePointAliasDao.deleteAll()
                     pointsByStableId.clear()
                     pointsBySubjectName.clear()
                 }
@@ -505,6 +518,29 @@ object BackupService {
                     pointsByStableId[incoming.stableId] = stored
                     pointsBySubjectName[stored.subject to stored.normalizedName] = stored
                 }
+                payload.knowledgePointAliases.forEach { incoming ->
+                    val pointId = importedPoints[incoming.knowledgePointStableId]?.id
+                        ?: pointsByStableId[incoming.knowledgePointStableId]?.id
+                        ?: knowledgePointAliasDao.findByLegacyStableId(incoming.knowledgePointStableId)?.knowledgePointId
+                        ?: return@forEach
+                    val subject = incoming.subject.trim().ifBlank { "未分类" }
+                    val normalizedAlias = KnowledgePointNormalizer.normalizeName(incoming.alias)
+                    if (normalizedAlias.isBlank()) return@forEach
+                    val existingAlias = knowledgePointAliasDao.findBySubjectAndAlias(subject, normalizedAlias)
+                    if (existingAlias == null || existingAlias.knowledgePointId == pointId) {
+                        knowledgePointAliasDao.insertIgnore(
+                            KnowledgePointAliasEntity(
+                                knowledgePointId = pointId,
+                                subject = subject,
+                                alias = incoming.alias,
+                                normalizedAlias = normalizedAlias,
+                                legacyStableId = incoming.legacyStableId,
+                                createdAt = incoming.createdAt,
+                                updatedAt = incoming.updatedAt
+                            )
+                        )
+                    }
+                }
                 payload.knowledgePoints.forEach { incoming ->
                     val point = importedPoints[incoming.stableId] ?: return@forEach
                     val parentId = incoming.parentStableId?.let {
@@ -521,6 +557,7 @@ object BackupService {
                     val mistakeId = importedStableToLocalId[ref.mistakeStableId] ?: return@forEach
                     val pointId = importedPoints[ref.knowledgePointStableId]?.id
                         ?: pointsByStableId[ref.knowledgePointStableId]?.id
+                        ?: knowledgePointAliasDao.findByLegacyStableId(ref.knowledgePointStableId)?.knowledgePointId
                         ?: return@forEach
                     crossRefDao.insert(MistakeKnowledgePointCrossRef(mistakeId, pointId))
                 }
@@ -565,7 +602,7 @@ object BackupService {
                     replace = mode == BackupImportMode.REPLACE
                 )
                 val repository = MistakeRepository(database)
-                if (payload.preview.schemaVersion < SCHEMA_VERSION && importedStableToLocalId.isNotEmpty()) {
+                if (importedStableToLocalId.isNotEmpty()) {
                     repository.syncKnowledgePointsForMistakesInTransaction(importedStableToLocalId.values)
                 }
                 // Every Room write needed for the import's final business
@@ -690,6 +727,7 @@ object BackupService {
         val reviewRecords = parseReviewRecords(entries["data/review_records.json"]?.decodeUtf8())
         val knowledgePoints = parseKnowledgePoints(entries["data/knowledge_points.json"]?.decodeUtf8())
         val crossRefs = parseCrossRefs(entries["data/mistake_knowledge_points.json"]?.decodeUtf8())
+        val knowledgePointAliases = parseKnowledgePointAliases(entries["data/knowledge_point_aliases.json"]?.decodeUtf8())
         val preview = BackupPreview(
             schemaVersion = schema,
             appVersion = manifest.optString("appVersion", "未知"),
@@ -702,9 +740,10 @@ object BackupService {
             reviewRecordCount = if (entries["data/review_records.json"] != null) reviewRecords.size else countReviewRecords(preferences),
             legacy = false,
             knowledgePointCount = knowledgePoints.size,
+            knowledgePointAliasCount = knowledgePointAliases.size,
             missingImages = missingImages
         )
-        return BackupPayload(preview, records, preferences, entries, reviewRecords, knowledgePoints, crossRefs)
+        return BackupPayload(preview, records, preferences, entries, reviewRecords, knowledgePoints, crossRefs, knowledgePointAliases)
     }
 
     private fun parseLegacy(entries: Map<String, ByteArray>, strictImages: Boolean): BackupPayload {
@@ -736,7 +775,8 @@ object BackupService {
             entries = entries,
             reviewRecords = emptyList(),
             knowledgePoints = emptyList(),
-            crossRefs = emptyList()
+            crossRefs = emptyList(),
+            knowledgePointAliases = emptyList()
         )
     }
 
@@ -873,6 +913,15 @@ object BackupService {
         .put("createdAt", point.createdAt)
         .put("updatedAt", point.updatedAt)
 
+    private fun knowledgePointAliasToJson(alias: KnowledgePointAliasEntity, pointStableId: String): JSONObject = JSONObject()
+        .put("knowledgePointStableId", pointStableId)
+        .put("subject", alias.subject)
+        .put("alias", alias.alias)
+        .put("normalizedAlias", alias.normalizedAlias)
+        .put("legacyStableId", alias.legacyStableId ?: JSONObject.NULL)
+        .put("createdAt", alias.createdAt)
+        .put("updatedAt", alias.updatedAt)
+
     private fun parseReviewRecords(raw: String?): List<ImportedReviewRecord> {
         if (raw == null) return emptyList()
         val array = JSONArray(raw)
@@ -933,6 +982,29 @@ object BackupService {
                 knowledgePointStableId = json.optString("knowledgePointStableId").trim().also {
                     require(it.isNotBlank()) { "知识点关系缺少知识点 stableId" }
                 }
+            )
+        }
+    }
+
+    private fun parseKnowledgePointAliases(raw: String?): List<ImportedKnowledgePointAlias> {
+        if (raw == null) return emptyList()
+        val array = JSONArray(raw)
+        require(array.length() <= MAX_RECORDS * 5) { "备份中的知识点别名数量过多" }
+        return (0 until array.length()).map { index ->
+            val json = array.getJSONObject(index)
+            val alias = json.optString("alias").trim()
+            val normalizedAlias = json.optString("normalizedAlias").trim()
+                .ifBlank { KnowledgePointNormalizer.normalizeName(alias) }
+            ImportedKnowledgePointAlias(
+                knowledgePointStableId = json.optString("knowledgePointStableId").trim().also {
+                    require(it.isNotBlank()) { "知识点别名缺少目标 stableId" }
+                },
+                subject = json.optString("subject", "未分类").trim().ifBlank { "未分类" },
+                alias = alias.ifBlank { normalizedAlias },
+                normalizedAlias = normalizedAlias,
+                legacyStableId = json.optNullableString("legacyStableId"),
+                createdAt = json.optLong("createdAt", System.currentTimeMillis()),
+                updatedAt = json.optLong("updatedAt", System.currentTimeMillis())
             )
         }
     }
@@ -1161,6 +1233,15 @@ object BackupService {
         val mistakeStableId: String,
         val knowledgePointStableId: String
     )
+    private data class ImportedKnowledgePointAlias(
+        val knowledgePointStableId: String,
+        val subject: String,
+        val alias: String,
+        val normalizedAlias: String,
+        val legacyStableId: String?,
+        val createdAt: Long,
+        val updatedAt: Long
+    )
     private data class BackupPayload(
         val preview: BackupPreview,
         val records: List<ImportedRecord>,
@@ -1168,6 +1249,7 @@ object BackupService {
         val entries: Map<String, ByteArray>,
         val reviewRecords: List<ImportedReviewRecord> = emptyList(),
         val knowledgePoints: List<ImportedKnowledgePoint> = emptyList(),
-        val crossRefs: List<ImportedCrossRef> = emptyList()
+        val crossRefs: List<ImportedCrossRef> = emptyList(),
+        val knowledgePointAliases: List<ImportedKnowledgePointAlias> = emptyList()
     )
 }
