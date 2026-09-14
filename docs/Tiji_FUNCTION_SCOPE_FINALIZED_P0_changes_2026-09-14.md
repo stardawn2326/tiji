@@ -65,15 +65,15 @@
 
 ## GitHub 发布记录
 
-以下字段在远端 PR 和合并完成后回填：
+以下为本轮分支推送和 PR 检查记录；共享 `main` 的合并需要单独授权。
 
 - 工作分支：`codex/function-final-p0-close`
-- 功能提交：待回填
-- PR：待回填
-- PR CI：待回填
-- `main` 合并提交：待回填
-- 合并后 `main` CI：待回填
-- 远端文件树和文件内容校验：待回填
+- 功能提交：`95fb280c1bdac3091d1c432962e67ff9d7b771d8`
+- PR：[ #11 · feat: close function scope P0 review flow](https://github.com/stardawn2326/tiji/pull/11)
+- PR CI：通过；push run [`34811064733`](https://github.com/stardawn2326/tiji/actions/runs/34811064733)，PR run [`34811094057`](https://github.com/stardawn2326/tiji/actions/runs/34811094057)，两次均通过编译/package 与 API30 instrumentation。
+- `main` 合并提交：尚未执行；当前请求已完成分支推送和 PR 创建，未直接改写共享 `main`。
+- 合并后 `main` CI：待合并后执行。
+- 远端文件树和文件内容校验：分支推送完成后回填。
 
 ## 范围说明
 
