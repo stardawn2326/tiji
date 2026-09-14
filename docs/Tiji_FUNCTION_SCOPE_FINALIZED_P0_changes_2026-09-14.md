@@ -2,7 +2,7 @@
 
 ## 文档信息
 
-- 版本：1.1
+- 版本：1.2
 - 日期：2026-09-14
 - 对照方案：`C:\Users\23260\Downloads\Tiji_FUNCTION_SCOPE_FINALIZED验收与下一步_P0最终收口方案_2026-09-14.md`
 - 目标仓库：[stardawn2326/tiji](https://github.com/stardawn2326/tiji)
@@ -74,9 +74,10 @@
 - PR：[ #11 · feat: close function scope P0 review flow](https://github.com/stardawn2326/tiji/pull/11)
 - 本轮功能提交对应的 push CI：通过；run [`34814934577`](https://github.com/stardawn2326/tiji/actions/runs/34814934577)。
 - 本轮功能提交对应的 PR CI：通过；run [`34814936231`](https://github.com/stardawn2326/tiji/actions/runs/34814936231)。两次均通过编译/package 与 API30 instrumentation。
-- 本地文档提交后，PR11 会再次执行同一组检查；合并前以 PR11 最新 head 的两项检查为准。
-- 合并前 `main` SHA：`cf39d7a87bc5463ea116c31f432cc355335b8cff`；P0 回归已通过，按方案继续合并 PR11。
-- 合并后的 `main` 提交和 post-merge CI 将在合并完成后回填到交付记录。
+- PR11 已合并：merge commit `36406bb3ef21c41181501580b8718cadfce34d27`，parents 为 `cf39d7a87bc5463ea116c31f432cc355335b8cff` 与 `51ce970fe0e2fd071c248c73e67fa35834a171c2`，`merged_at=2026-09-14T08:32:23Z`。
+- `main@36406bb3ef21c41181501580b8718cadfce34d27` 的 post-merge CI：通过；run [`34823237910`](https://github.com/stardawn2326/tiji/actions/runs/34823237910)，compile/package job `103909370971` 与 API30 instrumentation job `103909370802` 均成功。API30 日志为 `Starting 71 tests`、`Finished 75 tests`、`4 skipped`、`0 failed`。
+- PR11 accepted head 与 main merge tree 的应用源码校验：`APP_CODE_DRIFT=0`。
+- `FUNCTION_SCOPE_FINALIZED=PASS`；Release Acceptance 记录见 [API30-only Release Acceptance 与 UI 大改执行记录](Tiji_API30_ONLY_RELEASE_ACCEPTANCE_UI_redesign_2026-09-14.md)，正式签名等后续门禁仍未完成。
 
 ## 范围说明
 

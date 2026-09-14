@@ -20,23 +20,40 @@ android {
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
     }
 
+    // Release acceptance must opt into fail-closed signing. Ordinary local debug
+    // builds keep the existing debug-keystore fallback for API30 test execution.
+    val requireReleaseSigning = providers.gradleProperty("TIJI_REQUIRE_RELEASE_SIGNING").orNull?.toBoolean() == true ||
+        System.getenv("TIJI_REQUIRE_RELEASE_SIGNING")?.toBoolean() == true
+    val signingStoreFileValue = providers.gradleProperty("TIJI_SIGNING_STORE_FILE").orNull
+        ?: System.getenv("TIJI_SIGNING_STORE_FILE")
+    val signingStorePasswordValue = providers.gradleProperty("TIJI_SIGNING_STORE_PASSWORD").orNull
+        ?: System.getenv("TIJI_SIGNING_STORE_PASSWORD")
+    val signingKeyAliasValue = providers.gradleProperty("TIJI_SIGNING_KEY_ALIAS").orNull
+        ?: System.getenv("TIJI_SIGNING_KEY_ALIAS")
+    val signingKeyPasswordValue = providers.gradleProperty("TIJI_SIGNING_KEY_PASSWORD").orNull
+        ?: System.getenv("TIJI_SIGNING_KEY_PASSWORD")
+    val missingSigningProperties = listOf(
+        "TIJI_SIGNING_STORE_FILE" to signingStoreFileValue,
+        "TIJI_SIGNING_STORE_PASSWORD" to signingStorePasswordValue,
+        "TIJI_SIGNING_KEY_ALIAS" to signingKeyAliasValue,
+        "TIJI_SIGNING_KEY_PASSWORD" to signingKeyPasswordValue
+    ).filter { it.second.isNullOrBlank() }.map { it.first }
+    if (requireReleaseSigning && missingSigningProperties.isNotEmpty()) {
+        throw GradleException(
+            "TIJI_REQUIRE_RELEASE_SIGNING=true requires: ${missingSigningProperties.joinToString(", ")}"
+        )
+    }
+
     signingConfigs {
         create("stableRelease") {
             // v1.0.0 was signed with this certificate. Keeping it is mandatory for
             // Android to accept an in-place update without deleting private data.
-            val configuredStore = providers.gradleProperty("TIJI_SIGNING_STORE_FILE").orNull
-                ?: System.getenv("TIJI_SIGNING_STORE_FILE")
+            val configuredStore = signingStoreFileValue
                 ?: "${System.getProperty("user.home")}/.android/debug.keystore"
             storeFile = file(configuredStore)
-            storePassword = providers.gradleProperty("TIJI_SIGNING_STORE_PASSWORD").orNull
-                ?: System.getenv("TIJI_SIGNING_STORE_PASSWORD")
-                ?: "android"
-            keyAlias = providers.gradleProperty("TIJI_SIGNING_KEY_ALIAS").orNull
-                ?: System.getenv("TIJI_SIGNING_KEY_ALIAS")
-                ?: "androiddebugkey"
-            keyPassword = providers.gradleProperty("TIJI_SIGNING_KEY_PASSWORD").orNull
-                ?: System.getenv("TIJI_SIGNING_KEY_PASSWORD")
-                ?: "android"
+            storePassword = signingStorePasswordValue ?: "android"
+            keyAlias = signingKeyAliasValue ?: "androiddebugkey"
+            keyPassword = signingKeyPasswordValue ?: "android"
         }
     }
 
