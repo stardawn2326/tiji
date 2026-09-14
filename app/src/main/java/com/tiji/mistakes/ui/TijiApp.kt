@@ -45,6 +45,7 @@ import com.tiji.mistakes.domain.DailyStudyPlanner
 import com.tiji.mistakes.domain.DailyStudyPlannerInput
 import com.tiji.mistakes.domain.ReviewAnalytics
 import com.tiji.mistakes.domain.WeaknessCalculator
+import com.tiji.mistakes.domain.FutureReviewPlan
 import com.tiji.mistakes.domain.time.LearningCalendar
 import com.tiji.mistakes.service.OcrModelManager
 import com.tiji.mistakes.ui.navigation.BottomDestination
@@ -139,6 +140,15 @@ fun TijiApp() {
             )
         }
     }
+    val futureReviewPlan = remember(allMistakes, reviewNow, dailyReviewLimit, reviewSubjects, todayWeekday) {
+        FutureReviewPlan.calculate(
+            activeMistakes = allMistakes,
+            now = reviewNow,
+            days = 3,
+            dailyLimit = dailyReviewLimit,
+            subjectPreferences = DailyStudyPlanner.parseSubjectPreferences(reviewSubjects, todayWeekday)
+        )
+    }
     val navController = rememberNavController()
     val scope = rememberCoroutineScope()
     val ocrModelManager = remember { OcrModelManager.getInstance(context) }
@@ -183,6 +193,7 @@ fun TijiApp() {
         reviewAnalytics = reviewAnalytics,
         weaknessInsights = weaknessInsights,
         dailyStudyPlan = dailyStudyPlan,
+        futureReviewPlan = futureReviewPlan,
         reviewPlanSnapshots = reviewPlanSnapshots,
         reviewRecords = reviewRecords,
         reviewCheckIns = reviewCheckIns,

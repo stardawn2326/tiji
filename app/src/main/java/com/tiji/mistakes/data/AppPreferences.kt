@@ -432,7 +432,7 @@ class AppPreferences(private val context: Context) {
     }
 
     companion object {
-        private const val LEGACY_TAG_BACKFILL_VERSION = 1
+        private const val LEGACY_TAG_BACKFILL_VERSION = 2
         const val DEFAULT_PROFILE_ID = "default"
         const val DEFAULT_INPUT_MODE = "VISION"
         const val DEFAULT_ENDPOINT = "https://api.openai.com/v1"

@@ -27,16 +27,16 @@ class DailyStudyPlannerTest {
     )
 
     @Test
-    fun fillsDueBeforeWeakAndOptionalWithinDailyLimit() {
+    fun schedulesOnlyDueRowsWithinDailyLimit() {
         val due = mistake(1L, mastery = 2, nextReviewAt = now - 10L, createdAt = 1L)
         val weak = mistake(2L, mastery = 0, nextReviewAt = now + 10_000L, createdAt = 2L)
         val optional = mistake(3L, mastery = 3, nextReviewAt = now + 20_000L, createdAt = 3L)
         val plan = DailyStudyPlanner.plan(input(listOf(due, weak, optional), listOf(due), limit = 2))
 
         assertEquals(listOf(1L), plan.due)
-        assertEquals(listOf(2L), plan.weakBoost)
+        assertTrue(plan.weakBoost.isEmpty())
         assertTrue(plan.optional.isEmpty())
-        assertEquals(listOf(1L, 2L), plan.orderedIds)
+        assertEquals(listOf(1L), plan.orderedIds)
         assertEquals(DailyStudyBucket.DUE, plan.bucketFor(1L))
         assertTrue(plan.reasons.getValue(1L).contains("今天到期"))
     }
@@ -51,14 +51,14 @@ class DailyStudyPlannerTest {
         val firstRun = DailyStudyPlanner.plan(input)
         val secondRun = DailyStudyPlanner.plan(input.copy(activeMistakes = input.activeMistakes.reversed()))
 
-        assertEquals(listOf(6L, 7L), firstRun.orderedIds)
+        assertEquals(emptyList<Long>(), firstRun.orderedIds)
         assertEquals(firstRun.orderedIds, secondRun.orderedIds)
         assertFalse(4L in firstRun.orderedIds)
         assertFalse(5L in firstRun.orderedIds)
     }
 
     @Test
-    fun usesStructuredInsightAndRecentHardReason() {
+    fun ignoresKnowledgePointWeaknessWhenScheduling() {
         val weak = mistake(8L, mastery = 0, createdAt = 1L, lastReviewedAt = now - 3 * 86_400_000L)
         val insight = KnowledgePointInsight(point, 1, 1, 0, 0.8f, "需加强")
         val record = ReviewRecordEntity(
@@ -81,10 +81,7 @@ class DailyStudyPlannerTest {
             )
         )
 
-        assertEquals(listOf(8L), plan.weakBoost)
-        assertTrue(plan.reasons.getValue(8L).contains("函数"))
-        assertTrue(plan.reasons.getValue(8L).contains("上次选择生疏"))
-        assertTrue(plan.reasons.getValue(8L).contains("距离上次复习 3 天"))
+        assertTrue(plan.orderedIds.isEmpty())
     }
 
     @Test

@@ -29,6 +29,9 @@ interface MistakeKnowledgePointDao {
     @Query("DELETE FROM mistake_knowledge_points WHERE mistakeId = :mistakeId")
     suspend fun deleteForMistake(mistakeId: Long)
 
+    @Query("DELETE FROM mistake_knowledge_points WHERE knowledgePointId = :knowledgePointId")
+    suspend fun deleteForKnowledgePoint(knowledgePointId: Long)
+
     @Query("DELETE FROM mistake_knowledge_points")
     suspend fun deleteAll()
 }

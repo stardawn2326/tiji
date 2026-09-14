@@ -65,6 +65,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -263,9 +264,6 @@ class MistakeViewModel(
                 .map { records -> rows.toMistakeListItems(latestReviewGrades(records)) }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-    val progressSummary: StateFlow<MistakeProgressSummary> = allMistakeItems
-        .map(MistakeProgressCalculator::calculate)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MistakeProgressSummary())
     val dueMistakes: StateFlow<List<MistakeEntity>> = reviewClock.flatMapLatest(repository::observeDue)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val totalCount: StateFlow<Int> = repository.observeCount()
@@ -284,6 +282,14 @@ class MistakeViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val knowledgePointLinks = repository.observeKnowledgePointLinks()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val progressSummary: StateFlow<MistakeProgressSummary> = combine(
+        allMistakeItems,
+        knowledgePoints,
+        knowledgePointLinks
+    ) { items, points, links ->
+        MistakeProgressCalculator.calculate(items, points, links)
+    }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MistakeProgressSummary())
     val aiSolve: StateFlow<AiSolveState> = _aiSolve.asStateFlow()
     val aiSolveHistory: StateFlow<List<AiSolveHistoryRecord>> = _aiSolveHistory.asStateFlow()
     val aiChat: StateFlow<AiChatState> = _aiChat.asStateFlow()
