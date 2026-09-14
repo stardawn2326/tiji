@@ -609,6 +609,12 @@ object BackupService {
                     } else {
                         stagingDirectory.deleteRecursively()
                         rollbackDirectory.deleteRecursively()
+                        val referenced = MistakeRepository(database).allReferencedImagePaths()
+                        ImageStorage.deletePrivateFiles(
+                            context,
+                            (createdImagePaths + previousReferencedImagePaths)
+                                .filterNot { it in referenced }
+                        )
                         database.backupImportCommitMarkerDao().clear(importId)
                         coordinator.clear()
                     }
