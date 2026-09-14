@@ -40,7 +40,8 @@ EOF
   local status=0
   set +e
   output="$(
-    VERIFY_RELEASE_SOURCE_ONLY=1 source ./scripts/verify-release.sh
+    export VERIFY_RELEASE_SOURCE_ONLY=1
+    source ./scripts/verify-release.sh
     read_badging "$fake_aapt" "$temp_dir/tiji.apk"
   2>&1)"
   status=$?
@@ -55,7 +56,8 @@ run_unknown_field_test() {
   local status=0
   set +e
   output="$(
-    VERIFY_RELEASE_SOURCE_ONLY=1 source ./scripts/verify-release.sh
+    export VERIFY_RELEASE_SOURCE_ONLY=1
+    source ./scripts/verify-release.sh
     require_known "targetSdk" "unknown"
   2>&1)"
   status=$?
