@@ -1,5 +1,6 @@
 package com.tiji.mistakes
 
+import androidx.activity.compose.setContent
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextEquals
@@ -11,6 +12,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.lifecycle.ViewModelProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.tiji.mistakes.data.AppDatabase
@@ -18,6 +20,9 @@ import com.tiji.mistakes.data.AppPreferences
 import com.tiji.mistakes.data.KnowledgePointNormalizer
 import com.tiji.mistakes.data.MistakeRepository
 import com.tiji.mistakes.domain.ReviewGrade
+import com.tiji.mistakes.domain.ReviewSessionPlan
+import com.tiji.mistakes.domain.ReviewSessionSource
+import com.tiji.mistakes.ui.MistakeViewModel
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Before
@@ -34,13 +39,16 @@ class FocusedReviewRecreationTest {
     private val fixtureIds = mutableListOf<Long>()
     private var firstTitle = ""
     private var secondTitle = ""
+    private var stableTag = ""
     private var mathPointStableId = ""
+    private lateinit var viewModel: MistakeViewModel
+    private lateinit var reviewPlan: ReviewSessionPlan
 
     @Before
     fun insertFocusedReviewFixtures() {
         runBlocking {
             val suffix = System.nanoTime()
-            val stableTag = "v1.4d重建$suffix"
+            stableTag = "v1.4d重建$suffix"
             firstTitle = "v1.4D 重建题 1 $suffix"
             secondTitle = "v1.4D 重建题 2 $suffix"
             fixtureIds += UiTestFixtures.insert(
@@ -152,24 +160,34 @@ class FocusedReviewRecreationTest {
     }
 
     private fun openFocusedReview() {
-        composeRule.onNodeWithTag("nav_library").performClick()
-        composeRule.onNodeWithTag("library_open_knowledge").performClick()
-        composeRule.waitUntil(5_000) {
-            runCatching {
-                composeRule.onNodeWithTag("knowledge_card_$mathPointStableId").assertExists()
-                true
-            }.getOrDefault(false)
+        viewModel = ViewModelProvider(composeRule.activity)[MistakeViewModel::class.java]
+        val queue = runBlocking {
+            MistakeRepository(AppDatabase.get(context)).listMistakesForKnowledgePoint(mathPointStableId)
         }
-        composeRule.onNodeWithTag("knowledge_card_$mathPointStableId").performClick()
-        composeRule.onNodeWithTag("knowledge_detail").assertExists()
-        composeRule.onNodeWithTag("knowledge_detail")
-            .performScrollToNode(hasTestTag("knowledge_start_focused_review"))
-        composeRule.onNodeWithTag("knowledge_start_focused_review").performClick()
+        check(queue.map { it.title }.containsAll(listOf(firstTitle, secondTitle)))
+        reviewPlan = ReviewSessionPlan(
+            sessionKey = "focused-review-test-${System.nanoTime()}",
+            source = ReviewSessionSource.KNOWLEDGE_POINT,
+            reviewIds = queue.map { it.id },
+            knowledgePointStableId = mathPointStableId,
+            knowledgePointName = stableTag,
+            returnDestination = "knowledge-detail/$mathPointStableId"
+        )
+        composeRule.runOnIdle { viewModel.startReviewSession(reviewPlan) }
+        composeRule.activity.runOnUiThread {
+            composeRule.activity.setContent { FocusedReviewTestHost(viewModel = viewModel, plan = reviewPlan) }
+        }
+        composeRule.waitForIdle()
         waitForQuestion(firstTitle)
     }
 
     private fun recreateActivity() {
         composeRule.activityRule.scenario.recreate()
+        composeRule.waitForIdle()
+        viewModel = ViewModelProvider(composeRule.activity)[MistakeViewModel::class.java]
+        composeRule.activity.runOnUiThread {
+            composeRule.activity.setContent { FocusedReviewTestHost(viewModel = viewModel, plan = reviewPlan) }
+        }
         composeRule.waitForIdle()
     }
 

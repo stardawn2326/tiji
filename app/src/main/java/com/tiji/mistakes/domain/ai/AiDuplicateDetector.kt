@@ -33,6 +33,12 @@ object AiDuplicateDetector {
         .lowercase()
         .replace(Regex("[\\p{P}\\p{S}\\s]+"), "")
 
+    internal fun hasImageMatch(sourceImagePaths: List<String>, mistake: MistakeEntity): Boolean {
+        val newImageHashes = sourceImagePaths.mapNotNull(::sha256).toSet()
+        return newImageHashes.isNotEmpty() &&
+            allImagePaths(mistake).mapNotNull(::sha256).any { it in newImageHashes }
+    }
+
     private fun allImagePaths(mistake: MistakeEntity): List<String> = buildList {
         mistake.imagePath?.takeIf(String::isNotBlank)?.let(::add)
         val paths = runCatching { JSONArray(mistake.sourceImagePaths.ifBlank { "[]" }) }.getOrNull()

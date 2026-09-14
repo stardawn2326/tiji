@@ -5,6 +5,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.temporal.TemporalAdjusters
+import java.time.temporal.ChronoUnit
 
 /**
  * Product time semantics for learning analytics.
@@ -22,6 +23,29 @@ object LearningCalendar {
 
     fun startOfDay(timeMillis: Long, zoneId: ZoneId = ZoneId.systemDefault()): Instant =
         startOfDay(localDate(timeMillis, zoneId), zoneId)
+
+    fun startOfLocalDay(timeMillis: Long, zoneId: ZoneId = ZoneId.systemDefault()): Long =
+        startOfDay(timeMillis, zoneId).toEpochMilli()
+
+    /** Adds natural calendar days while preserving the requested local zone. */
+    fun addStudyDays(
+        timeMillis: Long,
+        days: Long,
+        zoneId: ZoneId = ZoneId.systemDefault()
+    ): Long = startOfDay(localDate(timeMillis, zoneId).plusDays(days), zoneId).toEpochMilli()
+
+    fun daysBetweenLocalDates(
+        startMillis: Long,
+        endMillis: Long,
+        zoneId: ZoneId = ZoneId.systemDefault()
+    ): Long = ChronoUnit.DAYS.between(localDate(startMillis, zoneId), localDate(endMillis, zoneId))
+
+    fun daysBetweenLocalDates(start: LocalDate, end: LocalDate): Long =
+        ChronoUnit.DAYS.between(start, end)
+
+    /** Start of the next local study day used by explicit review-plan actions. */
+    fun nextStudyDayStart(timeMillis: Long, zoneId: ZoneId = ZoneId.systemDefault()): Long =
+        addStudyDays(timeMillis, 1, zoneId)
 
     /** Inclusive natural-day window containing today and the previous [days - 1] days. */
     fun startOfRecentDays(

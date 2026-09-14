@@ -31,7 +31,7 @@ jobs:
         uses: android-actions/setup-android@v3
 
       - name: Install Android SDK packages
-        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+        run: sdkmanager "platforms;android-34" "build-tools;34.0.0"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -58,7 +58,7 @@ jobs:
         run: ./gradlew :app:compileDebugKotlin :app:compileDebugAndroidTestKotlin :app:testDebugUnitTest :app:lintDebug :app:assembleDebug --no-daemon
 
   instrumentation:
-    name: Android instrumentation (API 35)
+    name: Android instrumentation (API 30)
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -75,7 +75,7 @@ jobs:
         uses: android-actions/setup-android@v3
 
       - name: Install Android SDK packages
-        run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "system-images;android-35;google_atd;x86_64"
+        run: sdkmanager "platforms;android-34" "build-tools;34.0.0" "system-images;android-30;default;x86_64"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -113,8 +113,8 @@ jobs:
       - name: Run Android instrumentation tests
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 35
-          target: google_atd
+          api-level: 30
+          target: default
           arch: x86_64
           profile: pixel
           cores: 4
@@ -122,7 +122,7 @@ jobs:
           heap-size: 512M
           emulator-boot-timeout: 900
           # GitHub-hosted Ubuntu runners expose /dev/kvm. Keep hardware
-          # acceleration enabled so the API 35 x86_64 test device does not
+          # acceleration enabled so the API 30 x86_64 test device does not
           # crash while Gradle starts instrumentation.
           disable-linux-hw-accel: false
           disable-animations: true

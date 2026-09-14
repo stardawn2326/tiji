@@ -3,7 +3,6 @@ package com.tiji.mistakes
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.performClick
@@ -15,6 +14,8 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.tiji.mistakes.data.AppDatabase
 import com.tiji.mistakes.data.MistakeRepository
+import com.tiji.mistakes.data.ReviewRecordEntity
+import com.tiji.mistakes.domain.ReviewGrade
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Before
@@ -54,7 +55,8 @@ class LibraryFilterTest {
                 tags = "数列",
                 questionText = "写出数列的递推关系。",
                 note = "递推关系",
-                inReviewPlan = false
+                inReviewPlan = false,
+                reviewCount = 1
             )
             fixtureIds += UiTestFixtures.insert(
                 context = context,
@@ -65,7 +67,35 @@ class LibraryFilterTest {
                 tags = "电场",
                 questionText = "求点电荷附近的电场强度。",
                 note = "电场公式",
-                inReviewPlan = false
+                inReviewPlan = false,
+                reviewCount = 1
+            )
+            val now = System.currentTimeMillis()
+            AppDatabase.get(context).reviewRecordDao().insert(
+                ReviewRecordEntity(
+                    mistakeId = fixtureIds[1],
+                    reviewedAt = now - 2_000L,
+                    grade = ReviewGrade.GOOD.name,
+                    masteryBefore = 2,
+                    masteryAfter = 3,
+                    intervalBeforeDays = 1,
+                    intervalAfterDays = 2,
+                    previousNextReviewAt = now,
+                    nextReviewAt = now + 2L * 24L * 60L * 60L * 1_000L
+                )
+            )
+            AppDatabase.get(context).reviewRecordDao().insert(
+                ReviewRecordEntity(
+                    mistakeId = fixtureIds[2],
+                    reviewedAt = now - 1_000L,
+                    grade = ReviewGrade.HARD.name,
+                    masteryBefore = 1,
+                    masteryAfter = 2,
+                    intervalBeforeDays = 1,
+                    intervalAfterDays = 1,
+                    previousNextReviewAt = now,
+                    nextReviewAt = now + 24L * 60L * 60L * 1_000L
+                )
             )
             MistakeRepository(AppDatabase.get(context)).backfillLegacyTags()
         }
@@ -80,6 +110,11 @@ class LibraryFilterTest {
     @Test
     fun librarySearchAndFiltersChangeResults() {
         composeRule.onNodeWithTag("nav_library").performClick()
+        composeRule.onNodeWithText("重点知识点").assertDoesNotExist()
+        composeRule.onNodeWithText("知识点库").assertDoesNotExist()
+        composeRule.onNodeWithTag("library_knowledge_filter").assertDoesNotExist()
+        composeRule.onNodeWithText("结构化知识点").assertDoesNotExist()
+        composeRule.onNodeWithText("旧标签兼容").assertDoesNotExist()
         scrollToFixture(fixtureIds.first())
 
         composeRule.onNodeWithTag("library_search")
@@ -104,21 +139,35 @@ class LibraryFilterTest {
         composeRule.onNodeWithTag("mistake_card_${fixtureIds[1]}").assertExists()
         composeRule.onNodeWithTag("mistake_card_${fixtureIds[2]}").assertDoesNotExist()
 
-        composeRule.onNodeWithTag("library_knowledge_filter").performClick()
-        composeRule.onNodeWithText("函数 · 数学").assertExists().performClick()
-        scrollToFixture(fixtureIds[0])
-        composeRule.onNodeWithTag("mistake_card_${fixtureIds[0]}").assertExists()
-        composeRule.onNodeWithTag("mistake_card_${fixtureIds[1]}").assertDoesNotExist()
-
+        scrollToFilters()
         composeRule.onNodeWithTag("library_mastery_filter").performClick()
-        composeRule.onAllNodesWithText("未掌握")[1].assertExists().performClick()
+        composeRule.onNodeWithText("结构化知识点").assertDoesNotExist()
+        composeRule.onNodeWithText("旧标签兼容").assertDoesNotExist()
+        composeRule.waitUntil(5_000) {
+            runCatching {
+                composeRule.onNodeWithTag("library_mastery_options")
+                    .performScrollToNode(hasTestTag("library_mastery_option_0"))
+                composeRule.onNodeWithTag("library_mastery_option_0").assertExists()
+                true
+            }.getOrDefault(false)
+        }
+        composeRule.onNodeWithTag("library_mastery_option_0").performClick()
         composeRule.onNodeWithText("完成").performClick()
         scrollToFixture(fixtureIds[0])
         composeRule.onNodeWithTag("mistake_card_${fixtureIds[0]}").assertExists()
         composeRule.onNodeWithTag("mistake_card_${fixtureIds[1]}").assertDoesNotExist()
 
+        scrollToFilters()
         composeRule.onNodeWithTag("library_difficulty_filter").performClick()
-        composeRule.onNodeWithText("简单").assertExists().performClick()
+        composeRule.waitUntil(5_000) {
+            runCatching {
+                composeRule.onNodeWithTag("library_difficulty_options")
+                    .performScrollToNode(hasTestTag("library_difficulty_option_1"))
+                composeRule.onNodeWithTag("library_difficulty_option_1").assertExists()
+                true
+            }.getOrDefault(false)
+        }
+        composeRule.onNodeWithTag("library_difficulty_option_1").performClick()
         composeRule.onNodeWithText("完成").performClick()
         scrollToFixture(fixtureIds[0])
         composeRule.onNodeWithTag("mistake_card_${fixtureIds[0]}").assertExists()
@@ -127,40 +176,21 @@ class LibraryFilterTest {
     }
 
     @Test
-    fun selectedMistakeStartsUnifiedReviewAndReturnsToLibrary() {
+    fun selectedMistakeJoinsTomorrowReviewPlanWithoutNavigation() {
         composeRule.onNodeWithTag("nav_library").performClick()
         composeRule.onNodeWithText("批量选择").performClick()
         scrollToFixture(fixtureIds.first())
         composeRule.onNodeWithTag("mistake_card_${fixtureIds.first()}").performClick()
-        composeRule.onNodeWithTag("library_start_selected_review").performClick()
-
+        composeRule.onNodeWithTag("library_add_selected_tomorrow").performClick()
+        composeRule.onNodeWithText("已加入明日复习").assertExists()
         composeRule.waitUntil(5_000) {
-            runCatching {
-                composeRule.onNodeWithTag("review_question_content").assertExists()
-                true
-            }.getOrDefault(false)
+            runBlocking {
+                AppDatabase.get(context).mistakeDao().findById(fixtureIds.first())?.let {
+                    it.inReviewPlan && it.nextReviewAt > System.currentTimeMillis()
+                } == true
+            }
         }
-        composeRule.onNodeWithText("函数单调性").assertExists()
-        composeRule.onNodeWithTag("review_show_answer").performClick()
-        composeRule.onNodeWithTag("review_question_content")
-            .performScrollToNode(hasTestTag("review_grade_good"))
-        composeRule.onNodeWithTag("review_grade_good").performClick()
-
-        composeRule.waitUntil(5_000) {
-            runCatching {
-                composeRule.onNodeWithTag("review_session_summary").assertExists()
-                true
-            }.getOrDefault(false)
-        }
-        composeRule.onNodeWithText("返回错题库").performClick()
-        composeRule.waitUntil(5_000) {
-            runCatching {
-                composeRule.onNodeWithTag("library_mistakes_list").assertExists()
-                true
-            }.getOrDefault(false)
-        }
-        scrollToFixture(fixtureIds.first())
-        composeRule.onNodeWithTag("mistake_card_${fixtureIds.first()}").assertExists()
+        composeRule.onNodeWithTag("library_mistakes_list").assertExists()
     }
 
     private fun scrollToFixture(id: Long) {
@@ -170,6 +200,17 @@ class LibraryFilterTest {
                 composeRule.onNodeWithTag("library_mistakes_list")
                     .performScrollToNode(hasTestTag(cardTag))
                 composeRule.onAllNodesWithTag(cardTag).fetchSemanticsNodes().isNotEmpty()
+            }.getOrDefault(false)
+        }
+    }
+
+    private fun scrollToFilters() {
+        composeRule.waitUntil(5_000) {
+            runCatching {
+                composeRule.onNodeWithTag("library_mistakes_list")
+                    .performScrollToNode(hasTestTag("library_mastery_filter"))
+                composeRule.onNodeWithTag("library_mastery_filter").assertExists()
+                true
             }.getOrDefault(false)
         }
     }

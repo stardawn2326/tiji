@@ -33,10 +33,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.tiji.mistakes.data.AiProfile
-import com.tiji.mistakes.ui.ConceptPageHeader
+import com.tiji.mistakes.ui.design.TijiPageHeader
 import com.tiji.mistakes.ui.ThemeMode
 import com.tiji.mistakes.ui.ThemePalette
-import com.tiji.mistakes.ui.TijiDimens
+import com.tiji.mistakes.ui.design.TijiDimens
 
 @Composable
 internal fun SettingsHomeScreen(
@@ -63,11 +63,11 @@ internal fun SettingsHomeScreen(
         verticalArrangement = Arrangement.spacedBy(0.dp)
     ) {
         item {
-            ConceptPageHeader("设置", "管理 AI、复习、数据和外观；学习内容仍在对应一级页面完成。")
+            TijiPageHeader("设置")
         }
         item {
             Spacer(Modifier.height(12.dp))
-            SettingsHomeRow(
+            com.tiji.mistakes.ui.design.TijiSettingRow(
                 title = "AI 模型",
                 subtitle = "当前模型：${activeAiProfile.model}",
                 icon = Icons.Outlined.AutoAwesome,
@@ -75,8 +75,8 @@ internal fun SettingsHomeScreen(
             )
         }
         item {
-            SettingsHomeDivider()
-            SettingsHomeRow(
+            com.tiji.mistakes.ui.design.TijiSettingDivider()
+            com.tiji.mistakes.ui.design.TijiSettingRow(
                 title = "复习计划",
                 subtitle = if (reviewPlanEnabled) "已开启 · 每日上限 $dailyReviewLimit 题" else "尚未开启，安排今天和接下来的复习节奏",
                 icon = Icons.Outlined.CalendarMonth,
@@ -84,8 +84,8 @@ internal fun SettingsHomeScreen(
             )
         }
         item {
-            SettingsHomeDivider()
-            SettingsHomeRow(
+            com.tiji.mistakes.ui.design.TijiSettingDivider()
+            com.tiji.mistakes.ui.design.TijiSettingRow(
                 title = "备份与恢复",
                 subtitle = "导出、检查、合并恢复或重置本机数据",
                 icon = Icons.Outlined.FileOpen,
@@ -93,8 +93,8 @@ internal fun SettingsHomeScreen(
             )
         }
         item {
-            SettingsHomeDivider()
-            SettingsHomeRow(
+            com.tiji.mistakes.ui.design.TijiSettingDivider()
+            com.tiji.mistakes.ui.design.TijiSettingRow(
                 title = "显示模式与主题",
                 subtitle = "${themeMode.label} · ${themePalette.label}",
                 icon = Icons.Outlined.Style,
@@ -102,47 +102,13 @@ internal fun SettingsHomeScreen(
             )
         }
         item {
-            SettingsHomeDivider()
-            SettingsHomeRow(
+            com.tiji.mistakes.ui.design.TijiSettingDivider()
+            com.tiji.mistakes.ui.design.TijiSettingRow(
                 title = "关于题迹",
-                subtitle = "版本、说明和使用边界",
+                subtitle = "版本与使用说明",
                 icon = Icons.Outlined.Lightbulb,
                 onClick = onOpenAbout
             )
         }
-    }
-}
-
-@Composable
-private fun SettingsHomeDivider() {
-    HorizontalDivider(
-        modifier = Modifier.padding(start = 40.dp),
-        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f)
-    )
-}
-
-@Composable
-private fun SettingsHomeRow(
-    title: String,
-    subtitle: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    onClick: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(min = 64.dp)
-            .clickable(onClick = onClick)
-            .testTag("my_setting_$title")
-            .padding(horizontal = 4.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        Icon(Icons.Outlined.ChevronRight, contentDescription = "打开$title", tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

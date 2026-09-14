@@ -6,6 +6,8 @@ import com.tiji.mistakes.data.ReviewRecordEntity
 enum class ReviewSessionSource(val key: String, val label: String) {
     TODAY_PLAN("today", "今日计划"),
     KNOWLEDGE_POINT("knowledge", "专项复习"),
+    /** @deprecated Kept only to decode an old saved route; no new flow may create it. */
+    @Deprecated("Library selection is no longer a review-session product source")
     LIBRARY_SELECTION("library", "错题选择")
 }
 
@@ -107,6 +109,36 @@ object ReviewSessionController {
         val next = state.currentIndex + delta
         if (next !in state.reviewIds.indices) return state
         return state.copy(progress = state.progress.copy(currentIndex = next))
+    }
+
+    /**
+     * Removes one question from the active queue while preserving the session,
+     * its grades and its recorded history. The current index stays on the next
+     * valid question (or the previous one when the last question is removed).
+     */
+    fun removeMistake(state: ReviewSessionUiState, mistakeId: Long): ReviewSessionUiState {
+        val removedIndex = state.reviewIds.indexOf(mistakeId)
+        if (removedIndex < 0) return state
+        val nextIds = state.reviewIds.filterNot { it == mistakeId }
+        val nextIndex = when {
+            nextIds.isEmpty() -> 0
+            removedIndex < state.currentIndex -> (state.currentIndex - 1).coerceIn(0, nextIds.lastIndex)
+            state.currentIndex > nextIds.lastIndex -> nextIds.lastIndex
+            else -> state.currentIndex.coerceIn(0, nextIds.lastIndex)
+        }
+        val nextStatus = if (nextIds.isEmpty() && state.status == ReviewSessionStatus.IN_PROGRESS) {
+            ReviewSessionStatus.COMPLETING
+        } else {
+            state.status
+        }
+        return state.copy(
+            plan = state.plan.copy(reviewIds = nextIds),
+            progress = state.progress.copy(
+                currentIndex = nextIndex,
+                status = nextStatus,
+                gradesByMistake = state.progress.gradesByMistake - mistakeId
+            )
+        )
     }
 
     fun reserveGrade(

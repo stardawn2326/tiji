@@ -51,6 +51,40 @@ class ReviewSessionControllerTest {
         assertTrue(ReviewSessionController.reserveGrade(state, 11L, ReviewGrade.FORGOT) != null)
     }
 
+    @Test
+    fun removingCurrentQuestionKeepsSessionAndAdvancesQueue() {
+        val state = ReviewSessionController.start(
+            ReviewSessionController.create(
+                ReviewSessionPlan("session-remove", ReviewSessionSource.TODAY_PLAN, listOf(11L, 12L, 13L)),
+                now = 100L
+            )
+        )
+        val next = ReviewSessionController.removeMistake(state, 11L)
+
+        assertEquals(listOf(12L, 13L), next.reviewIds)
+        assertEquals(0, next.currentIndex)
+        assertEquals(ReviewSessionStatus.IN_PROGRESS, next.status)
+    }
+
+    @Test
+    fun removingLastQuestionCompletesOnlyTheQueue() {
+        val state = ReviewSessionController.start(
+            ReviewSessionController.create(
+                ReviewSessionPlan("session-last", ReviewSessionSource.TODAY_PLAN, listOf(11L, 12L)),
+                now = 100L
+            )
+        )
+        val atLast = ReviewSessionController.move(state, 1)
+        val next = ReviewSessionController.removeMistake(atLast, 12L)
+
+        assertEquals(listOf(11L), next.reviewIds)
+        assertEquals(0, next.currentIndex)
+        assertEquals(ReviewSessionStatus.IN_PROGRESS, next.status)
+        val empty = ReviewSessionController.removeMistake(next, 11L)
+        assertTrue(empty.reviewIds.isEmpty())
+        assertEquals(ReviewSessionStatus.COMPLETING, empty.status)
+    }
+
     private fun record(id: Long) = ReviewRecordEntity(
         id = id,
         mistakeId = 1L,

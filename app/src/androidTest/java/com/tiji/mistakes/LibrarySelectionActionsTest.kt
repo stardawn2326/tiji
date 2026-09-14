@@ -64,12 +64,12 @@ class LibrarySelectionActionsTest {
         composeRule.onNodeWithTag("library_selection_action_bar").assertExists()
         composeRule.onNodeWithTag("library_exit_selection").assertExists()
         composeRule.onNodeWithTag("library_select_all").assertExists()
-        composeRule.onNodeWithTag("library_start_selected_review").assertIsNotEnabled()
+        composeRule.onNodeWithTag("library_add_selected_tomorrow").assertIsNotEnabled()
         composeRule.onNodeWithTag("library_print_selected").assertIsNotEnabled()
         composeRule.onNodeWithTag("library_delete_selected").assertIsNotEnabled()
 
         composeRule.onNodeWithTag("library_select_all").performClick()
-        composeRule.onNodeWithTag("library_start_selected_review").assertIsEnabled()
+        composeRule.onNodeWithTag("library_add_selected_tomorrow").assertIsEnabled()
         composeRule.onNodeWithTag("library_print_selected").assertIsEnabled()
         composeRule.onNodeWithTag("library_delete_selected").assertIsEnabled()
 
