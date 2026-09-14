@@ -50,7 +50,7 @@
 | --- | --- | --- |
 | `RELEASE_CODE_GATE` | PASS | exact-main CI 的编译、单测、lint、package 与 API30 instrumentation 通过。 |
 | `RELEASE_SIGNING_GATE` | FAIL | 当前环境缺少四项 `TIJI_SIGNING_*`；正式脚本按设计 fail closed。 |
-| `FRESH_INSTALL_GATE` | NOT VERIFIED | 自动审批拦截了会清除模拟器数据的 `adb uninstall`；仅执行了保留数据的 `adb install -r -d -g` 技术 smoke。 |
+| `FRESH_INSTALL_GATE` | NOT VERIFIED | 已在获准后完成 `adb uninstall` + `adb install` 的 API30 技术 smoke；由于产物仍为 Android Debug 证书，不能把它升级为正式 signed RC 门禁 PASS。 |
 | `UPGRADE_GATE` | NOT VERIFIED | 没有可证明签名连续性的正式 RC 与历史 accepted APK 组合。 |
 | `DATA_RETENTION_GATE` | NOT VERIFIED | 现有 Room/DataStore 测例不等同于 signed Release 原地升级后的实测。 |
 | `CROSS_VERSION_BACKUP_GATE` | NOT VERIFIED | 现有备份兼容测例通过，但未在正式 RC 上完成旧备份 MERGE/REPLACE 实测。 |
@@ -95,6 +95,17 @@ ANR check -> empty
 
 该结果是技术 smoke，不升级为正式 `FRESH_INSTALL_GATE` 或 `RELEASE_APK_RUNTIME_GATE` PASS。
 
+随后在获准后完成正式 Fresh Install 技术路径：
+
+```text
+adb uninstall com.tiji.mistakes -> Success
+adb install tiji-v1.0.0-release.apk -> Success
+am start -W com.tiji.mistakes/.MainActivity -> Status: ok
+launch state -> COLD
+crash buffer after clear -> empty
+ANR check -> empty
+```
+
 ## UI 阶段
 
 按照方案顺序，以下阶段尚未启动：
@@ -117,6 +128,8 @@ UI-09 PDF / Dialog / Sheet / Auxiliary
 ## GitHub 发布记录
 
 - 本轮分支：`codex/release-acceptance-api30`。
+- 分支提交：`a124b03b3438dc7e46e42223ba1dd871fe3d75df`。
 - 分支基线：`MAIN_AFTER_PR11 = 36406bb3ef21c41181501580b8718cadfce34d27`。
+- 分支 CI：[Actions run 34825384649](https://github.com/stardawn2326/tiji/actions/runs/34825384649)，`success`；compile/package job `103916204901` 与 API30 instrumentation job `103916205193` 均成功。API30 日志为 `Starting 71 tests`、`Finished 75 tests`、`4 skipped`、`0 failed`。
 - 不创建 tag、不创建 GitHub Release、不发布 APK。
 - API35 不进入分支、CI 或验收门禁。
