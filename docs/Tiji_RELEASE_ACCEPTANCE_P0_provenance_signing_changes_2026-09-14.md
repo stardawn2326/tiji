@@ -7,6 +7,7 @@
   - `C:\Users\23260\Downloads\Tiji_RELEASE_ACCEPTANCE验收与下一步_发布工具链P0修复_正式签名_RC收口方案_2026-09-14.md`
   - `C:\Users\23260\Downloads\Tiji_RELEASE_ACCEPTANCE_复验与下一步_SignerLineage_ExactSignedRC_收口方案_2026-09-14.md`
   - `C:\Users\23260\Downloads\Tiji_RELEASE_ACCEPTANCE_最新验收与下一步_FirstFormalRelease_or_Continuity_RC收口方案_2026-09-14.md`
+  - `C:\Users\23260\Downloads\Tiji_RELEASE_ACCEPTANCE_最新验收与下一步_ReleaseDecisionGate_ExactSignedRC_2026-09-14.md`
 - 仓库：[stardawn2326/tiji](https://github.com/stardawn2326/tiji)
 - 验证环境：既有 Android 11 / API 30 `emulator-5554`
 - API35：`OUT_OF_SCOPE`
@@ -78,6 +79,7 @@ PR11 的功能范围已先合并并通过 exact-main 验证：
 - API30 instrumentation 重跑 job `103938335018`：PASS（attempt 2）
 - API30 日志：`Starting 71 tests`、`Finished 75 tests`、4 skipped、0 failed、`BUILD SUCCESSFUL`
 - 第一次 attempt 因 `FocusedReviewRecreationTest.repeatedGradeTapsRecordAtMostOneReviewPerQuestion` 出现一次 `review_grade_good` 注入失败而失败；此前分支与 PR run 相同测试均通过，因此按基础设施/测试注入波动重跑失败 job，没有修改业务代码。
+- 最新证据文档提交 `7c56cec75289181c5b45df337f1f21240dd21959` 触发的分支 run [34847933357](https://github.com/stardawn2326/tiji/actions/runs/34847933357)：compile/package 与 API30 instrumentation 均 PASS。
 
 ## API30 安装与启动 smoke
 
@@ -120,6 +122,8 @@ PR11 的功能范围已先合并并通过 exact-main 验证：
     crash/ANR check = empty
 
 本次安装使用的文件副本 SHA-256 仍为 `9D8E2F0E4079431765ECF438C02F64722437A27A221D31653E112C969A42B0E5`，只为规避中文路径传参问题复制到 ASCII 临时目录，未改变 APK 字节。
+
+最新 ReleaseDecisionGate 复核再次在同一设备执行该安装：`adb install -r -d -g -> Success`、`am start -W -> Status: ok`，设备 SDK=30，PID=`16197`，清空后的 crash/ANR 匹配数均为 0。
 
 ## SignerLineage 复验
 
@@ -179,6 +183,7 @@ PATH C = NOT AUTHORIZED     # 证据只有 NO_EVIDENCE，未形成 TRUE 的发�
 | `SIGNER_CONTINUITY_LOGIC` | PASS | 保留历史 signer SHA256 比对，秘密不写入仓库或文档。 |
 | `PREVIOUS_ACCEPTED_APK` | NO EVIDENCE | 已知本地/仓库/CI 范围未找到可证明的 accepted APK；手工分发和旧磁盘无法由本机证据排除。 |
 | `FIRST_FORMAL_RELEASE` | NOT AUTHORIZED | 未把 NO_EVIDENCE 自动升级为首次正式发布事实；未创建 first-release 分支或模式。 |
+| `RELEASE_DECISION_GATE_RECORD` | PASS | 已按最新 ReleaseDecisionGate 复核主线、证据分支、GitHub Release/Artifact 和 API30 CI/安装证据。 |
 | `FORMAL_SIGNER_READY` | NO | 没有正式 keystore、四项签名变量或可核对的历史 signer lineage。 |
 | `FORMAL_EXACT_RC` | NOT CREATED | 未满足 continuity 或 first-release 的前置事实，未生成正式签名 RC。 |
 | `RELEASE_SIGNING_GATE` | FAIL | 当前环境没有四项正式签名变量与历史 accepted signer。 |
