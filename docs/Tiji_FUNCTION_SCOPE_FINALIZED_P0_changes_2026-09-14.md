@@ -2,7 +2,7 @@
 
 ## 文档信息
 
-- 版本：1.0
+- 版本：1.1
 - 日期：2026-09-14
 - 对照方案：`C:\Users\23260\Downloads\Tiji_FUNCTION_SCOPE_FINALIZED验收与下一步_P0最终收口方案_2026-09-14.md`
 - 目标仓库：[stardawn2326/tiji](https://github.com/stardawn2326/tiji)
@@ -15,8 +15,9 @@
 
 ### 1. 复习计划和未来预测
 
-- `DailyStudyPlanner` 新增内部共享选择器 `selectDueForDay(eligible, dailyLimit, subjectPreferences)`。
+- `DailyStudyPlanner` 新增内部共享选择器 `selectDueForDay(eligible, dailyLimit, subjectPreferences, latestRecords)`。
 - 今日正式计划和 `FutureReviewPlan` 均使用该选择器，排序、科目轮转、每日上限和稳定排序规则保持一致。
+- 恢复同一排序键下的复习记录优先级：最近一次记录为 `FORGOT` 的题先于 `GOOD`/空记录；等级相同时按最近复习时间倒序。今日计划和未来预测均传入同一份 `latestRecords`，避免首页计划与复习页展示顺序回归。
 - 未来预测先排除今天正式计划已经选中的 ID，再按目标日期截止时刻收集所有到期候选；当天未选中的逾期题会进入后续日期的候选池。
 - 每个 ID 在三日预测窗口内最多出现一次，不会为预测结果虚构未来等级或下一次复习时间。
 - 预测不再复用今天的科目配置；`reviewSubjectsRaw` 会按每个目标日期的 `dayOfWeek.value` 重新解析。
@@ -44,6 +45,7 @@
 - `:app:compileDebugAndroidTestKotlin`：通过。
 - `:app:lintDebug`、`:app:assembleDebug`、`:app:assembleDebugAndroidTest`、`:app:assembleRelease`：通过。
 - 新增并通过未来计划用例：逾期滚动、今天已选排除、目标工作日偏好、归档/删除/退出计划过滤、跨日去重、输入顺序确定性。
+- 新增并通过排序回归用例：相同到期时间/科目/掌握度时 `FORGOT` 优先；相同等级时最近复习优先；未来预测复用同一排序规则。
 
 ### API30 设备回归
 
@@ -57,7 +59,7 @@
 - 已安装包：`app/build/outputs/apk/debug/tiji-v1.0.0-debug.apk`
 - 包名：`com.tiji.mistakes`
 - API30 安装命令使用 `adb install -r -d -g`，设备返回 `Success`。
-- Debug APK SHA-256：`FAEA1289C5FBE28E51123FF87B07188E049D40BD79BE28AE0358A5BEABAAD0D5`
+- Debug APK SHA-256：`7BE36F8DF6B161675BA8EFEB4CAF49242C57B915AA5BAE5A01A5AD1A82468F5C`
 
 ## AI 外部能力边界
 
@@ -65,16 +67,16 @@
 
 ## GitHub 发布记录
 
-以下为本轮分支推送和 PR 检查记录；共享 `main` 的合并需要单独授权。
+以下为本轮分支推送和 PR 检查记录；本轮方案明确要求 P0 回归通过后合并 PR11，并对合并后的 exact `main` SHA 执行 post-merge CI。
 
 - 工作分支：`codex/function-final-p0-close`
-- 功能提交：`95fb280c1bdac3091d1c432962e67ff9d7b771d8`
+- 功能提交（恢复复习记录排序）：`999685d420914e6f6d6adbf605b6518c3bd75f3a`
 - PR：[ #11 · feat: close function scope P0 review flow](https://github.com/stardawn2326/tiji/pull/11)
-- PR CI：通过；push run [`34811064733`](https://github.com/stardawn2326/tiji/actions/runs/34811064733)，PR run [`34811094057`](https://github.com/stardawn2326/tiji/actions/runs/34811094057)，两次均通过编译/package 与 API30 instrumentation。
-- 最新文档回填 head 的 CI：通过；push run [`34811603094`](https://github.com/stardawn2326/tiji/actions/runs/34811603094)，PR run [`34811606279`](https://github.com/stardawn2326/tiji/actions/runs/34811606279)，两次均通过编译/package 与 API30 instrumentation。
-- `main` 合并提交：尚未执行；当前请求已完成分支推送和 PR 创建，未直接改写共享 `main`。
-- 合并后 `main` CI：待合并后执行。
-- 远端文件树和文件内容校验：PASS；分支 ref 为 `6592f7831d77f665d2b56bb362035e5f1dd775ff`，文档 blob 为 `76d36116f8d12512a1e53b7c38bb26154a8ac122`，均与本地提交一致。
+- 本轮功能提交对应的 push CI：通过；run [`34814934577`](https://github.com/stardawn2326/tiji/actions/runs/34814934577)。
+- 本轮功能提交对应的 PR CI：通过；run [`34814936231`](https://github.com/stardawn2326/tiji/actions/runs/34814936231)。两次均通过编译/package 与 API30 instrumentation。
+- 本地文档提交后，PR11 会再次执行同一组检查；合并前以 PR11 最新 head 的两项检查为准。
+- 合并前 `main` SHA：`cf39d7a87bc5463ea116c31f432cc355335b8cff`；P0 回归已通过，按方案继续合并 PR11。
+- 合并后的 `main` 提交和 post-merge CI 将在合并完成后回填到交付记录。
 
 ## 范围说明
 
