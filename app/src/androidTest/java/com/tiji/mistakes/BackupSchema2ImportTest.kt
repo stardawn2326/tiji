@@ -104,6 +104,25 @@ class BackupSchema2ImportTest {
     }
 
     @Test
+    fun legacyImportMarkerMeansKnowledgeGraphAlreadyComplete() = runBlocking {
+        assertTrue(database.knowledgePointDao().listAll().isEmpty())
+        assertTrue(database.mistakeKnowledgePointDao().listAll().isEmpty())
+
+        BackupService.importBackup(context, Uri.fromFile(archive), BackupImportMode.MERGE, database)
+            .getOrThrow()
+
+        val imported = database.mistakeDao().findByStableId(fixtureStableId)!!
+        val points = database.knowledgePointDao().listAll()
+        val links = database.mistakeKnowledgePointDao().listAll()
+            .filter { it.mistakeId == imported.id }
+
+        assertEquals(setOf("旧版函数", "旧版极值"), points.map { it.name }.toSet())
+        assertEquals(2, links.size)
+        assertTrue(points.all { it.parentId == null })
+        assertEquals(2, points.map { it.stableId }.distinct().size)
+    }
+
+    @Test
     fun emptySchemaTwoTagsDoNotCreateStructuredPoints() = runBlocking {
         writeSchema2Archive(tags = "")
 

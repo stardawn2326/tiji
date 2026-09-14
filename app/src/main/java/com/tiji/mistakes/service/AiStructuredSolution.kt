@@ -49,6 +49,26 @@ data class AiStructuredSolution(
 object AiStructuredSolutionCodec {
     private val requiredSectionIds = listOf("recognition", "approach", "derivation", "finalAnswer")
 
+    fun encode(solution: AiStructuredSolution): String {
+        val sections = JSONArray().apply {
+            solution.sections.forEach { section ->
+                put(JSONObject().put("id", section.id).put("segments", JSONArray().apply {
+                    section.segments.forEach { segment ->
+                        put(JSONObject().put("type", segment.type).apply {
+                            when (segment.type) {
+                                "math", "block" -> put("latex", segment.value)
+                                "lineBreak", "paragraphBreak", "blank" -> Unit
+                                else -> put("text", segment.value)
+                            }
+                        })
+                    }
+                }))
+            }
+        }
+        val root = JSONObject().put("schemaVersion", 2).put("sections", sections)
+        return "$TIJI_SOLUTION_V2_START\n$root\n$TIJI_SOLUTION_V2_END"
+    }
+
     fun parse(raw: String): AiStructuredSolution? {
         val payload = extractPayload(raw) ?: return null
         return runCatching {
@@ -118,9 +138,8 @@ object AiStructuredSolutionCodec {
     }
 }
 
-/** Hide transport envelopes; strict V2 or the v50 four-heading fallback remains visible. */
+/** Hide transport envelopes for both frozen V2 results and legacy history rows. */
 internal fun stripAiProtocolForDisplay(raw: String): String {
-    AiStructuredSolutionV3Codec.parse(raw)?.let { return it.copyText() }
     AiStructuredSolutionCodec.parse(raw)?.let { return it.copyText() }
     recoverPartialStructuredSolutionForDisplay(raw)?.let { return it }
     val recoveredQuestion = recoverQuestionSegmentsForDisplay(raw)
@@ -332,10 +351,10 @@ internal fun buildStructuredCorrectionContext(
     reply: String
 ): String = buildString {
     append("待纠正的上一版解答（只用于定位旧错误，不得作为必须沿用的方法模板）：\n")
-    append(previousSolution.trim().take(16_000))
+    append(previousSolution.trim())
     append("\n\n用户的纠正要求（方法选择的最高优先依据）：\n")
-    append(prompt.trim().take(4_000))
+    append(prompt.trim())
     append("\n\n追问中已经形成的新解法或更正结论（可行时必须用于本次重解）：\n")
-    append(reply.trim().take(4_000))
+    append(reply.trim())
     append("\n\n纠正原则：原题内容保持不变，但旧解题方法不需要保留。若上述追问给出了不同且可行的方法，必须以新方法为主线重新编写解题思路、推导和答案，不能继续沿用旧方法后只修改局部。")
 }

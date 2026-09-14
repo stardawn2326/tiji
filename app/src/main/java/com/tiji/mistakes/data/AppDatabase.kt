@@ -12,9 +12,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         MistakeEntity::class,
         ReviewRecordEntity::class,
         KnowledgePointEntity::class,
-        MistakeKnowledgePointCrossRef::class
+        MistakeKnowledgePointCrossRef::class,
+        BackupImportCommitMarkerEntity::class
     ],
-    version = 10,
+    version = 11,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -22,6 +23,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun reviewRecordDao(): ReviewRecordDao
     abstract fun knowledgePointDao(): KnowledgePointDao
     abstract fun mistakeKnowledgePointDao(): MistakeKnowledgePointDao
+    abstract fun backupImportCommitMarkerDao(): BackupImportCommitMarkerDao
 
     companion object {
         @Volatile private var instance: AppDatabase? = null
@@ -49,6 +51,15 @@ abstract class AppDatabase : RoomDatabase() {
         internal val MIGRATIONS_8_10: Array<Migration>
             get() = arrayOf(MIGRATION_8_9, MIGRATION_9_10)
 
+        internal val MIGRATIONS_10_11: Array<Migration>
+            get() = arrayOf(MIGRATION_10_11)
+
+        internal val MIGRATIONS_9_11: Array<Migration>
+            get() = arrayOf(MIGRATION_9_10, MIGRATION_10_11)
+
+        internal val MIGRATIONS_7_11: Array<Migration>
+            get() = arrayOf(MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
+
         private val ALL_MIGRATIONS: Array<Migration>
             get() = arrayOf(
                 MIGRATION_1_2,
@@ -59,7 +70,8 @@ abstract class AppDatabase : RoomDatabase() {
                 MIGRATION_6_7,
                 MIGRATION_7_8,
                 MIGRATION_8_9,
-                MIGRATION_9_10
+                MIGRATION_9_10,
+                MIGRATION_10_11
             )
 
         private val MIGRATION_1_2 = object : Migration(1, 2) {
@@ -168,6 +180,19 @@ abstract class AppDatabase : RoomDatabase() {
                 )
                 database.execSQL("CREATE INDEX IF NOT EXISTS index_mistake_knowledge_points_mistakeId ON mistake_knowledge_points(mistakeId)")
                 database.execSQL("CREATE INDEX IF NOT EXISTS index_mistake_knowledge_points_knowledgePointId ON mistake_knowledge_points(knowledgePointId)")
+            }
+        }
+
+        private val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """CREATE TABLE IF NOT EXISTS backup_import_commit_markers (
+                        importId TEXT NOT NULL,
+                        mode TEXT NOT NULL,
+                        committedAt INTEGER NOT NULL,
+                        PRIMARY KEY(importId)
+                    )"""
+                )
             }
         }
     }

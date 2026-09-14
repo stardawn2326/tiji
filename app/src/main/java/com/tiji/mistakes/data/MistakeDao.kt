@@ -1,11 +1,10 @@
 package com.tiji.mistakes.data
 
 import androidx.room.Dao
-import androidx.room.Insert
-import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
 import androidx.room.RawQuery
+import androidx.room.Upsert
 import androidx.sqlite.db.SupportSQLiteQuery
 import kotlinx.coroutines.flow.Flow
 
@@ -60,10 +59,10 @@ interface MistakeDao {
     @Query("SELECT COUNT(*) FROM mistakes WHERE deletedAt IS NULL AND archived = 0 AND inReviewPlan = 1 AND nextReviewAt <= :now")
     fun observeDueCount(now: Long): Flow<Int>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Upsert
     suspend fun upsert(mistake: MistakeEntity): Long
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Upsert
     suspend fun upsertAll(mistakes: List<MistakeEntity>)
 
     @Update

@@ -3,7 +3,7 @@ package com.tiji.mistakes
 import com.tiji.mistakes.service.AiProviderTransport
 import com.tiji.mistakes.service.AiSolutionRepairer
 import com.tiji.mistakes.service.AiSolutionVerifier
-import com.tiji.mistakes.service.AiStructuredSolutionV3Codec
+import com.tiji.mistakes.service.AiStructuredSolutionCodec
 import com.tiji.mistakes.service.AiVerificationResult
 import com.tiji.mistakes.service.AiVerificationStatus
 import com.tiji.mistakes.service.AiVisionService
@@ -18,9 +18,9 @@ import java.util.ArrayDeque
 /** Contract-level pipeline checks without a real API key or network dependency. */
 class AiSolveProviderIntegrationTest {
     @Test
-    fun solveVerifierPassKeepsV3LearningPayload() = runBlocking {
+    fun solveVerifierPassKeepsV2ContentPayload() = runBlocking {
         val transport = QueueTransport(
-            streamLines = listOf(sse(v3Candidate()), "data: [DONE]"),
+            streamLines = listOf(sse(v2Candidate()), "data: [DONE]"),
             responses = ArrayDeque(listOf(passResponse()))
         )
         val ai = AiVisionService(transport)
@@ -34,15 +34,15 @@ class AiSolveProviderIntegrationTest {
         val verification = AiSolutionVerifier(ai).verify(ENDPOINT, MODEL, KEY, "求 1+1", candidate).getOrThrow()
 
         assertEquals(AiVerificationStatus.PASS, verification.status)
-        assertEquals("数学", AiStructuredSolutionV3Codec.parse(candidate)?.learning?.subject)
-        assertEquals("2", AiStructuredSolutionV3Codec.parse(candidate)?.finalAnswerText)
+        assertEquals("求 1+1", AiStructuredSolutionCodec.parse(candidate)?.section("recognition")?.displaySource())
+        assertEquals("2", AiStructuredSolutionCodec.parse(candidate)?.section("finalAnswer")?.displaySource())
     }
 
     @Test
     fun failedVerificationGetsOneRepairAndOneRecheck() = runBlocking {
-        val repaired = v3Candidate(answer = "最终答案：2（已修正）")
+        val repaired = v2Candidate(answer = "最终答案：2（已修正）")
         val transport = QueueTransport(
-            streamLines = listOf(sse(v3Candidate()), "data: [DONE]"),
+            streamLines = listOf(sse(v2Candidate()), "data: [DONE]"),
             responses = ArrayDeque(
                 listOf(
                     failedResponse(),
@@ -75,7 +75,7 @@ class AiSolveProviderIntegrationTest {
 
     @Test
     fun verifierFailureIsMappedToUnavailableWithoutDroppingCandidate() = runBlocking {
-        val candidate = v3Candidate()
+        val candidate = v2Candidate()
         val transport = QueueTransport(
             streamLines = listOf(sse(candidate), "data: [DONE]"),
             responses = ArrayDeque(listOf("{\"choices\":[{\"message\":{\"content\":\"not-json\"}}]}"))
@@ -87,7 +87,7 @@ class AiSolveProviderIntegrationTest {
         }
 
         assertEquals(AiVerificationStatus.UNAVAILABLE, verification.status)
-        assertTrue(candidate.contains("TIJI_SOLUTION_V3"))
+        assertTrue(candidate.contains("TIJI_SOLUTION_V2"))
     }
 
     private class QueueTransport(
@@ -127,10 +127,10 @@ class AiSolveProviderIntegrationTest {
         "{\"status\":\"FAILED\",\"issues\":[{\"code\":\"CALCULATION\",\"severity\":\"error\",\"message\":\"计算不一致\"}]}"
     )
 
-    private fun v3Candidate(answer: String = "2"): String = """
-        [[TIJI_SOLUTION_V3_START]]
-        {"schemaVersion":3,"recognition":{"segments":[{"type":"text","text":"求 1+1"}],"uncertainItems":[],"warning":""},"solution":{"approach":[{"type":"text","text":"直接相加"}],"steps":[{"segments":[{"type":"text","text":"1+1=2"}],"reason":"使用加法定义","concepts":["整数运算"]}],"finalAnswer":[{"type":"text","text":"$answer"}]},"learning":{"subject":"数学","questionType":"计算题","knowledgePoints":["整数运算"],"difficulty":1,"pitfalls":[]}}
-        [[TIJI_SOLUTION_V3_END]]
+    private fun v2Candidate(answer: String = "2"): String = """
+        [[TIJI_SOLUTION_V2_START]]
+        {"schemaVersion":2,"sections":[{"id":"recognition","segments":[{"type":"text","text":"求 1+1"}]},{"id":"approach","segments":[{"type":"text","text":"直接相加"}]},{"id":"derivation","segments":[{"type":"text","text":"1+1=2"}]},{"id":"finalAnswer","segments":[{"type":"text","text":"$answer"}]}]}
+        [[TIJI_SOLUTION_V2_END]]
     """.trimIndent()
 
     private companion object {

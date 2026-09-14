@@ -8,12 +8,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.FilterChip
+import com.tiji.mistakes.ui.design.TijiDialog
+import com.tiji.mistakes.ui.design.TijiChip
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Switch
+import com.tiji.mistakes.ui.design.TijiSwitch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.tiji.mistakes.ui.design.TijiTextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -36,24 +36,24 @@ internal fun PdfExportOptionsDialog(
     var template by remember(initial) { mutableStateOf(initial.template) }
     var includeSourceImages by remember(initial) { mutableStateOf(initial.includeSourceImages) }
 
-    AlertDialog(
+    TijiDialog(
         onDismissRequest = onDismiss,
         modifier = Modifier.testTag("pdf_export_options"),
-        title = { Text("打印错题") },
+        title = { Text("选择 PDF 类型") },
         text = {
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(
-                    "当前将导出 $questionCount 道题。先选模板，再生成本地 PDF 预览。",
+                    "当前将导出 $questionCount 道题。选择输出内容后生成本地 PDF 预览。",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Text("模板", style = MaterialTheme.typography.labelLarge)
+                Text("输出内容", style = MaterialTheme.typography.labelLarge)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     PdfTemplate.entries.forEach { option ->
-                        FilterChip(
+                        TijiChip(
                             selected = template == option,
                             onClick = { template = option },
                             label = { Text(option.label) },
@@ -61,33 +61,35 @@ internal fun PdfExportOptionsDialog(
                         )
                     }
                 }
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text("包含原题图片", style = MaterialTheme.typography.bodyLarge)
-                        Text(
-                            "保持原图比例，便于识别几何图、手写题和长截图。",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                if (template == PdfTemplate.PRACTICE) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text("包含原题图片", style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                "题目 PDF 保留原题图片，便于识别几何图、手写题和长截图。",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        TijiSwitch(
+                            checked = includeSourceImages,
+                            onCheckedChange = { includeSourceImages = it },
+                            modifier = Modifier.testTag("pdf_include_source_images")
                         )
                     }
-                    Switch(
-                        checked = includeSourceImages,
-                        onCheckedChange = { includeSourceImages = it },
-                        modifier = Modifier.testTag("pdf_include_source_images")
-                    )
                 }
                 if (template == PdfTemplate.PRACTICE) {
                     Text(
-                        "练习版只保留题目和答题留白；答案版会把答案与解析集中放在文档后半部分。",
+                        "题目 PDF 只保留题目、必要图片和每题作答区。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 } else {
                     Text(
-                        "答案与解析集中在后半部分，适合先打印做题再统一核对。",
+                        "解析答案 PDF 只保留题号、答案和解析，不重复打印完整题干。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -95,7 +97,7 @@ internal fun PdfExportOptionsDialog(
             }
         },
         confirmButton = {
-            TextButton(
+            TijiTextButton(
                 onClick = {
                     onConfirm(
                         initial.copy(
@@ -109,6 +111,6 @@ internal fun PdfExportOptionsDialog(
                 modifier = Modifier.testTag("pdf_export_options_confirm")
             ) { Text("生成预览") }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } }
+        dismissButton = { TijiTextButton(onClick = onDismiss) { Text("取消") } }
     )
 }

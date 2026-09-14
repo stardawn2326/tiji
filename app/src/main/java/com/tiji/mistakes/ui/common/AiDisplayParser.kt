@@ -2,8 +2,8 @@ package com.tiji.mistakes.ui.common
 
 import com.tiji.mistakes.service.AiDrawingRenderer
 import com.tiji.mistakes.service.AiStructuredSolutionCodec
-import com.tiji.mistakes.service.AiStructuredSolutionV3Codec
 import com.tiji.mistakes.service.stripAiProtocolForDisplay
+import com.tiji.mistakes.domain.Difficulty
 import org.json.JSONObject
 
 internal data class StreamingAiMeta(
@@ -45,7 +45,7 @@ internal fun streamingAiMeta(value: String): StreamingAiMeta? {
     return runCatching {
         val json = JSONObject(value.substring(jsonStart, jsonEnd))
         StreamingAiMeta(
-            difficulty = json.optInt("difficulty", 0).coerceIn(0, 5),
+            difficulty = Difficulty.normalize(json.optInt("difficulty", 0)),
             subject = json.optString("subject").trim(),
             questionType = json.optString("questionType").trim(),
             title = json.optString("title").trim()
@@ -67,37 +67,6 @@ internal data class AiSolutionSections(
 )
 
 internal fun parseAiSolutionSections(value: String): AiSolutionSections {
-    AiStructuredSolutionV3Codec.parse(value)?.let { solution ->
-        return AiSolutionSections(
-            recognition = solution.recognition.segments.let {
-                com.tiji.mistakes.service.AiStructuredSolutionSection("recognition", it).displaySource()
-            },
-            approach = solution.solution.approach.let {
-                com.tiji.mistakes.service.AiStructuredSolutionSection("approach", it).displaySource()
-            },
-            derivation = solution.solution.steps.flatMapIndexed { index, step ->
-                val segments = buildList {
-                    if (index > 0) add(com.tiji.mistakes.service.QuestionSegment("paragraphBreak", ""))
-                    if (step.segments.isNotEmpty()) addAll(step.segments)
-                    if (step.reason.isNotBlank()) {
-                        add(com.tiji.mistakes.service.QuestionSegment("text", "\n为什么：${step.reason}"))
-                    }
-                    if (step.concepts.isNotEmpty()) {
-                        add(com.tiji.mistakes.service.QuestionSegment("text", "\n知识点：${step.concepts.joinToString("、")}"))
-                    }
-                }
-                segments
-            }.let {
-                com.tiji.mistakes.service.AiStructuredSolutionSection("derivation", it).displaySource()
-            },
-            finalAnswer = solution.solution.finalAnswer.let {
-                com.tiji.mistakes.service.AiStructuredSolutionSection("finalAnswer", it).displaySource()
-            },
-            raw = solution.copyText(),
-            structured = true,
-            schemaVersion = 3
-        )
-    }
     AiStructuredSolutionCodec.parse(value)?.let { solution ->
         return AiSolutionSections(
             recognition = solution.section("recognition")?.displaySource().orEmpty(),

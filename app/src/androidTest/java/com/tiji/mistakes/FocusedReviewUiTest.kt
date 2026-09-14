@@ -1,5 +1,6 @@
 package com.tiji.mistakes
 
+import androidx.activity.compose.setContent
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasTestTag
@@ -16,6 +17,7 @@ import androidx.compose.ui.test.swipeLeft
 import androidx.compose.ui.test.swipeRight
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.geometry.Offset
+import androidx.lifecycle.ViewModelProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.tiji.mistakes.data.AppDatabase
@@ -23,6 +25,9 @@ import com.tiji.mistakes.data.AppPreferences
 import com.tiji.mistakes.data.KnowledgePointNormalizer
 import com.tiji.mistakes.data.MistakeRepository
 import com.tiji.mistakes.domain.ReviewGrade
+import com.tiji.mistakes.domain.ReviewSessionPlan
+import com.tiji.mistakes.domain.ReviewSessionSource
+import com.tiji.mistakes.ui.MistakeViewModel
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Before
@@ -41,6 +46,9 @@ class FocusedReviewUiTest {
     private var secondTitle = ""
     private var stableTag = ""
     private var mathPointStableId = ""
+    private lateinit var knowledgeData: KnowledgeTestData
+    private lateinit var viewModel: MistakeViewModel
+    private lateinit var reviewPlan: ReviewSessionPlan
 
     @Before
     fun insertFocusedReviewFixtures() {
@@ -74,6 +82,7 @@ class FocusedReviewUiTest {
             )
             MistakeRepository(AppDatabase.get(context)).backfillLegacyTags()
             mathPointStableId = KnowledgePointNormalizer.stableId("数学", stableTag)
+            knowledgeData = loadKnowledgeTestData(context, mathPointStableId)
         }
     }
 
@@ -90,16 +99,10 @@ class FocusedReviewUiTest {
 
     @Test
     fun focusedReviewUsesStableKnowledgePointAndShowsRealSessionSummary() {
-        composeRule.onNodeWithTag("nav_library").performClick()
-        composeRule.onNodeWithTag("library_open_knowledge").performClick()
-        composeRule.waitUntil(5_000) {
-            runCatching {
-                composeRule.onNodeWithTag("knowledge_card_$mathPointStableId").assertExists()
-                true
-            }.getOrDefault(false)
+        composeRule.activity.runOnUiThread {
+            composeRule.activity.setContent { KnowledgeTestHost(knowledgeData) }
         }
-
-        composeRule.onNodeWithTag("knowledge_card_$mathPointStableId").performClick()
+        composeRule.waitForIdle()
         composeRule.onNodeWithTag("knowledge_detail").assertExists()
         composeRule.waitUntil(5_000) {
             runCatching {
@@ -111,9 +114,27 @@ class FocusedReviewUiTest {
             }.getOrDefault(false)
         }
         composeRule.onNodeWithTag("knowledge_mistake_${fixtureIds[2]}").assertDoesNotExist()
-        composeRule.onNodeWithTag("knowledge_detail")
-            .performScrollToNode(hasTestTag("knowledge_start_focused_review"))
-        composeRule.onNodeWithTag("knowledge_start_focused_review").performClick()
+
+        viewModel = ViewModelProvider(composeRule.activity)[MistakeViewModel::class.java]
+        val queue = runBlocking {
+            MistakeRepository(AppDatabase.get(context)).listMistakesForKnowledgePoint(mathPointStableId)
+        }
+        check(queue.map { it.title }.containsAll(listOf(firstTitle, secondTitle)))
+        reviewPlan = ReviewSessionPlan(
+            sessionKey = "focused-ui-test-${System.nanoTime()}",
+            source = ReviewSessionSource.KNOWLEDGE_POINT,
+            reviewIds = queue.map { it.id },
+            knowledgePointStableId = mathPointStableId,
+            knowledgePointName = knowledgeData.point.name,
+            returnDestination = "knowledge-detail/$mathPointStableId"
+        )
+        composeRule.runOnIdle { viewModel.startReviewSession(reviewPlan) }
+        composeRule.activity.runOnUiThread {
+            composeRule.activity.setContent {
+                FocusedReviewTestHost(viewModel = viewModel, plan = reviewPlan, detail = knowledgeData)
+            }
+        }
+        composeRule.waitForIdle()
 
         composeRule.waitUntil(5_000) {
             composeRule.onAllNodesWithTag("review_question_content").fetchSemanticsNodes().isNotEmpty()

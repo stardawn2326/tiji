@@ -3,7 +3,7 @@
 ## 环境
 
 - JDK：工程内 Temurin 17，位于 `code/.jdk17/`。
-- Android SDK：工程内 `code/.android-sdk/`，已安装 API 35、Build Tools 35.0.0、Build Tools 34.0.0 和 Platform Tools 37.0.1。
+- Android SDK：工程内 `code/.android-sdk/`，编译使用 Android API 34 与 Build Tools 34.0.0，运行验证环境统一使用 API 30 和 Platform Tools 37.0.1。
 - Gradle：标准 Gradle Wrapper 8.9；Windows 使用 `gradlew.bat`，macOS/Linux 使用 `./gradlew`。首次运行会按 `gradle-wrapper.properties` 下载发行包。
 - Android Studio 不是构建必需项，可用 Android Studio 打开项目进行图形化调试。
 
@@ -29,7 +29,7 @@ $env:Path = (Join-Path $env:JAVA_HOME 'bin') + ';' + (Join-Path $env:ANDROID_SDK
 
 ```powershell
 $apk = 'outputs/apk/tiji-debug-v0.2.0.apk'
-& 'code/.android-sdk/build-tools/35.0.0/apksigner.bat' verify --verbose $apk
+& 'code/.android-sdk/build-tools/34.0.0/apksigner.bat' verify --verbose $apk
 Get-FileHash $apk -Algorithm SHA256
 .\gradlew.bat :app:lintDebug --no-daemon
 .\gradlew.bat :app:testDebugUnitTest --no-daemon

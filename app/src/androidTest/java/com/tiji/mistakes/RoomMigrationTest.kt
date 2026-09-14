@@ -142,6 +142,20 @@ class RoomMigrationTest {
             assertEquals(0, cursor.getInt(0))
         }
         database.close()
+
+        val upgraded = helper.runMigrationsAndValidate(
+            databaseName,
+            11,
+            true,
+            *AppDatabase.MIGRATIONS_10_11
+        )
+        upgraded.query(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'backup_import_commit_markers'"
+        ).use { cursor ->
+            assertEquals(true, cursor.moveToFirst())
+            assertEquals("backup_import_commit_markers", cursor.getString(0))
+        }
+        upgraded.close()
     }
 
     @Test

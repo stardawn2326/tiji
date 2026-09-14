@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace = "com.paddle.ocr"
-    compileSdk = 35
+    compileSdk = 34
 
     defaultConfig {
         minSdk = 26

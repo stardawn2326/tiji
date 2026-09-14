@@ -7,6 +7,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import com.tiji.mistakes.domain.Difficulty
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -19,6 +20,16 @@ internal fun isOutputLengthLimit(finishReason: String): Boolean =
 internal class AiOutputLimitException(
     val partialContent: String
 ) : IllegalStateException("AI 输出达到长度上限，回答可能未完成，请重新解题或重新追问")
+
+data class AiCapabilityResult(val ok: Boolean, val detail: String)
+
+data class AiProviderCapabilityCheck(
+    val text: AiCapabilityResult,
+    val streaming: AiCapabilityResult,
+    val image: AiCapabilityResult,
+    val visualAssistBinding: AiCapabilityResult,
+    val visualProfile: AiCapabilityResult = AiCapabilityResult(false, "未配置视觉辅助配置")
+)
 
 private fun monotonicTimeMs(): Long = System.nanoTime() / 1_000_000L
 
@@ -741,32 +752,22 @@ private val AI_STRUCTURED_SOLUTION_RULE = """
     recognition 必须逐字保留原题可见内容，不得概括、改写、补写或删减。只调整题目自身的结构：原题包含多个小题时，在第二个及后续小题编号前使用一个 lineBreak，使 (1)(2)、①②、（Ⅰ）（Ⅱ）等小题各自起行；小题编号必须与该小题正文保持在同一行。不得把屏幕宽度造成的折行写成 lineBreak。
     approach、derivation、finalAnswer 按实际解答自然返回，不要求按题目小题拆分，也不要为了排版重新组织、改写或重复已经生成的文字。
     segments 只允许 text、math、block、lineBreak、paragraphBreak、blank。中文正文、编号、列表标签和标点使用 text；普通单行公式使用 math；矩阵、方程组、分段函数、独立公式和多行推导使用一个完整 block。不要使用 Markdown 的 #、**、``` 或列表语法表达排版。
-    如果你无法保证 schemaVersion 2 JSON 完整、合法且包含四个 section，禁止输出残缺 JSON；改用旧版四分区文本结构，严格依次输出“题目识别”“解题思路”“逐步推导”“最终答案”四个标题及完整正文。旧版回退中不要输出 TIJI_SOLUTION_V2 标记、JSON、schemaVersion、sections 或 segments。
+    如果你无法保证 schemaVersion 2 JSON 完整、合法且包含四个 section，禁止输出残缺 JSON，不得改用旧版四分区文本结构或任何协议外文字；本次结果将由应用保留上一版并显示校验警告。
     math/block 的 latex 字段不带 $、$$、\\(、\\)、\\[、\\] 定界符。JSON 中 LaTeX 命令的反斜杠必须正确转义；矩阵和 aligned 的每个 LaTeX 行分隔必须在 JSON 字符串中编码为四个反斜杠字符。不要把多行数学结构拆成多个 text/math，也不要用物理换行代替结构片段。
 """.trimIndent()
 
-private val AI_STRUCTURED_SOLUTION_V3_RULE = """
-    schemaVersion 3 是当前首选的解答协议。若能返回合法 JSON，必须严格放在以下标记之间，且不要输出结构外文字：
-    [[TIJI_SOLUTION_V3_START]]
-    {"schemaVersion":3,"recognition":{"segments":[{"type":"text","text":"完整原题"}],"uncertainItems":[],"warning":""},"solution":{"approach":[{"type":"text","text":"解题方法"}],"steps":[{"segments":[{"type":"text","text":"必要推导"}],"reason":"为什么采用这一步","concepts":["相关知识点"]}],"finalAnswer":[{"type":"text","text":"最终结论"}]},"learning":{"subject":"","questionType":"","knowledgePoints":[],"difficulty":0,"pitfalls":[]}}
-    [[TIJI_SOLUTION_V3_END]]
-    recognition.segments 必须忠实覆盖完整原题；uncertainItems 只记录无法确认的原始片段、候选修正和原因，不能用猜测替代原文；warning 用于简短提示。solution.approach、steps、finalAnswer 必须保留完整解题内容，steps 中的 reason 解释每一步为什么成立，concepts 记录该步知识点。learning 只填写从题目和解答中有依据的学习元数据。
-    V3 的 verification 字段由独立校验器写入，解题模型不要伪造“通过”或“100%正确”。若不能保证 schemaVersion 3 JSON 完整、合法且至少包含 recognition 与 solution 内容，必须完整回退为 schemaVersion 2；若 V2 也无法保证完整，则回退为旧版四分区文本。保留现有 V2/旧版的全部公式、换行和题目忠实性约束。
-""".trimIndent()
 private val AI_SEMANTIC_LINE_BREAK_RULE = """
     只在 recognition（题目识别）中表达原题自身的语义换行：选择题的 A./B./C./D.、①②③、(1)(2) 以及罗马数字序号（Ⅰ）（Ⅱ）（Ⅲ）、(Ⅰ)(Ⅱ)(Ⅲ)、Ⅰ./Ⅱ./Ⅲ.、Ⅰ、/Ⅱ、/Ⅲ、或 Ⅰ：/Ⅱ：/Ⅲ：使用 lineBreak；序号必须与其后的题干保持同一行。只有同一道题中至少出现两个按顺序递增的罗马数字序号时才按分题处理，单独的 I、V、X 或普通英文不要拆分。普通文字因图片宽度产生的物理换行必须合并，公式、LaTeX、数学变量和同一段文字不能在内部断行；已有语义换行不得重复添加。不要把这条小题拆分规则套用到 approach、derivation 或 finalAnswer，也不要据此改写解答正文。
 """.trimIndent()
 
 private val AI_SOLUTION_FORMAT_RULE = """
     解题部分的中文正文使用自然的中文标点；数学公式环境内部只使用半角西文符号和标准 LaTeX。变量保持斜体，函数名和运算符使用标准命令（如 \sin、\cos、\ln、\log、\lim），求和与积分使用 \sum、\int。独立公式末尾的标点放在公式外侧。
-    不要用纯文本斜杠替代分式。除内部元数据、题目标记、题目 segments 和规定的 schemaVersion 3/2 解答 JSON 外，不要输出其他 JSON、分类分析或解释性尾注。
+    不要用纯文本斜杠替代分式。除内部元数据、题目标记、题目 segments 和规定的 schemaVersion 2 解答 JSON 外，不要输出其他 JSON、分类分析或解释性尾注。
 """.trimIndent()
 
 /** Exact solve-output mode recovered from the user-provided v50 APK. */
 internal fun structuredSolveOutputInstruction(): String = """
-    请直接解题，并优先按 schemaVersion 3 输出结构化解答；schemaVersion 3 不可用时再按兼容协议回退。
-    $AI_STRUCTURED_SOLUTION_V3_RULE
-    兼容回退仍要求：请直接解题，并严格按 schemaVersion 2 输出结构化解答。
+    请直接解题。新解题请求必须以 schemaVersion 2 作为唯一首选协议，禁止生成 schemaVersion 3、reason、concepts、learning、verification 或 uncertainItems 字段。
     $AI_STRUCTURED_SOLUTION_RULE
     $AI_INLINE_FORMULA_RULE
     $AI_MATH_SEGMENT_RULE
@@ -990,7 +991,7 @@ internal fun buildSupplementalTextInstruction(supplementalText: String?): String
         """
         用户补充说明（仅用于理解题意和解题，不是原题来源）：
         <user_supplement>
-        ${it.take(12_000)}
+        $it
         </user_supplement>
         补充说明不得写入内部题目标记、题目 segments 或 recognition，不得覆盖图片或 OCR 中的原题；仅可用于消歧、补充被裁掉的条件或明确用户的解题要求。
         """.trimIndent()
@@ -1002,7 +1003,7 @@ internal fun buildRecognitionCorrectionInstruction(recognitionCorrection: String
 
         学习者已经明确修正了题目识别结果。以下内容只作为题目文字的修正依据：
         <recognition_correction>
-        ${it.take(12_000)}
+        $it
         </recognition_correction>
         重新识别时必须优先采用这段修正后的题目文字，同时结合原图或 OCR 核对未修改部分；不要把标签、说明或修正过程写入题目识别，也不要擅自改动学习者没有明确修正的条件、选项、符号或公式。
         """.trimIndent()
@@ -1071,7 +1072,7 @@ class AiVisionService internal constructor(
                 ""
             }
             val instruction = """
-                输出的第一行必须严格为 [[TIJI_META:{"difficulty":0,"subject":"","questionType":"","title":"简短题型总结","graphic":{"present":false}}]]。该内部兼容元数据行必须保持空值/0；若使用 schemaVersion 3，只能在 learning 中填写基于当前题目和解答的有依据建议，无法确认的字段留空，保存后的独立分类任务仍可补充或修正。$AI_TITLE_RULE 该行是程序内部元数据，用户界面会隐藏，不要重复该标记。
+                输出的第一行必须严格为 [[TIJI_META:{"difficulty":0,"subject":"","questionType":"","title":"简短题型总结","graphic":{"present":false}}]]。该内部兼容元数据行保持空值/0；解题协议不承载分类字段，保存表单打开前会把完整解答交给独立分类任务，得到的科目、知识点/标签、题型和难度将作为可编辑初始值。$AI_TITLE_RULE 该行是程序内部元数据，用户界面会隐藏，不要重复该标记。
                 $AI_GRAPHIC_RULES
                 $hiddenDiagramInstruction
                 $supplementalTextInstruction
@@ -1101,7 +1102,7 @@ class AiVisionService internal constructor(
             logInfo(TAG, "vision_solve_start model=${model.take(80)} images=${visualPaths.size}")
             val content: Any = if (visualPaths.isNotEmpty()) {
                 val instructionWithTextSource = if (!question.isNullOrBlank()) {
-                    "$instruction\n\n原题文字：\n${question.take(12_000)}"
+                    "$instruction\n\n原题文字：\n$question"
                 } else instruction
                 JSONArray().put(JSONObject().put("type", "text").put("text", instructionWithTextSource)).also { parts ->
                     visualPaths.forEachIndexed { index, path ->
@@ -1138,7 +1139,9 @@ class AiVisionService internal constructor(
                 .put("stream", true)
                 .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", content)))
             applyDeepSeekTextOptions(body, endpoint, model)
-            val streamed = runCatching { streamRequest(endpoint, apiKey, body, onDelta) }
+            val streamed = runCatching {
+                streamWithSingleContinuation(endpoint, apiKey, body, onDelta)
+            }
             streamed.getOrElse {
                 logError(TAG, "vision_stream_failed model=${model.take(80)} image=${visualPaths.isNotEmpty()}", it)
                 currentCoroutineContext().ensureActive()
@@ -1188,7 +1191,7 @@ class AiVisionService internal constructor(
                     JSONArray().put(
                         JSONObject()
                             .put("role", "user")
-                            .put("content", prompt.take(36_000))
+                            .put("content", prompt)
                     )
                 )
             applyDeepSeekTextOptions(body, endpoint, model)
@@ -1401,7 +1404,7 @@ class AiVisionService internal constructor(
         如果题目上下文含图，必须结合输入图片中的图形、标注、坐标、刻度、单位和图例回答；不要假装已经识别不存在的图形。
 
         已有题目与解答：
-        ${context.take(24_000)}
+        $context
 
         用户追问：
         $prompt
@@ -1428,7 +1431,8 @@ class AiVisionService internal constructor(
                 .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", prompt)))
             // Classification is metadata-only. Parsing without a required
             // question lets the response omit all solve fields.
-            parseRecognition(extractContent(request(endpoint, apiKey, body)), requireQuestion = false)
+            val parsed = parseRecognition(extractContent(request(endpoint, apiKey, body)), requireQuestion = false)
+            parsed.copy(difficulty = normalizeClassificationDifficulty(parsed.difficulty))
         }
     }
     suspend fun testConnection(endpoint: String, model: String, apiKey: String): Result<Unit> = withContext(Dispatchers.IO) {
@@ -1474,6 +1478,55 @@ class AiVisionService internal constructor(
             Unit
         }
     }
+
+    /** Runs the three provider contracts used by the app's solve paths. */
+    suspend fun testProviderCapabilities(
+        endpoint: String,
+        model: String,
+        apiKey: String,
+        visualAssistBound: Boolean,
+        visualEndpoint: String? = null,
+        visualModel: String? = null,
+        visualApiKey: String? = null
+    ): AiProviderCapabilityCheck = withContext(Dispatchers.IO) {
+        fun result(value: Result<Unit>, success: String): AiCapabilityResult = value.fold(
+            onSuccess = { AiCapabilityResult(true, success) },
+            onFailure = { AiCapabilityResult(false, it.message ?: "未知错误") }
+        )
+        val text = result(testConnection(endpoint, model, apiKey), "文本请求可用")
+        val streaming = result(testStreamingConnection(endpoint, model, apiKey), "流式解题可用")
+        val image = result(testVisionConnection(endpoint, model, apiKey), "图片输入可用")
+        val visual = if (!visualAssistBound) {
+            AiCapabilityResult(false, "未配置视觉辅助配置")
+        } else if (visualEndpoint.isNullOrBlank() || visualModel.isNullOrBlank() || visualApiKey.isNullOrBlank()) {
+            AiCapabilityResult(false, "视觉 Profile 配置不完整")
+        } else {
+            result(
+                testVisionConnection(visualEndpoint, visualModel, visualApiKey),
+                "视觉 Profile 可用"
+            )
+        }
+        val binding = when {
+            !visualAssistBound -> AiCapabilityResult(false, "未绑定视觉辅助配置")
+            visual.ok -> AiCapabilityResult(true, "文本 Profile 与视觉 Profile 绑定正常")
+            else -> AiCapabilityResult(false, "绑定存在，但视觉 Profile 自检未通过")
+        }
+        AiProviderCapabilityCheck(text, streaming, image, binding, visual)
+    }
+
+    private suspend fun testStreamingConnection(endpoint: String, model: String, apiKey: String): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                requireConfig(endpoint, model, apiKey)
+                val body = JSONObject()
+                    .put("model", model)
+                    .put("max_tokens", 8)
+                    .put("stream", true)
+                    .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", "Reply only OK")))
+                streamRequest(endpoint, apiKey, body) {}
+                Unit
+            }
+        }
 
     /**
      * First pass for visual-assist mode. It uses the same hidden question
@@ -1774,7 +1827,7 @@ $retryInstruction
                 $ocrText
                 坐标排序后的可见 OCR 文本结束
                 ${orderedText.takeIf { it.isNotBlank() }?.let { "\n完整坐标排序 OCR 文档（包含图形区域，图形文字只能作为隐藏证据）：\n$it\n" }.orEmpty()}
-                ${rawOcrTrace.takeIf { it.isNotBlank() }?.let { "\n原始 OCR 文字框与公式候选（仅用于重建，不得照抄为题干）：\n${it.take(24_000)}\n" }.orEmpty()}
+                ${rawOcrTrace.takeIf { it.isNotBlank() }?.let { "\n原始 OCR 文字框与公式候选（仅用于重建，不得照抄为题干）：\n$it\n" }.orEmpty()}
                 ${formulaCandidates.takeIf { it.isNotEmpty() }?.joinToString("\n")?.let { "\n公式 OCR 候选：\n$it\n" }.orEmpty()}
             """.trimIndent()
             val body = JSONObject()
@@ -1899,7 +1952,7 @@ $retryInstruction
     ): String {
         val feedback = correctionContext?.trim()?.takeIf { it.isNotBlank() } ?: return ""
         val outputRule = if (structuredSolve) {
-            "必须重新输出内部题目标记、题目 segments 和完整 schemaVersion 3 解答结构；若 V3 无法保证合法，再输出完整 schemaVersion 2 解答结构，完成整道题，而不是只回复修改之处。"
+            "必须重新输出内部题目标记、题目 segments 和完整 schemaVersion 2 解答结构，完成整道题，而不是只回复修改之处。"
         } else {
             "必须重新输出内部题目标记和完整的直接解答，而不是只回复修改之处；不要使用固定分段标题。"
         }
@@ -1949,6 +2002,42 @@ $retryInstruction
                 } else {
                     "服务商返回空响应：请检查模型是否支持流式输出、API Key、额度或网络连接"
                 }
+            }
+        }
+    }
+
+    /** Continue exactly once when a provider stops at its output limit. */
+    private suspend fun streamWithSingleContinuation(
+        endpoint: String,
+        apiKey: String,
+        body: JSONObject,
+        onDelta: suspend (String) -> Unit
+    ): String {
+        return try {
+            streamRequest(endpoint, apiKey, body, onDelta)
+        } catch (first: AiOutputLimitException) {
+            currentCoroutineContext().ensureActive()
+            logWarn(TAG, "vision_stream_output_limit_continue", first)
+            val continuationBody = JSONObject(body.toString())
+            val messages = JSONArray(continuationBody.optJSONArray("messages")?.toString() ?: "[]")
+            messages.put(
+                JSONObject()
+                    .put("role", "assistant")
+                    .put("content", first.partialContent)
+            )
+            messages.put(
+                JSONObject()
+                    .put("role", "user")
+                    .put(
+                        "content",
+                        "上一条回答在输出上限处被截断。请从截断处继续，不能重复已经输出的内容；保持原题、四个 V2 section 和原有格式，直到完整结束。"
+                    )
+            )
+            continuationBody.put("messages", messages)
+            try {
+                first.partialContent + streamRequest(endpoint, apiKey, continuationBody, onDelta)
+            } catch (second: AiOutputLimitException) {
+                throw AiOutputLimitException(first.partialContent + second.partialContent)
             }
         }
     }
@@ -2099,9 +2188,9 @@ $retryInstruction
                 questionType = stringValue("questionType", "question_type", "type", "题型", "题目类型").trim(),
                 knowledgePoints = listValue("knowledgePoints", "knowledge_points", "知识点"),
                 tags = listValue("tags", "标签"),
-                difficulty = (json.optInt("difficulty", 0).takeIf { it > 0 }
+                difficulty = Difficulty.normalize(json.optInt("difficulty", 0).takeIf { it > 0 }
                     ?: metadata?.optInt("difficulty", 0)?.takeIf { it > 0 }
-                    ?: 0).coerceIn(0, 5),
+                    ?: 0),
                 graphicSpecs = parseGraphicSpecs(json),
                 visibleTextLines = visibleTextLines.ifEmpty {
                     canonicalQuestionSegments
@@ -2329,7 +2418,7 @@ $retryInstruction
 
         fun metadataText(key: String, fallback: String): String =
             metadata?.optString(key).orEmpty().trim().ifBlank { fallback }
-        val metadataDifficulty = metadata?.optInt("difficulty", 0)?.coerceIn(0, 5) ?: 0
+        val metadataDifficulty = metadata?.optInt("difficulty", 0)?.let(Difficulty::normalize) ?: 0
         val graphicSpecs = metadata?.let(::parseGraphicSpecs).orEmpty().ifEmpty { parsed.graphicSpecs }
         val metadataFormulas = metadata?.let { jsonItems(it, "formulas", "formulaCandidates") }.orEmpty()
         val metadataUncertainItems = metadata?.let { jsonItems(it, "uncertainItems", "uncertain") }.orEmpty()
@@ -2473,8 +2562,8 @@ $retryInstruction
         val questionType = section("questionType")
         val difficulty = section("难度")
             .toIntOrNull()
-            ?.coerceIn(0, 5)
-            ?: Regex("(?m)难度\\s*[:：]?\\s*([1-5])").find(cleaned)?.groupValues?.getOrNull(1)?.toIntOrNull()?.coerceIn(0, 5)
+            ?.let(Difficulty::normalize)
+            ?: Regex("(?m)难度\\s*[:：]?\\s*([1-5])").find(cleaned)?.groupValues?.getOrNull(1)?.toIntOrNull()?.let(Difficulty::normalize)
             ?: 0
         val fallbackQuestion = if (question.isBlank() && matches.isEmpty()) {
             Regex("(?im)^(?:答案|最终答案|解题思路|逐步推导|解析|解答|解|证明|分析|过程|answer|explanation)\\s*[:：]?")
@@ -2585,9 +2674,6 @@ $retryInstruction
 
     companion object {
         private const val TAG = "AiVisionService"
-        private const val MAX_CLASSIFICATION_SOURCE_CHARS = 18_000
-        private const val CLASSIFICATION_SOURCE_HEAD_CHARS = 12_000
-        private const val CLASSIFICATION_SOURCE_TAIL_CHARS = 6_000
         // A real 64x64 PNG with a visible "OK" marker. Some vision providers reject
         // 1x1 images before model inference, so the smoke test must satisfy normal
         // image-dimension constraints and verify a fixed response marker.

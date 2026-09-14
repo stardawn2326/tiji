@@ -14,13 +14,13 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Image
-import androidx.compose.material3.Button
-import androidx.compose.material3.FilterChip
+import com.tiji.mistakes.ui.design.TijiButton
+import com.tiji.mistakes.ui.design.TijiChip
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
+import com.tiji.mistakes.ui.design.TijiSecondaryButton
+import com.tiji.mistakes.ui.design.TijiTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import com.tiji.mistakes.ui.design.TijiTextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -38,7 +38,7 @@ import com.tiji.mistakes.data.AiVisualProfile
 import com.tiji.mistakes.service.AiProviderPreset
 import com.tiji.mistakes.service.AiVisionService
 import com.tiji.mistakes.service.SecureKeyStore
-import com.tiji.mistakes.ui.settings.components.SettingCard
+import com.tiji.mistakes.ui.design.TijiSettingGroup
 import java.util.UUID
 import kotlinx.coroutines.launch
 
@@ -95,10 +95,10 @@ internal fun VisualAssistConfigScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             item {
-                SettingCard("视觉服务商", Icons.Outlined.Image) {
+                TijiSettingGroup("视觉服务商", Icons.Outlined.Image) {
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(visualPresets) { value ->
-                            FilterChip(
+                            TijiChip(
                                 selected = preset == value,
                                 onClick = {
                                     preset = value
@@ -117,14 +117,14 @@ internal fun VisualAssistConfigScreen(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    OutlinedTextField(
+                    TijiTextField(
                         value = endpoint,
                         onValueChange = { endpoint = it; preset = AiProviderPreset.CUSTOM },
                         label = { Text("服务地址") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
-                    OutlinedTextField(
+                    TijiTextField(
                         value = model,
                         onValueChange = { model = it; preset = AiProviderPreset.CUSTOM },
                         label = { Text("视觉模型 ID") },
@@ -141,7 +141,7 @@ internal fun VisualAssistConfigScreen(
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             items(modelOptions) { option ->
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    FilterChip(
+                                    TijiChip(
                                         selected = model.equals(option, ignoreCase = true),
                                         onClick = { model = option },
                                         label = { Text(option, maxLines = 1, softWrap = false) }
@@ -155,11 +155,10 @@ internal fun VisualAssistConfigScreen(
                             }
                         }
                     }
-                    OutlinedTextField(
+                    com.tiji.mistakes.ui.design.TijiSecretField(
                         value = apiKey,
                         onValueChange = { apiKey = it },
                         label = { Text("API Key（本机加密保存）") },
-                        visualTransformation = PasswordVisualTransformation(),
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -170,7 +169,7 @@ internal fun VisualAssistConfigScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Button(
+                    TijiButton(
                         onClick = {
                             val profile = AiVisualProfile(
                                 id = existingProfile?.id ?: UUID.randomUUID().toString(),
@@ -185,7 +184,7 @@ internal fun VisualAssistConfigScreen(
                         },
                         modifier = Modifier.weight(1f)
                     ) { Text("保存配置") }
-                    OutlinedButton(
+                    TijiSecondaryButton(
                         onClick = {
                             connectionMessage = "正在测试图片输入…"
                             scope.launch {
@@ -207,7 +206,7 @@ internal fun VisualAssistConfigScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.End
                     ) {
-                        TextButton(
+                        TijiTextButton(
                             onClick = { onDelete(existingProfile) },
                             contentPadding = PaddingValues(0.dp)
                         ) { Text("删除视觉辅助配置") }

@@ -9,8 +9,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Card
+import com.tiji.mistakes.ui.design.TijiShapes
+import com.tiji.mistakes.ui.design.TijiCard
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -33,7 +33,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
+import com.tiji.mistakes.ui.design.TijiImage
 import coil.request.CachePolicy
 import coil.request.ImageRequest
 import com.tiji.mistakes.ui.common.imageReloadVersions
@@ -69,7 +69,7 @@ internal fun ImagePreview(
     }
     val sourceAvailable = remember(path) { path.startsWith("content://") || File(path).isFile }
     if (!sourceAvailable || loadFailed) {
-        Card(
+        TijiCard(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -94,26 +94,18 @@ internal fun ImagePreview(
     }
     val previewHeight = ((configuration.screenWidthDp.dp - 32.dp) / imageAspect.coerceAtLeast(0.2f)).coerceIn(48.dp, 420.dp)
     Box(Modifier.fillMaxWidth().height(previewHeight)) {
-        AsyncImage(
+        TijiImage(
             model = imageModel,
             contentDescription = "题目图片，点击放大",
-            modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(16.dp)).clickable { expanded = true },
+            modifier = Modifier.fillMaxSize().clip(TijiShapes.L).clickable { expanded = true },
             contentScale = ContentScale.Fit,
             onError = { loadFailed = true }
         )
         if (!overlayActionLabel.isNullOrBlank() && onOverlayAction != null) {
-            Text(
-                overlayActionLabel,
-                style = MaterialTheme.typography.bodySmall.copy(shadow = Shadow(Color.Black, Offset(0f, 1f), 3f)),
-                color = Color.White,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(10.dp)
-                    .clickable(onClick = onOverlayAction)
-                    .padding(horizontal = 2.dp, vertical = 2.dp)
-            )
+            com.tiji.mistakes.ui.design.TijiSecondaryButton(
+                onClick = onOverlayAction,
+                modifier = Modifier.align(Alignment.BottomStart).padding(8.dp)
+            ) { Text(overlayActionLabel) }
         }
     }
     if (expanded) {
