@@ -201,12 +201,27 @@ class BackupImportCoordinator(context: Context) {
      */
     @Synchronized
     fun cleanupPublished(journal: BackupImportJournal, referencedImagePaths: Set<String>) {
+        cleanupPublishedWork(journal, referencedImagePaths)
+        clear()
+    }
+
+    /**
+     * Removes committed import work without deleting the journal. Callers
+     * clear the marker first and the journal second so a crash leaves a
+     * durable COMMITTED record that can be retried safely.
+     */
+    @Synchronized
+    fun cleanupPublishedWork(
+        journal: BackupImportJournal,
+        referencedImagePaths: Set<String>,
+        previousReferencedImagePaths: Set<String> = emptySet()
+    ) {
         ImageStorage.deletePrivateFiles(
             appContext,
-            journal.createdImagePaths.filterNot { it in referencedImagePaths }
+            (journal.createdImagePaths + previousReferencedImagePaths)
+                .filterNot { it in referencedImagePaths }
         )
         deleteWorkDirectories(journal)
-        clear()
     }
 
     private fun deleteWorkDirectories(journal: BackupImportJournal) {

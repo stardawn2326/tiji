@@ -261,9 +261,7 @@ object BackupService {
         val journal = journalRead.journal ?: return@withContext BackupRecoveryAction.NONE
         val markerDao = database.backupImportCommitMarkerDao()
         suspend fun cleanupCommitted(): BackupRecoveryAction {
-            val referenced = MistakeRepository(database).allReferencedImagePaths()
-            coordinator.cleanupPublished(journal, referenced)
-            markerDao.clear(journal.importId)
+            finalizeCommittedImport(coordinator, database, journal)
             return BackupRecoveryAction.CLEANED_COMMITTED
         }
         suspend fun cleanupBeforeCommit(): BackupRecoveryAction {
@@ -271,7 +269,7 @@ object BackupService {
             // an I/O failure leaves both the journal and files for retry.
             restorePreferenceSnapshot(database, preferences, journal)
             coordinator.cleanup(journal, deleteCreatedFiles = true)
-            markerDao.clear(journal.importId)
+            database.backupImportCommitMarkerDao().clear(journal.importId)
             return BackupRecoveryAction.CLEANED_BEFORE_COMMIT
         }
         when (journal.phase) {
@@ -289,6 +287,33 @@ object BackupService {
                 if (markerDao.isCommitted(journal.importId)) cleanupCommitted() else cleanupBeforeCommit()
             BackupImportPhase.COMMITTED -> cleanupCommitted()
         }
+    }
+
+    /**
+     * Finalizes a committed import without doing any business writes. A
+     * recovery path may enter here before the journal reached COMMITTED, so
+     * first make that phase durable. The marker is cleared only after all
+     * transient files are removed; the journal is cleared last, making every
+     * interruption safe to retry.
+     */
+    private suspend fun finalizeCommittedImport(
+        coordinator: BackupImportCoordinator,
+        database: AppDatabase,
+        journal: BackupImportJournal
+    ) {
+        val committedJournal = if (journal.phase == BackupImportPhase.COMMITTED) {
+            journal
+        } else {
+            coordinator.advance(BackupImportPhase.COMMITTED)
+        }
+        val referenced = MistakeRepository(database).allReferencedImagePaths()
+        coordinator.cleanupPublishedWork(
+            journal = committedJournal,
+            referencedImagePaths = referenced,
+            previousReferencedImagePaths = committedJournal.snapshot.referencedImagePaths
+        )
+        database.backupImportCommitMarkerDao().clear(committedJournal.importId)
+        coordinator.clear()
     }
 
     private suspend fun restorePreferenceSnapshot(
@@ -539,6 +564,13 @@ object BackupService {
                     importedStableToLocalId,
                     replace = mode == BackupImportMode.REPLACE
                 )
+                val repository = MistakeRepository(database)
+                if (payload.preview.schemaVersion < SCHEMA_VERSION && importedStableToLocalId.isNotEmpty()) {
+                    repository.syncKnowledgePointsForMistakesInTransaction(importedStableToLocalId.values)
+                }
+                // Every Room write needed for the import's final business
+                // state is complete before the marker is inserted.
+                repository.sanitizeKnowledgePointParentsInTransactionForImport()
                 // This marker is the final Room operation. It is deliberately
                 // independent of image references so preference-only imports
                 // have the same transaction fact as image imports.
@@ -554,29 +586,12 @@ object BackupService {
             // restored in the failure path below when its write throws.
             coordinator.advance(BackupImportPhase.PREFERENCES_COMMITTED)
 
-            if (payload.preview.schemaVersion < SCHEMA_VERSION && importedStableToLocalId.isNotEmpty()) {
-                MistakeRepository(database).syncKnowledgePointsForMistakes(importedStableToLocalId.values)
-            }
-
-            MistakeRepository(database).sanitizeKnowledgePointParents()
-
             coordinator.advance(BackupImportPhase.COMMITTED)
             BackupImportResult(inserted, updated, skipped, copiedImages)
         }
         if (result.isSuccess) {
-            stagingDirectory.deleteRecursively()
-            rollbackDirectory.deleteRecursively()
-            val currentReferencedImagePaths = MistakeRepository(database).allReferencedImagePaths()
-            ImageStorage.deletePrivateFiles(
-                context,
-                (previousReferencedImagePaths.filterNot { it in currentReferencedImagePaths } +
-                    createdImagePaths.filterNot { it in currentReferencedImagePaths })
-            )
-            // The journal is already COMMITTED here. Clearing the marker first
-            // is safe because COMMITTED recovery always preserves Room-owned
-            // files and clears any orphan marker on the next startup.
-            database.backupImportCommitMarkerDao().clear(importId)
-            coordinator.clear()
+            val committedJournal = requireNotNull(coordinator.read()) { "备份导入已成功但 journal 丢失" }
+            finalizeCommittedImport(coordinator, database, committedJournal)
         } else {
             // The transaction may already have committed before a later
             // journal/sanitization step failed. The marker, rather than the
@@ -589,19 +604,14 @@ object BackupService {
                 val failedJournal = failedJournalRead.journal
                 val markerCommitted = database.backupImportCommitMarkerDao().isCommitted(importId)
                 if (markerCommitted) {
-                    val referenced = MistakeRepository(database).allReferencedImagePaths()
-                    ImageStorage.deletePrivateFiles(
-                        context,
-                        createdImagePaths.filterNot { it in referenced }
-                    )
                     if (failedJournal != null) {
-                        coordinator.cleanupPublished(failedJournal, referenced)
+                        finalizeCommittedImport(coordinator, database, failedJournal)
                     } else {
                         stagingDirectory.deleteRecursively()
                         rollbackDirectory.deleteRecursively()
+                        database.backupImportCommitMarkerDao().clear(importId)
                         coordinator.clear()
                     }
-                    database.backupImportCommitMarkerDao().clear(importId)
                 } else {
                     // Room rolled back (or was never entered). Restore the
                     // portable DataStore snapshot before deleting the journal.

@@ -6,7 +6,9 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.tiji.mistakes.data.AppDatabase
 import com.tiji.mistakes.data.AppPreferences
+import com.tiji.mistakes.data.KnowledgePointEntity
 import com.tiji.mistakes.data.MistakeEntity
+import com.tiji.mistakes.data.MistakeKnowledgePointCrossRef
 import com.tiji.mistakes.service.BackupImportCoordinator
 import com.tiji.mistakes.service.BackupImportMode
 import com.tiji.mistakes.service.BackupImportPhase
@@ -278,6 +280,58 @@ class BackupImportCoordinatorTest {
         )
         assertEquals(null, coordinator.read())
         assertFalse(database.backupImportCommitMarkerDao().isCommitted(importId))
+    }
+
+    @Test
+    fun committedMarkerRecoveryDoesNotNeedPostCommitRoomMutation() = runBlocking {
+        val coordinator = BackupImportCoordinator(context)
+        val importId = "committed-no-post-write-${System.nanoTime()}"
+        val staging = File(context.filesDir, "committed-no-post-write-staging-$importId").apply { mkdirs() }
+        val rollback = File(context.filesDir, "committed-no-post-write-rollback-$importId").apply { mkdirs() }
+        val imageDirectory = File(context.filesDir, "images").apply { mkdirs() }
+        val referenced = File(imageDirectory, "$importId.heic").apply { writeBytes(byteArrayOf(1, 2, 3)) }
+        val orphan = File(imageDirectory, "$importId-unused.heif").apply { writeBytes(byteArrayOf(4, 5, 6)) }
+        val mistakeId = database.mistakeDao().upsert(
+            MistakeEntity(stableId = "$importId-mistake", imagePath = referenced.absolutePath, tags = "函数")
+        )
+        val pointId = database.knowledgePointDao().insertIgnore(
+            KnowledgePointEntity(
+                stableId = "$importId-point",
+                subject = "数学",
+                name = "函数",
+                normalizedName = "函数",
+                createdAt = 1L,
+                updatedAt = 1L
+            )
+        )
+        database.mistakeKnowledgePointDao().insert(MistakeKnowledgePointCrossRef(mistakeId, pointId))
+        val beforePoints = database.knowledgePointDao().listAll()
+        val beforeLinks = database.mistakeKnowledgePointDao().listAll()
+
+        coordinator.begin(
+            mode = BackupImportMode.MERGE,
+            stagingDirectory = staging,
+            rollbackDirectory = rollback,
+            importId = importId
+        )
+        coordinator.advance(
+            BackupImportPhase.FILES_PUBLISHED,
+            createdImagePaths = listOf(referenced.absolutePath, orphan.absolutePath)
+        )
+        database.backupImportCommitMarkerDao().markCommitted(importId, BackupImportMode.MERGE.name, 1L)
+
+        assertEquals(
+            BackupRecoveryAction.CLEANED_COMMITTED,
+            BackupService.recoverPendingImport(context, database, null)
+        )
+        assertEquals(beforePoints, database.knowledgePointDao().listAll())
+        assertEquals(beforeLinks, database.mistakeKnowledgePointDao().listAll())
+        assertTrue(referenced.isFile)
+        assertFalse(orphan.exists())
+        assertEquals(null, coordinator.read())
+        assertFalse(database.backupImportCommitMarkerDao().isCommitted(importId))
+        referenced.delete()
+        Unit
     }
 
     @Test

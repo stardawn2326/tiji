@@ -252,19 +252,35 @@ class MistakeRepository(private val database: AppDatabase) {
     }
 
     /** Rebuilds structured knowledge links only for the imported mistake IDs. */
-    suspend fun syncKnowledgePointsForMistakes(mistakeIds: Collection<Long>): Int {
+    suspend fun syncKnowledgePointsForMistakes(mistakeIds: Collection<Long>): Int = database.withTransaction {
+        syncKnowledgePointsForMistakesInTransaction(mistakeIds)
+    }
+
+    /**
+     * Rebuilds imported knowledge links without opening a nested transaction.
+     * The caller must already be inside the import Room transaction so the
+     * marker can remain the final Room write after this work completes.
+     */
+    internal suspend fun syncKnowledgePointsForMistakesInTransaction(
+        mistakeIds: Collection<Long>
+    ): Int {
         val distinctIds = mistakeIds.filter { it > 0L }.distinct()
         if (distinctIds.isEmpty()) return 0
-        return database.withTransaction {
-            var linked = 0
-            dao.findByIds(distinctIds).forEach { mistake ->
-                linked += syncKnowledgePointsForMistake(mistake)
-            }
-            database.knowledgePointDao().deleteOrphans()
-            sanitizeKnowledgePointParentsInTransaction()
-            linked
+        var linked = 0
+        dao.findByIds(distinctIds).forEach { mistake ->
+            linked += syncKnowledgePointsForMistake(mistake)
         }
+        database.knowledgePointDao().deleteOrphans()
+        sanitizeKnowledgePointParentsInTransaction()
+        return linked
     }
+
+    /**
+     * Import-only seam for parent sanitation. The caller must already be in
+     * the Room transaction that will write the import commit marker.
+     */
+    internal suspend fun sanitizeKnowledgePointParentsInTransactionForImport(): Int =
+        sanitizeKnowledgePointParentsInTransaction()
 
     private suspend fun sanitizeKnowledgePointParentsInTransaction(): Int {
         val pointDao = database.knowledgePointDao()
