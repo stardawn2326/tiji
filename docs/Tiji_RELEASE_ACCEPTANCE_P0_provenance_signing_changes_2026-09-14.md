@@ -219,3 +219,37 @@ PATH C = NOT AUTHORIZED     # 证据只有 NO_EVIDENCE，未形成 TRUE 的发�
 keystore、密码、API key 和真实 provider 数据没有写入 GitHub 或本 MD。没有这些输入时，脚本会 fail closed，不会把 debug certificate 伪装成正式 RC。
 
 本轮没有创建 tag、GitHub Release，也没有发布 APK。API35 继续保持 `OUT_OF_SCOPE`；UI 结构重设计要等 `RELEASE_ACCEPTANCE = PASS` 后再按 UI-00 至 UI-09 顺序启动。
+
+---
+
+## 2026-09-15 CI 稳定性加固补充
+
+本节记录对《Tiji_RELEASE_ACCEPTANCE_最新复验与下一步_CI稳定性_SignerDecision_ExactRC_2026-09-14.md》的执行结果。执行边界仍为 API30 only；没有创建、启动或运行 API35，也没有做截图或视觉检查。
+
+### 测试稳定性修复
+
+- 从冻结的 `origin/main@087710bcbb9d45ba0fcd3e6535ef5e0246edd48b` 创建 `codex/api30-review-test-stability`。
+- 只改动 `app/src/androidTest/java/com/tiji/mistakes/FocusedReviewRecreationTest.kt`：答案展开后先 `waitForIdle()`，再通过 `waitUntil` + semantics polling 等待评分控件存在且可见；重复评分后等待至少一条持久化记录，再断言首题记录数 `<= 1`。
+- 未修改生产复习行为；没有使用固定 `sleep()`。
+- 本地 API30 定向回归在同一最终测试提交上执行两轮，均为 `FocusedReviewRecreationTest` 4/4 通过。
+
+### CI 启动器兼容修复
+
+首轮 push/PR CI 在 `android-actions/setup-android@v3` 阶段失败，日志显示其默认尝试安装已从远端仓库移除的 `tools` 包，尚未进入编译或测试。为恢复既有工作流的可执行性，在同一测试稳定性分支的 `.github/workflows/android.yml` 两个 SDK 初始化步骤显式设置 `packages: platform-tools`；API30 系统镜像、编译平台和测试命令保持不变。
+
+### GitHub 合并与 exact-main
+
+- 测试稳定性提交：`de7616ee4d95a174e4b5c533b084f02c75038770`。
+- CI 启动器兼容提交：`55823e1b1ee07f5f6d13fbc072d0acdbe8a9d3ad`。
+- PR：[ #13 · test: harden API30 focused review timing](https://github.com/stardawn2326/tiji/pull/13)，required checks 的 push run [34914548592](https://github.com/stardawn2326/tiji/actions/runs/34914548592) 与 PR run [34914551484](https://github.com/stardawn2326/tiji/actions/runs/34914551484) 均通过；两者的 compile/package 与 API30 instrumentation 均 PASS。
+- PR #13 已合并，merge commit：`483d441020d83beffa9a96bd048dc426354f7f5a`。
+- 合并后 `main` exact CI：[34914942125](https://github.com/stardawn2326/tiji/actions/runs/34914942125)，compile/package job `104210441392` 与 API30 instrumentation job `104210441575` 均 PASS；`main` 当前 SHA 为 `483d441020d83beffa9a96bd048dc426354f7f5a`。
+
+### API30 安装与启动 smoke
+
+- 设备：既有 `tiji-api30` AVD，serial `emulator-5554`，`ro.build.version.sdk=30`。
+- APK：`app/build/outputs/apk/debug/tiji-v1.0.0-debug.apk`。
+- SHA-256：`7BE36F8DF6B161675BA8EFEB4CAF49242C57B915AA5BAE5A01A5AD1A82468F5C`。
+- `adb -s emulator-5554 install -r -d -g`：`Success`；`monkey -p com.tiji.mistakes 1`：启动事件注入成功；应用 PID=`4332`；crash buffer 未发现该包的 `FATAL EXCEPTION`，ANR 检索未发现该包匹配项。
+
+本补充只证明测试稳定性、工作流启动、API30 安装和启动技术路径；当前 APK 仍为 Android Debug certificate。`SIGNER_LINEAGE`、正式 keystore、`FORMAL_EXACT_RC`、`FRESH_INSTALL_GATE` 和 `RELEASE_ACCEPTANCE` 的状态保持上一节结论，不因本次测试修复或 Debug 安装而升级。没有创建 tag、GitHub Release 或公开 APK。
