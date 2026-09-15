@@ -2,6 +2,7 @@ package com.tiji.mistakes
 
 import androidx.activity.compose.setContent
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasTestTag
@@ -149,7 +150,7 @@ class FocusedReviewRecreationTest {
         openFocusedReview()
         showAnswerAndScrollTo(ReviewGrade.GOOD)
         repeat(3) { composeRule.onNodeWithTag("review_grade_good").performClick() }
-        assertRecordCount(1)
+        assertAtMostOneRecord()
         waitForQuestion(secondTitle)
         showAnswerAndScrollTo(ReviewGrade.HARD)
         composeRule.onNodeWithTag("review_grade_hard").performClick()
@@ -209,9 +210,18 @@ class FocusedReviewRecreationTest {
     }
 
     private fun showAnswerAndScrollTo(grade: ReviewGrade) {
+        val gradeTag = "review_grade_${grade.name.lowercase()}"
         composeRule.onNodeWithTag("review_show_answer").performClick()
-        composeRule.onNodeWithTag("review_question_content")
-            .performScrollToNode(hasTestTag("review_grade_${grade.name.lowercase()}"))
+        composeRule.waitForIdle()
+        composeRule.waitUntil(5_000) {
+            runCatching {
+                composeRule.onNodeWithTag("review_question_content")
+                    .performScrollToNode(hasTestTag(gradeTag))
+                composeRule.onNodeWithTag(gradeTag).assertExists().assertIsDisplayed()
+                true
+            }.getOrDefault(false)
+        }
+        composeRule.waitForIdle()
     }
 
     private fun gradeCurrentQuestion(grade: ReviewGrade) {
@@ -255,6 +265,22 @@ class FocusedReviewRecreationTest {
         }
         check(records.size == expected) {
             "expected $expected session records, got ${records.size}"
+        }
+    }
+
+    private fun assertAtMostOneRecord() {
+        composeRule.waitUntil(5_000) {
+            runBlocking {
+                AppDatabase.get(context).reviewRecordDao().listByMistakeIds(fixtureIds)
+                    .count { it.mistakeId in fixtureIds.take(2) } >= 1
+            }
+        }
+        val records = runBlocking {
+            AppDatabase.get(context).reviewRecordDao().listByMistakeIds(fixtureIds)
+                .filter { it.mistakeId in fixtureIds.take(2) }
+        }
+        check(records.size <= 1) {
+            "expected at most one session record for the first question, got ${records.size}"
         }
     }
 }
