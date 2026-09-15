@@ -17,6 +17,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.NavHost
 import androidx.navigation.NavHostController
+import androidx.navigation.NavGraph.Companion.findStartDestination
 import com.tiji.mistakes.data.AiProfile
 import com.tiji.mistakes.data.AiVisualProfile
 import com.tiji.mistakes.data.AppPreferences
@@ -161,6 +162,13 @@ internal fun TijiNavGraph(
                         exportOriginalImagesOnly = !state.aiExcludeSourceImageByDefault,
                         onOpen = { navController.navigate(TijiRoutes.detail(it)) },
                         onCreate = { navController.navigate(TijiRoutes.CAPTURE) },
+                        onBack = {
+                            navController.navigate(TijiRoutes.HOME) {
+                                popUpTo(navController.graph.findStartDestination().id) { saveState = false }
+                                launchSingleTop = true
+                                restoreState = false
+                            }
+                        },
                         onAddSelectedToTomorrow = { selectedIds ->
                             val activeIds = state.mistakes.mapTo(mutableSetOf()) { it.id }
                             val validIds = selectedIds.filter { it in activeIds }.distinct()

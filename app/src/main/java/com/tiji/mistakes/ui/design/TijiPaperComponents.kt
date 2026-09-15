@@ -189,24 +189,37 @@ internal fun TijiPaperCard(
     selected: Boolean = false,
     onClick: (() -> Unit)? = null,
     contentPadding: Dp = TijiDimens.cardPadding,
+    animateContentSizeEnabled: Boolean = true,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val borderColor = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
     val borderWidth = if (selected) 1.5.dp else 1.dp
     val cardModifier = modifier.fillMaxWidth().semantics { this.selected = selected }
+    val contentModifier = Modifier
+        .fillMaxWidth()
+        .let { base ->
+            if (animateContentSizeEnabled) {
+                base.animateContentSize(animationSpec = tween(TijiMotion.Normal))
+            } else {
+                base
+            }
+        }
     val cardContent: @Composable ColumnScope.() -> Unit = {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .animateContentSize(animationSpec = tween(TijiMotion.Normal))
-                .padding(contentPadding),
+            modifier = contentModifier.padding(contentPadding),
             verticalArrangement = Arrangement.spacedBy(TijiDimens.controlGap),
             content = content
         )
     }
     if (onClick == null) {
         Card(
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            colors = CardDefaults.cardColors(
+                containerColor = if (selected) {
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.04f)
+                } else {
+                    MaterialTheme.colorScheme.surface
+                }
+            ),
             border = BorderStroke(borderWidth, borderColor),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
             shape = TijiShapes.M,
@@ -216,7 +229,13 @@ internal fun TijiPaperCard(
     } else {
         Card(
             onClick = onClick,
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            colors = CardDefaults.cardColors(
+                containerColor = if (selected) {
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.04f)
+                } else {
+                    MaterialTheme.colorScheme.surface
+                }
+            ),
             border = BorderStroke(borderWidth, borderColor),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
             shape = TijiShapes.M,

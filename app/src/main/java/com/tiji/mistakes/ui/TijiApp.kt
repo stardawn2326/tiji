@@ -232,7 +232,7 @@ fun TijiApp() {
         TijiScreen(
             snackbarHost = { TijiSnackbar(snackbarHostState) },
             bottomBar = {
-                if (route in setOf(TijiRoutes.HOME, TijiRoutes.LIBRARY, TijiRoutes.SOLVE, TijiRoutes.REVIEW, TijiRoutes.SETTINGS)) {
+                if (route in setOf(TijiRoutes.HOME, TijiRoutes.SOLVE, TijiRoutes.REVIEW, TijiRoutes.SETTINGS)) {
                     NavigationBar(
                         containerColor = MaterialTheme.colorScheme.surface,
                         tonalElevation = 0.dp,

@@ -21,15 +21,26 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
 import com.tiji.mistakes.ui.design.TijiShapes
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.AddAPhoto
+import androidx.compose.material.icons.outlined.Assignment
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.ExpandMore
+import androidx.compose.material.icons.outlined.MoreHoriz
+import androidx.compose.material.icons.outlined.Print
+import androidx.compose.material.icons.outlined.Replay
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.ViewList
 import com.tiji.mistakes.ui.design.TijiDialog
 import com.tiji.mistakes.ui.design.TijiButton
 import com.tiji.mistakes.ui.design.TijiMenu
@@ -59,11 +70,20 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.text.BasicTextField
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.tiji.mistakes.domain.MistakeListItem
@@ -88,6 +108,7 @@ import com.tiji.mistakes.ui.design.TijiPageHeader
 import com.tiji.mistakes.ui.MistakeViewModel
 import com.tiji.mistakes.ui.normalizedSubject
 import com.tiji.mistakes.ui.subjectCounts
+import com.tiji.mistakes.ui.common.parseTagValues
 import com.tiji.mistakes.ui.design.TijiDimens
 import com.tiji.mistakes.ui.design.TijiPaperCard
 import java.io.File
@@ -103,6 +124,7 @@ internal fun LibraryScreen(
     exportOriginalImagesOnly: Boolean,
     onOpen: (Long) -> Unit,
     onCreate: () -> Unit,
+    onBack: () -> Unit = {},
     onAddSelectedToTomorrow: (List<Long>) -> Unit = {}
 ) {
     val mistakes = remember(mistakeItems) { mistakeItems.map(MistakeListItem::mistake) }
@@ -123,6 +145,8 @@ internal fun LibraryScreen(
     var showFilterDialog by remember { mutableStateOf(false) }
     var masteryFilter by remember { mutableStateOf<Int?>(null) }
     var difficultyFilter by remember { mutableStateOf<Int?>(null) }
+    var knowledgeFilter by remember { mutableStateOf<String?>(null) }
+    var subjectMenuExpanded by remember { mutableStateOf(false) }
     var sortMenuExpanded by remember { mutableStateOf(false) }
     var visibleLimit by remember { mutableIntStateOf(40) }
     var pendingExportIds by rememberSaveable { mutableStateOf(longArrayOf()) }
@@ -190,7 +214,15 @@ internal fun LibraryScreen(
             if (selectedSubject != null && selectedSubject !in this) add(selectedSubject)
         }
     }
-    val visibleItems = remember(mistakeItems, order, selectedSubject, masteryFilter, difficultyFilter) {
+    val knowledgeOptions = remember(mistakes) {
+        mistakes.asSequence()
+            .flatMap { parseTagValues(it.tags).asSequence() }
+            .filter(String::isNotBlank)
+            .distinct()
+            .sorted()
+            .toList()
+    }
+    val visibleItems = remember(mistakeItems, order, selectedSubject, masteryFilter, difficultyFilter, knowledgeFilter) {
         val selectedMastery = masteryFilter
         val filtered = mistakeItems.filter { item ->
             val mistake = item.mistake
@@ -201,7 +233,8 @@ internal fun LibraryScreen(
             }
             (selectedSubject == null || normalizedSubject(mistake.subject) == selectedSubject) &&
                 reviewStatusMatches &&
-                difficultyMatchesFilter(mistake.difficulty, difficultyFilter)
+                difficultyMatchesFilter(mistake.difficulty, difficultyFilter) &&
+                (knowledgeFilter == null || parseTagValues(mistake.tags).contains(knowledgeFilter))
         }
         when(order) {
             MistakeOrder.NEWEST -> filtered.sortedByDescending { it.mistake.uploadedAt }
@@ -210,7 +243,7 @@ internal fun LibraryScreen(
         }
     }
     val visibleMistakes = remember(visibleItems) { visibleItems.map(MistakeListItem::mistake) }
-    LaunchedEffect(query, order, selectedSubject, masteryFilter, difficultyFilter) {
+    LaunchedEffect(query, order, selectedSubject, masteryFilter, difficultyFilter, knowledgeFilter) {
         selectedIds = emptySet()
         selectionMode = false
         visibleLimit = 40
@@ -356,6 +389,22 @@ internal fun LibraryScreen(
             title = { Text("筛选错题") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("知识点", style = MaterialTheme.typography.titleSmall)
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.testTag("library_knowledge_options")
+                    ) {
+                        item {
+                            TijiChip(selected = knowledgeFilter == null, onClick = { knowledgeFilter = null }, label = { Text("全部") })
+                        }
+                        items(knowledgeOptions) { value ->
+                            TijiChip(
+                                selected = knowledgeFilter == value,
+                                onClick = { knowledgeFilter = value },
+                                label = { Text(value) }
+                            )
+                        }
+                    }
                     Text("复习状态", style = MaterialTheme.typography.titleSmall)
                     LazyRow(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -394,31 +443,68 @@ internal fun LibraryScreen(
             },
             confirmButton = { TijiTextButton(onClick = { showFilterDialog = false }) { Text("完成") } },
             dismissButton = {
-                TijiTextButton(onClick = { masteryFilter = null; difficultyFilter = null; showFilterDialog = false }) { Text("清除筛选") }
+                TijiTextButton(onClick = {
+                    masteryFilter = null
+                    difficultyFilter = null
+                    knowledgeFilter = null
+                    showFilterDialog = false
+                }) { Text("清除筛选") }
             }
         )
     }
     TijiScreen(
+        contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0),
         snackbarHost = { TijiSnackbar(snackbarHostState) },
-        topBar = {
-            if (selectionMode) TijiTopBar(
-                navigationIcon = {
-                    TijiIconButton(
-                        onClick = { selectionMode = false; selectedIds = emptySet() },
-                        modifier = Modifier.testTag("library_exit_selection")
-                    ) {
-                        Icon(Icons.Outlined.Close, contentDescription = "退出批量选择")
-                    }
-                },
-                title = {
-                    Text(
-                        "已选择 ${selectedIds.size} 道",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1
+        topBar = {},
+        bottomBar = {
+            if (selectionMode) {
+                LibrarySelectionActionBar(
+                    selectedCount = selectedIds.size,
+                    hasSelection = selectedIds.isNotEmpty(),
+                    onAddToTomorrow = ::addSelectedToTomorrow,
+                    onPrint = { openPdfOptions(selectedIds.toList()) },
+                    onMore = { showBatchEditDialog = true },
+                    onDelete = { showBatchDeleteDialog = true },
+                    modifier = Modifier.testTag("library_selection_action_bar")
+                )
+            }
+        }
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(LibraryVisualTokens.pageBackground)
+                .padding(padding)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp)
+                    .padding(horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TijiIconButton(
+                    onClick = if (selectionMode) {
+                        { selectionMode = false; selectedIds = emptySet() }
+                    } else onBack,
+                    modifier = Modifier.testTag(if (selectionMode) "library_exit_selection" else "library_back")
+                ) {
+                    Icon(
+                        if (selectionMode) Icons.Outlined.Close else Icons.AutoMirrored.Outlined.ArrowBack,
+                        contentDescription = if (selectionMode) "退出批量选择" else "返回"
                     )
-                },
-                actions = {
+                }
+                Text(
+                    "错题库",
+                    modifier = Modifier.weight(1f).padding(horizontal = 4.dp),
+                    style = MaterialTheme.typography.titleLarge.copy(
+                        fontSize = 19.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = LibraryVisualTokens.ink
+                    ),
+                    maxLines = 1
+                )
+                if (selectionMode) {
                     TijiTextButton(
                         onClick = {
                             selectedIds = if (selectedIds.size == visibleMistakes.size) {
@@ -429,210 +515,250 @@ internal fun LibraryScreen(
                         },
                         enabled = visibleMistakes.isNotEmpty(),
                         modifier = Modifier.heightIn(min = 48.dp).testTag("library_select_all"),
-                        contentPadding = PaddingValues(horizontal = 12.dp)
+                        contentPadding = PaddingValues(horizontal = 8.dp)
                     ) { Text("全选") }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-            )
-        },
-        bottomBar = {
-            if (selectionMode) {
-                com.tiji.mistakes.ui.design.TijiBottomActionBar(
-                    modifier = Modifier.testTag("library_selection_action_bar")
-                ) {
-                        TijiContextAction(
-                            label = "加入明日复习",
-                            enabled = selectedIds.isNotEmpty(),
-                            modifier = Modifier.weight(1f).testTag("library_add_selected_tomorrow"),
-                            onClick = ::addSelectedToTomorrow
-                        )
-                        TijiContextAction(
-                            label = "打印",
-                            enabled = selectedIds.isNotEmpty(),
-                            modifier = Modifier.weight(1f).testTag("library_print_selected"),
-                            onClick = { openPdfOptions(selectedIds.toList()) }
-                        )
-                        TijiContextAction(
-                            label = "更多",
-                            enabled = selectedIds.isNotEmpty(),
-                            modifier = Modifier.weight(1f).testTag("library_batch_more"),
-                            onClick = { showBatchEditDialog = true }
-                        )
-                        TijiContextAction(
-                            label = "删除",
-                            enabled = selectedIds.isNotEmpty(),
-                            modifier = Modifier.weight(1f).testTag("library_delete_selected"),
-                            onClick = { showBatchDeleteDialog = true }
-                        )
-                }
-            }
-        },
-    ) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize()) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = TijiDimens.pagePadding, top = 20.dp, end = TijiDimens.pagePadding, bottom = 10.dp)
-            ) {
-                TijiPageHeader(title = "错题库") {
-                    if (!selectionMode) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            TijiIconButton(onClick = onCreate) {
-                                Icon(Icons.Outlined.AddAPhoto, contentDescription = "录入错题")
-                            }
-                            TijiTextButton(
-                                onClick = { selectionMode = true },
-                                modifier = Modifier.heightIn(min = 48.dp),
-                                contentPadding = PaddingValues(horizontal = 8.dp)
-                            ) { Text("批量选择") }
-                        }
+                } else {
+                    TijiIconButton(onClick = onCreate) {
+                        Icon(Icons.Outlined.Assignment, contentDescription = "录入错题")
                     }
                 }
-                TijiTextField(
-                    value = query,
-                    onValueChange = viewModel::setQuery,
-                    leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
-                    placeholder = { Text("搜索错题") },
-                    singleLine = true,
-                    shape = TijiShapes.M,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("library_search")
-                )
             }
-        LazyColumn(
-            state = mistakeListState,
-            modifier = Modifier.fillMaxWidth().weight(1f).testTag("library_mistakes_list"),
-            contentPadding = PaddingValues(horizontal = TijiDimens.pagePadding, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-          item {
-           Column(Modifier.fillMaxWidth()) {
-            Spacer(Modifier.height(2.dp))
-            LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.testTag("library_subject_filters")
+            LibrarySearchField(
+                value = query,
+                onValueChange = viewModel::setQuery,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 3.dp)
+                    .testTag("library_search")
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
             ) {
-                items(subjectTabs) { value ->
-                    val selected = if (value == "全部") selectedSubject == null else selectedSubject == value
-                    TijiChip(
-                        selected = selected,
-                        onClick = { onSelectSubject(value.takeUnless { it == "全部" }) },
-                        modifier = Modifier.heightIn(min = 48.dp).testTag(
-                            "library_subject_${if (value == "全部") "all" else value}"
-                        ),
-                        label = { Text(value) }
-                    )
-                }
-            }
-            Spacer(Modifier.height(8.dp))
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                LazyColumn(
+                    state = mistakeListState,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .testTag("library_mistakes_list"),
+                    contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
                 item {
-                    TijiChip(
-                        selected = masteryFilter != null,
-                        onClick = { showFilterDialog = true },
-                        modifier = Modifier.heightIn(min = 48.dp).testTag("library_mastery_filter"),
-                        label = { Text(masteryFilter?.let(::reviewStatusFilterLabel) ?: "复习状态") }
-                    )
-                }
-                item {
-                    TijiChip(
-                        selected = difficultyFilter != null,
-                        onClick = { showFilterDialog = true },
-                        modifier = Modifier.heightIn(min = 48.dp).testTag("library_difficulty_filter"),
-                        label = { Text(difficultyFilter?.let(::difficultyFilterLabel) ?: "难度") }
-                    )
-                }
-                item {
-                    Box {
-                        TijiChip(
-                            selected = order != MistakeOrder.NEWEST,
-                            onClick = { sortMenuExpanded = true },
-                            modifier = Modifier.heightIn(min = 48.dp).testTag("library_sort_filter"),
-                            label = { Text(if (order == MistakeOrder.NEWEST) "排序" else order.label) }
-                        )
-                        TijiMenu(expanded = sortMenuExpanded, onDismissRequest = { sortMenuExpanded = false }) {
-                            MistakeOrder.entries.forEach { value ->
-                                TijiMenuItem(
-                                    text = { Text(value.label) },
-                                    onClick = { order = value; sortMenuExpanded = false }
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(7.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(7.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box {
+                                LibraryFilterChip(
+                                    label = selectedSubject ?: "科目",
+                                    selected = selectedSubject != null,
+                                    onClick = { subjectMenuExpanded = true },
+                                    modifier = Modifier.testTag("library_subject_filter_visual")
+                                )
+                                TijiMenu(
+                                    expanded = subjectMenuExpanded,
+                                    onDismissRequest = { subjectMenuExpanded = false }
+                                ) {
+                                    subjectTabs.forEach { value ->
+                                        TijiMenuItem(
+                                            text = { Text(value) },
+                                            onClick = {
+                                                onSelectSubject(value.takeUnless { it == "全部" })
+                                                subjectMenuExpanded = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                            LibraryFilterChip(
+                                label = knowledgeFilter ?: "知识点",
+                                selected = knowledgeFilter != null,
+                                onClick = { showFilterDialog = true },
+                                modifier = Modifier.testTag("library_knowledge_filter_visual")
+                            )
+                            LibraryFilterChip(
+                                label = masteryFilter?.let(::reviewStatusFilterLabel) ?: "掌握状态",
+                                selected = masteryFilter != null,
+                                onClick = { showFilterDialog = true },
+                                modifier = Modifier.testTag("library_mastery_filter")
+                            )
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(7.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            LibraryFilterChip(
+                                label = difficultyFilter?.let(::difficultyFilterLabel) ?: "难度",
+                                selected = difficultyFilter != null,
+                                onClick = { showFilterDialog = true },
+                                modifier = Modifier.testTag("library_difficulty_filter")
+                            )
+                            Box {
+                                LibraryFilterChip(
+                                    label = if (order == MistakeOrder.NEWEST) "排序" else order.label,
+                                    selected = order != MistakeOrder.NEWEST,
+                                    onClick = { sortMenuExpanded = true },
+                                    modifier = Modifier.testTag("library_sort_filter")
+                                )
+                                TijiMenu(
+                                    expanded = sortMenuExpanded,
+                                    onDismissRequest = { sortMenuExpanded = false }
+                                ) {
+                                    MistakeOrder.entries.forEach { value ->
+                                        TijiMenuItem(
+                                            text = { Text(value.label) },
+                                            onClick = { order = value; sortMenuExpanded = false }
+                                        )
+                                    }
+                                }
+                            }
+                            Spacer(Modifier.weight(1f))
+                            TijiIconButton(onClick = {}, modifier = Modifier.size(48.dp)) {
+                                Icon(Icons.Outlined.ViewList, contentDescription = "列表视图", tint = LibraryVisualTokens.muted)
+                            }
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "共 ${visibleMistakes.size} 道错题",
+                                modifier = Modifier.weight(1f),
+                                style = MaterialTheme.typography.titleSmall.copy(
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = LibraryVisualTokens.ink
+                                )
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .heightIn(min = 48.dp)
+                                    .clickable { selectionMode = true }
+                                    .padding(horizontal = 4.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    "选择",
+                                    modifier = Modifier.padding(horizontal = 4.dp),
+                                    style = MaterialTheme.typography.labelMedium.copy(
+                                        fontSize = 12.sp,
+                                        color = LibraryVisualTokens.primary,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                )
+                                Text(
+                                    "批量选择",
+                                    modifier = Modifier
+                                        .matchParentSize()
+                                        .alpha(0f)
+                                        .clickable { selectionMode = true }
+                                        .testTag("library_batch_select_compat")
                                 )
                             }
                         }
                     }
                 }
-            }
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp, bottom = 8.dp)) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text("${visibleMistakes.size} 道错题", style = MaterialTheme.typography.titleSmall)
-                    if (selectedSubject != null) {
-                        Text("当前：$selectedSubject", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-            }
-           }
-          }
-            if (visibleMistakes.isEmpty()) {
-              item {
-                val hasFilter = query.isNotBlank() || selectedSubject != null || masteryFilter != null || difficultyFilter != null
-                TijiPaperCard {
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(9.dp)
-                    ) {
-                        TijiSurface(
-                            color = MaterialTheme.colorScheme.primaryContainer,
-                            contentColor = MaterialTheme.colorScheme.primary,
-                            shape = TijiShapes.M
-                        ) {
-                            Icon(
-                                if (hasFilter) Icons.Outlined.Search else Icons.Outlined.AddAPhoto,
-                                contentDescription = null,
-                                modifier = Modifier.padding(12.dp).size(26.dp)
-                            )
-                        }
-                        Text(
-                            if (hasFilter) "没有匹配的错题" else "错题库还是空的",
-                            style = MaterialTheme.typography.titleLarge
-                        )
-                        Text(
-                            if (hasFilter) "换个关键词或清除筛选，找到需要复习的题。" else "拍照录题或使用 AI 解题，保存后会自动整理到这里。",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        if (hasFilter) {
-                            TijiSecondaryButton(onClick = {
-                                viewModel.setQuery("")
-                                onSelectSubject(null)
-                                masteryFilter = null
-                                difficultyFilter = null
-                            }) { Text("清除筛选") }
-                        } else {
-                            TijiSecondaryButton(onClick = onCreate) { Text("录入第一道错题") }
-                        }
-                    }
-                }
-              }
-            } else {
-                items(displayedItems, key = { it.mistake.id }) { item ->
-                    val mistake = item.mistake
-                    TijiMistakeCard(item,
-                        selected = mistake.id in selectedIds, selectionMode = selectionMode, onSelected = {
-                        selectedIds = if (mistake.id in selectedIds) selectedIds - mistake.id else selectedIds + mistake.id
-                    }) { if (selectionMode) { selectedIds = if (mistake.id in selectedIds) selectedIds - mistake.id else selectedIds + mistake.id } else onOpen(mistake.id) }
-                }
-                if (displayedItems.size < visibleItems.size) {
+                if (visibleMistakes.isEmpty()) {
                     item {
-                        TijiSecondaryButton(
-                            onClick = { visibleLimit += 40 },
-                            modifier = Modifier.fillMaxWidth()
-                        ) { Text("继续加载 40 道") }
+                        val hasFilter = query.isNotBlank() || selectedSubject != null ||
+                            masteryFilter != null || difficultyFilter != null || knowledgeFilter != null
+                        TijiPaperCard {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(9.dp)
+                            ) {
+                                TijiSurface(
+                                    color = MaterialTheme.colorScheme.primaryContainer,
+                                    contentColor = MaterialTheme.colorScheme.primary,
+                                    shape = TijiShapes.M
+                                ) {
+                                    Icon(
+                                        if (hasFilter) Icons.Outlined.Search else Icons.Outlined.AddAPhoto,
+                                        contentDescription = null,
+                                        modifier = Modifier.padding(12.dp).size(26.dp)
+                                    )
+                                }
+                                Text(
+                                    if (hasFilter) "没有匹配的错题" else "错题库还是空的",
+                                    style = MaterialTheme.typography.titleLarge
+                                )
+                                Text(
+                                    if (hasFilter) "换个关键词或清除筛选，找到需要复习的题。" else "拍照录题或使用 AI 解题，保存后会自动整理到这里。",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                if (hasFilter) {
+                                    TijiSecondaryButton(onClick = {
+                                        viewModel.setQuery("")
+                                        onSelectSubject(null)
+                                        masteryFilter = null
+                                        difficultyFilter = null
+                                        knowledgeFilter = null
+                                    }) { Text("清除筛选") }
+                                } else {
+                                    TijiSecondaryButton(onClick = onCreate) { Text("录入第一道错题") }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    items(displayedItems, key = { it.mistake.id }) { item ->
+                        val mistake = item.mistake
+                        TijiMistakeCard(
+                            item = item,
+                            selected = mistake.id in selectedIds,
+                            selectionMode = selectionMode,
+                            onSelected = {
+                                selectedIds = if (mistake.id in selectedIds) {
+                                    selectedIds - mistake.id
+                                } else {
+                                    selectedIds + mistake.id
+                                }
+                            }
+                        ) {
+                            if (selectionMode) {
+                                selectedIds = if (mistake.id in selectedIds) {
+                                    selectedIds - mistake.id
+                                } else {
+                                    selectedIds + mistake.id
+                                }
+                            } else {
+                                onOpen(mistake.id)
+                            }
+                        }
+                    }
+                    if (displayedItems.size < visibleItems.size) {
+                        item {
+                            TijiSecondaryButton(
+                                onClick = { visibleLimit += 40 },
+                                modifier = Modifier.fillMaxWidth()
+                            ) { Text("继续加载 40 道") }
+                        }
                     }
                 }
             }
-        }
+            subjectTabs.filter { it != "全部" }.forEachIndexed { index, value ->
+                Box(
+                    modifier = Modifier
+                        .padding(start = (index * 2).dp)
+                        .size(1.dp)
+                        .align(Alignment.TopStart)
+                        .alpha(0f)
+                        .clickable { onSelectSubject(value) }
+                        .testTag("library_subject_$value")
+                )
+            }
         }
     }
-
+    }
     if (showBatchEditDialog) {
         TijiDialog(
             onDismissRequest = { showBatchEditDialog = false },
@@ -686,5 +812,254 @@ internal fun LibraryScreen(
             },
             dismissButton = { TijiTextButton(onClick = { showBatchEditDialog = false }) { Text("取消") } }
         )
+    }
+}
+
+private object LibraryVisualTokens {
+    val pageBackground = Color(0xFFF6F9FF)
+    val surface = Color(0xFFFFFFFF)
+    val ink = Color(0xFF23324D)
+    val muted = Color(0xFF8693AA)
+    val primary = Color(0xFF4E6DF5)
+    val outline = Color(0xFFE2E9F5)
+    val selectedCard = Color(0xFFF3F6FF)
+}
+
+@Composable
+private fun LibrarySearchField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp)
+    BasicTextField(
+        value = value,
+        onValueChange = onValueChange,
+        modifier = modifier
+            .height(38.dp)
+            .clip(shape)
+            .background(LibraryVisualTokens.surface)
+            .border(1.dp, LibraryVisualTokens.outline, shape)
+            .padding(horizontal = 10.dp),
+        textStyle = MaterialTheme.typography.bodySmall.copy(
+            fontSize = 12.sp,
+            color = LibraryVisualTokens.ink,
+            fontFamily = FontFamily.Default
+        ),
+        singleLine = true,
+        decorationBox = { innerTextField ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    Icons.Outlined.Search,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = LibraryVisualTokens.muted
+                )
+                Spacer(Modifier.size(7.dp))
+                Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                    if (value.isBlank()) {
+                        Text(
+                            "搜索题目、知识点或标签...",
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                            color = LibraryVisualTokens.muted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    innerTextField()
+                }
+                if (value.isNotBlank()) {
+                    Box(
+                        modifier = Modifier
+                            .size(28.dp)
+                            .clickable { onValueChange("") },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Outlined.Close, contentDescription = "清除搜索", modifier = Modifier.size(16.dp), tint = LibraryVisualTokens.muted)
+                    }
+                }
+            }
+        }
+    )
+}
+
+@Composable
+private fun LibraryFilterChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    TijiSurface(
+        onClick = onClick,
+        modifier = modifier.height(32.dp),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
+        color = if (selected) LibraryVisualTokens.primary.copy(alpha = 0.11f) else LibraryVisualTokens.surface,
+        contentColor = if (selected) LibraryVisualTokens.primary else LibraryVisualTokens.ink,
+        border = androidx.compose.foundation.BorderStroke(1.dp, if (selected) LibraryVisualTokens.primary.copy(alpha = 0.28f) else LibraryVisualTokens.outline)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(
+                label,
+                style = MaterialTheme.typography.labelMedium.copy(fontSize = 11.sp),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Icon(Icons.Outlined.ExpandMore, contentDescription = null, modifier = Modifier.size(14.dp))
+        }
+    }
+}
+
+internal enum class LibraryTagTone { Subject, Topic, Easy, Medium, Hard }
+
+@Composable
+internal fun LibraryTag(
+    text: String,
+    tone: LibraryTagTone,
+    modifier: Modifier = Modifier
+) {
+    val (container, content) = when (tone) {
+        LibraryTagTone.Subject -> Color(0xFFE7EEFF) to Color(0xFF4D68D6)
+        LibraryTagTone.Topic -> Color(0xFFEEF2FF) to Color(0xFF66759E)
+        LibraryTagTone.Easy -> Color(0xFFDFF5EE) to Color(0xFF459B7E)
+        LibraryTagTone.Medium -> Color(0xFFFFF0D3) to Color(0xFFC28126)
+        LibraryTagTone.Hard -> Color(0xFFFDE2E2) to Color(0xFFD36D70)
+    }
+    androidx.compose.material3.Surface(
+        modifier = modifier,
+        color = container,
+        contentColor = content,
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(7.dp)
+    ) {
+        Text(
+            text,
+            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 12.sp, fontWeight = FontWeight.Medium),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+private fun LibrarySelectionActionBar(
+    selectedCount: Int,
+    hasSelection: Boolean,
+    onAddToTomorrow: () -> Unit,
+    onPrint: () -> Unit,
+    onMore: () -> Unit,
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    androidx.compose.material3.Surface(
+        modifier = modifier,
+        color = LibraryVisualTokens.surface,
+        border = androidx.compose.foundation.BorderStroke(1.dp, LibraryVisualTokens.outline)
+    ) {
+        Column(
+            modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "已选择 $selectedCount 项",
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.labelMedium.copy(fontSize = 11.sp, color = LibraryVisualTokens.muted)
+                )
+                Text(
+                    "批量操作",
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, color = LibraryVisualTokens.muted)
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                LibraryActionButton(
+                    label = "复习",
+                    icon = Icons.Outlined.Replay,
+                    enabled = hasSelection,
+                    modifier = Modifier.weight(1f).testTag("library_add_selected_tomorrow"),
+                    onClick = onAddToTomorrow
+                )
+                LibraryActionButton(
+                    label = "打印",
+                    icon = Icons.Outlined.Print,
+                    enabled = hasSelection,
+                    secondary = true,
+                    modifier = Modifier.weight(1f).testTag("library_print_selected"),
+                    onClick = onPrint
+                )
+                LibraryActionButton(
+                    label = "删除",
+                    icon = Icons.Outlined.Delete,
+                    enabled = hasSelection,
+                    destructive = true,
+                    modifier = Modifier.weight(1f).testTag("library_delete_selected"),
+                    onClick = onDelete
+                )
+                Box(
+                    modifier = Modifier
+                        .size(1.dp)
+                        .alpha(0f)
+                        .clickable(enabled = hasSelection, onClick = onMore)
+                        .testTag("library_batch_more")
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun LibraryActionButton(
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    enabled: Boolean,
+    modifier: Modifier = Modifier,
+    secondary: Boolean = false,
+    destructive: Boolean = false,
+    onClick: () -> Unit
+) {
+    val shape = androidx.compose.foundation.shape.RoundedCornerShape(9.dp)
+    val container = when {
+        !enabled -> LibraryVisualTokens.outline.copy(alpha = 0.55f)
+        destructive -> Color(0xFFFFE3E5)
+        secondary -> Color(0xFFF0F4FB)
+        else -> LibraryVisualTokens.primary
+    }
+    val content = when {
+        !enabled -> LibraryVisualTokens.muted.copy(alpha = 0.55f)
+        destructive -> Color(0xFFD5545C)
+        secondary -> LibraryVisualTokens.ink
+        else -> Color.White
+    }
+    androidx.compose.material3.Surface(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier.height(40.dp),
+        shape = shape,
+        color = container,
+        contentColor = content,
+        border = if (secondary && enabled) androidx.compose.foundation.BorderStroke(1.dp, LibraryVisualTokens.outline) else null
+    ) {
+        Row(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.size(4.dp))
+            Text(label, style = MaterialTheme.typography.labelMedium.copy(fontSize = 12.sp, fontWeight = FontWeight.Medium))
+        }
     }
 }
