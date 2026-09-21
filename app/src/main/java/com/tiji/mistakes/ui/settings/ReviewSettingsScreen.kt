@@ -82,6 +82,9 @@ internal fun ReviewSettingsScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item {
+                com.tiji.mistakes.ui.design.TijiFeatureBanner("找到适合自己的复习节奏", "设置每日题量、抽取方式与科目安排。")
+            }
+            item {
                 TijiSettingGroup("复习计划", Icons.Outlined.CalendarMonth) {
                     Text(
                         "安排每天的复习数量和抽取方式。",

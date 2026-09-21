@@ -1008,6 +1008,9 @@ internal fun AiSolveScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp),
             modifier = Modifier.padding(padding).fillMaxSize()
         ) {
+            if (!hasSolution) item {
+                com.tiji.mistakes.ui.design.TijiFeatureBanner("把问题交给 AI，把方法留给自己", "拍照、上传图片或输入题目，获取解析后可继续追问并保存错题。")
+            }
             if (hasSolution) item {
                 TijiPaperCard {
                     TijiSectionHeader(

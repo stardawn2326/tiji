@@ -8,6 +8,8 @@ import androidx.compose.foundation.selection.*
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.material3.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.MenuBook
 import androidx.compose.runtime.*
 import androidx.compose.ui.*
 import androidx.compose.ui.draw.clip
@@ -39,6 +41,9 @@ internal fun TijiEmptyState(title: String, message: String, modifier: Modifier =
     action: @Composable () -> Unit = {}) {
     Column(modifier.fillMaxWidth().padding(vertical = 24.dp, horizontal = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Surface(shape = TijiShapes.L, color = MaterialTheme.colorScheme.primaryContainer) {
+            Icon(Icons.Outlined.MenuBook, null, Modifier.padding(16.dp).size(32.dp), tint = MaterialTheme.colorScheme.primary)
+        }
         Text(title, style = MaterialTheme.typography.titleLarge)
         Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center)

@@ -603,7 +603,7 @@ internal fun ReviewQuestionScreen(
                     item {
                         val semanticColors = LocalTijiSemanticColors.current
                         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            TijiSectionHeader("复习反馈")
+                            TijiSectionHeader("复习反馈", "根据这次作答选择，安排下一次复习。")
                             androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp), maxItemsInEachRow = 2, modifier = Modifier.fillMaxWidth()) {
                                 ReviewGrade.values().forEach { grade ->
                                     val selected = selectedGrade == grade
@@ -626,10 +626,10 @@ internal fun ReviewQuestionScreen(
                                         shape = TijiShapes.M,
                                         modifier = Modifier
                                             .weight(1f)
-                                            .heightIn(min = 72.dp)
+                                            .heightIn(min = 88.dp)
                                             .testTag("review_grade_${grade.name.lowercase()}"),
                                     ) {
-                                        Column(Modifier.fillMaxWidth().padding(8.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                             Text(reviewGradeUiLabel(grade), style = MaterialTheme.typography.titleSmall, color = gradeColor)
                                             Text(reviewIntervalLabel(preview), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         }

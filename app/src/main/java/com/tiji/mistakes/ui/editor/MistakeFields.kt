@@ -64,7 +64,7 @@ internal fun MistakeFields(
     val editorBodyTextStyle = MaterialTheme.typography.bodyLarge.copy(
         fontFamily = FontFamily.Serif
     )
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         if (showOptionalFields) {
             TijiTextField(title, onTitle, label = { Text("标题") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             if (showRenderedPreview && title.isNotBlank()) {

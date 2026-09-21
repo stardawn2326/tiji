@@ -60,10 +60,10 @@ internal fun SettingsHomeScreen(
         state = listState,
         modifier = Modifier.fillMaxSize().testTag("my_settings_list"),
         contentPadding = PaddingValues(horizontal = TijiDimens.pagePadding, vertical = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(0.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
-            TijiPageHeader("设置")
+            TijiPageHeader("设置", "让题迹更适合你的学习习惯", eyebrow = "个人偏好")
         }
         item {
             Spacer(Modifier.height(12.dp))
@@ -75,7 +75,6 @@ internal fun SettingsHomeScreen(
             )
         }
         item {
-            com.tiji.mistakes.ui.design.TijiSettingDivider()
             com.tiji.mistakes.ui.design.TijiSettingRow(
                 title = "复习计划",
                 subtitle = if (reviewPlanEnabled) "已开启 · 每日上限 $dailyReviewLimit 题" else "尚未开启，安排今天和接下来的复习节奏",
@@ -84,7 +83,6 @@ internal fun SettingsHomeScreen(
             )
         }
         item {
-            com.tiji.mistakes.ui.design.TijiSettingDivider()
             com.tiji.mistakes.ui.design.TijiSettingRow(
                 title = "备份与恢复",
                 subtitle = "导出、检查、合并恢复或重置本机数据",
@@ -93,7 +91,6 @@ internal fun SettingsHomeScreen(
             )
         }
         item {
-            com.tiji.mistakes.ui.design.TijiSettingDivider()
             com.tiji.mistakes.ui.design.TijiSettingRow(
                 title = "显示模式与主题",
                 subtitle = "${themeMode.label} · ${themePalette.label}",
@@ -102,7 +99,6 @@ internal fun SettingsHomeScreen(
             )
         }
         item {
-            com.tiji.mistakes.ui.design.TijiSettingDivider()
             com.tiji.mistakes.ui.design.TijiSettingRow(
                 title = "关于题迹",
                 subtitle = "版本与使用说明",

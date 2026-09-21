@@ -95,6 +95,9 @@ internal fun VisualAssistConfigScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             item {
+                com.tiji.mistakes.ui.design.TijiFeatureBanner("让 AI 看清题目", "管理视觉服务和图片输入方式。")
+            }
+            item {
                 TijiSettingGroup("视觉服务商", Icons.Outlined.Image) {
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(visualPresets) { value ->

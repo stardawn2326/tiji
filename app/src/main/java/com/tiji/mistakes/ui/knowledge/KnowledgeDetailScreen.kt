@@ -109,7 +109,7 @@ internal fun KnowledgeDetailScreen(
                 )
             }
         ) { padding ->
-            Column(Modifier.padding(padding).fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.padding(padding).fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Text("找不到这个知识点", style = MaterialTheme.typography.titleLarge)
                 TijiSecondaryButton(onClick = onBack) { Text("返回知识点列表") }
             }
@@ -329,7 +329,7 @@ internal fun KnowledgeDetailScreen(
             item {
                 TijiPaperCard {
                     TijiSectionHeader("学习概览")
-                    Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                         KnowledgeMetric("关联错题", resolvedProgress.total.toString(), Modifier.weight(1f))
                         KnowledgeMetric(
                             "近30天复习",

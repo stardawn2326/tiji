@@ -1,6 +1,7 @@
 package com.tiji.mistakes
 
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -179,6 +180,7 @@ class LibraryFilterTest {
     fun selectedMistakeJoinsTomorrowReviewPlanWithoutNavigation() {
         composeRule.onNodeWithTag("nav_library").performClick()
         composeRule.onNodeWithText("批量选择").performClick()
+        composeRule.onNodeWithTag("library_mistakes_list").assertIsDisplayed()
         scrollToFixture(fixtureIds.first())
         composeRule.onNodeWithTag("mistake_card_${fixtureIds.first()}").performClick()
         composeRule.onNodeWithTag("library_add_selected_tomorrow").performClick()

@@ -1,4 +1,4 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 
 package com.tiji.mistakes.ui.common
 
@@ -51,7 +51,7 @@ internal fun PdfExportOptionsDialog(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text("输出内容", style = MaterialTheme.typography.labelLarge)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     PdfTemplate.entries.forEach { option ->
                         TijiChip(
                             selected = template == option,

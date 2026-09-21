@@ -44,20 +44,9 @@ internal fun HomeScreen(
         contentPadding = PaddingValues(horizontal = TijiDimens.pagePadding, vertical = 20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        item { TijiPageHeader("题迹") }
+        item { TijiPageHeader("题迹", "每一次回顾，都是下一次进步。", eyebrow = "学习工作台") }
         item {
-            TijiPaperCard {
-                TijiSectionHeader("掌握概览")
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    TijiStatCard("错题总数", progressSummary.total.toString(), Modifier.weight(1f))
-                    TijiStatCard("已掌握", progressSummary.mastered.toString(), Modifier.weight(1f))
-                    TijiStatCard(
-                        "掌握率",
-                        String.format(Locale.ROOT, "%.1f%%", progressSummary.masteryRate * 100f),
-                        Modifier.weight(1f)
-                    )
-                }
-            }
+            com.tiji.mistakes.ui.design.TijiMasteryOverview(progressSummary)
         }
         item { TijiSectionHeader("各科统计") }
         if (progressSummary.bySubject.isEmpty()) {

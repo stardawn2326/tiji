@@ -29,7 +29,7 @@ internal fun TijiButton(
 ) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
-    val pressedColor = if (MaterialTheme.colorScheme.background.luminance() < 0.5f) Color(0xFF94A2FF) else Color(0xFF4054DC)
+    val pressedColor = lerp(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.onPrimary, 0.12f)
     Button(onClick, modifier.heightIn(min = 48.dp), enabled && !loading, shape,
         if (pressed && colors.containerColor == MaterialTheme.colorScheme.primary) colors.copy(containerColor = pressedColor) else colors,
         elevation = ButtonDefaults.buttonElevation(0.dp, 0.dp),
@@ -44,8 +44,8 @@ internal fun TijiSecondaryButton(onClick: () -> Unit, modifier: Modifier = Modif
     shape: Shape = TijiShapes.M, contentPadding: PaddingValues = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
     content: @Composable RowScope.() -> Unit) {
     OutlinedButton(onClick, modifier.heightIn(min = 48.dp), enabled, shape,
-        colors = ButtonDefaults.outlinedButtonColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline),
+        colors = ButtonDefaults.outlinedButtonColors(containerColor = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer),
+        border = BorderStroke(1.dp, if (enabled) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.outlineVariant),
         contentPadding = contentPadding, content = content)
 }
 

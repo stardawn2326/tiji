@@ -31,6 +31,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -232,11 +233,11 @@ fun TijiApp() {
         TijiScreen(
             snackbarHost = { TijiSnackbar(snackbarHostState) },
             bottomBar = {
-                if (route in setOf(TijiRoutes.HOME, TijiRoutes.SOLVE, TijiRoutes.REVIEW, TijiRoutes.SETTINGS)) {
+                if (route in setOf(TijiRoutes.HOME, TijiRoutes.LIBRARY, TijiRoutes.SOLVE, TijiRoutes.REVIEW, TijiRoutes.SETTINGS)) {
                     NavigationBar(
                         containerColor = MaterialTheme.colorScheme.surface,
                         tonalElevation = 0.dp,
-                        modifier = Modifier
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp).clip(com.tiji.mistakes.ui.design.TijiShapes.L)
                     ) {
                         destinations.forEach { destination ->
                             NavigationBarItem(
@@ -268,7 +269,7 @@ fun TijiApp() {
                                 colors = NavigationBarItemDefaults.colors(
                                     selectedIconColor = MaterialTheme.colorScheme.primary,
                                     selectedTextColor = MaterialTheme.colorScheme.primary,
-                                    indicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+                                    indicatorColor = MaterialTheme.colorScheme.primaryContainer,
                                     unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
                                     unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant
                                 )

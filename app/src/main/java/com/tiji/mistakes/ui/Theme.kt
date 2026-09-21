@@ -30,7 +30,7 @@ enum class ThemeMode(val key: String, val label: String) {
 }
 
 enum class ThemePalette(val key: String, val label: String, val preview: Color) {
-    BLUE("blue", "蓝白纸感", Color(0xFF5267F7));
+    BLUE("blue", "晴蓝 · 纯白", Color(0xFF2563EB));
     companion object { fun fromKey(key: String) = entries.firstOrNull { it.key == key } ?: BLUE }
 }
 

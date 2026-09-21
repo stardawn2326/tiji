@@ -206,6 +206,7 @@ internal fun StandaloneImageEditor(
                 .navigationBarsPadding(),
             verticalArrangement=Arrangement.spacedBy(12.dp)
         ) {
+            com.tiji.mistakes.ui.design.TijiFeatureBanner("保留清晰的题目", "拖动边缘调整裁剪区域，完成后确认。原有旋转、黑白处理和撤销操作仍可使用。")
             val editorHeight = ((configuration.screenWidthDp.dp - 32.dp) / imageAspect.coerceAtLeast(0.2f))
                 .coerceIn(180.dp, configuration.screenHeightDp.dp * 0.44f)
             BoxWithConstraints(Modifier.height(editorHeight).fillMaxWidth().clip(TijiShapes.L)) {

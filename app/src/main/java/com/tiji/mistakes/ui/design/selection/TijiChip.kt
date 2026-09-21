@@ -23,7 +23,7 @@ internal fun TijiChip(selected: Boolean, onClick: () -> Unit, label: @Composable
     modifier: Modifier = Modifier, enabled: Boolean = true,
     leadingIcon: (@Composable () -> Unit)? = null, trailingIcon: (@Composable () -> Unit)? = null) {
     FilterChip(selected, onClick, label, modifier.heightIn(min = 48.dp), enabled,
-        leadingIcon = leadingIcon, trailingIcon = trailingIcon, shape = TijiShapes.S,
+        leadingIcon = leadingIcon, trailingIcon = trailingIcon, shape = TijiShapes.Pill,
         colors = FilterChipDefaults.filterChipColors(
             containerColor = MaterialTheme.colorScheme.surface,
             selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
@@ -34,5 +34,5 @@ internal fun TijiChip(selected: Boolean, onClick: () -> Unit, label: @Composable
 @Composable
 internal fun TijiAssistChip(onClick: () -> Unit, label: @Composable () -> Unit, modifier: Modifier = Modifier,
     enabled: Boolean = true, leadingIcon: (@Composable () -> Unit)? = null, trailingIcon: (@Composable () -> Unit)? = null) {
-    AssistChip(onClick, label, modifier.heightIn(min = 48.dp), enabled, leadingIcon, trailingIcon, shape = TijiShapes.S)
+    AssistChip(onClick, label, modifier.heightIn(min = 48.dp), enabled, leadingIcon, trailingIcon, shape = TijiShapes.Pill)
 }

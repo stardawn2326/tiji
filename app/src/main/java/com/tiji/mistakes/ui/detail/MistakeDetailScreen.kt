@@ -603,7 +603,7 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                 }
                 if (!photoOnly) item {
                     TijiPaperCard {
-                        TijiSectionHeader("正确答案")
+                        TijiSectionHeader("正确答案", "核对结果，再回顾解题过程")
                         if (answer.isBlank()) {
                             Text("暂未补充正确答案", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         } else {
@@ -616,7 +616,7 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                     TijiPaperCard {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text("解析", style = MaterialTheme.typography.titleMedium)
+                                Text("解析", style = MaterialTheme.typography.titleLarge)
                             }
                             TijiTextButton(
                                 onClick = { explanationExpanded = !explanationExpanded },

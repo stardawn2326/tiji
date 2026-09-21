@@ -1,4 +1,4 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 
 package com.tiji.mistakes.ui.library
 
@@ -146,7 +146,6 @@ internal fun LibraryScreen(
     var masteryFilter by remember { mutableStateOf<Int?>(null) }
     var difficultyFilter by remember { mutableStateOf<Int?>(null) }
     var knowledgeFilter by remember { mutableStateOf<String?>(null) }
-    var subjectMenuExpanded by remember { mutableStateOf(false) }
     var sortMenuExpanded by remember { mutableStateOf(false) }
     var visibleLimit by remember { mutableIntStateOf(40) }
     var pendingExportIds by rememberSaveable { mutableStateOf(longArrayOf()) }
@@ -473,13 +472,13 @@ internal fun LibraryScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(LibraryVisualTokens.pageBackground)
+                .background(MaterialTheme.colorScheme.background)
                 .padding(padding)
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(52.dp)
+                    .heightIn(min = 68.dp)
                     .padding(horizontal = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -500,7 +499,7 @@ internal fun LibraryScreen(
                     style = MaterialTheme.typography.titleLarge.copy(
                         fontSize = 19.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color = LibraryVisualTokens.ink
+                        color = MaterialTheme.colorScheme.onSurface
                     ),
                     maxLines = 1
                 )
@@ -531,6 +530,20 @@ internal fun LibraryScreen(
                     .padding(horizontal = 16.dp, vertical = 3.dp)
                     .testTag("library_search")
             )
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = TijiDimens.pagePadding),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.testTag("library_subject_filters")
+            ) {
+                items(subjectTabs) { value ->
+                    TijiChip(
+                        selected = if (value == "全部") selectedSubject == null else selectedSubject == value,
+                        onClick = { onSelectSubject(value.takeUnless { it == "全部" }) },
+                        modifier = Modifier.testTag("library_subject_${if (value == "全部") "all" else value}"),
+                        label = { Text(value) }
+                    )
+                }
+            }
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -549,33 +562,11 @@ internal fun LibraryScreen(
                         modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(7.dp)
                     ) {
-                        Row(
+                        androidx.compose.foundation.layout.FlowRow(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(7.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Box {
-                                LibraryFilterChip(
-                                    label = selectedSubject ?: "科目",
-                                    selected = selectedSubject != null,
-                                    onClick = { subjectMenuExpanded = true },
-                                    modifier = Modifier.testTag("library_subject_filter_visual")
-                                )
-                                TijiMenu(
-                                    expanded = subjectMenuExpanded,
-                                    onDismissRequest = { subjectMenuExpanded = false }
-                                ) {
-                                    subjectTabs.forEach { value ->
-                                        TijiMenuItem(
-                                            text = { Text(value) },
-                                            onClick = {
-                                                onSelectSubject(value.takeUnless { it == "全部" })
-                                                subjectMenuExpanded = false
-                                            }
-                                        )
-                                    }
-                                }
-                            }
                             LibraryFilterChip(
                                 label = knowledgeFilter ?: "知识点",
                                 selected = knowledgeFilter != null,
@@ -589,10 +580,10 @@ internal fun LibraryScreen(
                                 modifier = Modifier.testTag("library_mastery_filter")
                             )
                         }
-                        Row(
+                        androidx.compose.foundation.layout.FlowRow(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(7.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             LibraryFilterChip(
                                 label = difficultyFilter?.let(::difficultyFilterLabel) ?: "难度",
@@ -619,10 +610,7 @@ internal fun LibraryScreen(
                                     }
                                 }
                             }
-                            Spacer(Modifier.weight(1f))
-                            TijiIconButton(onClick = {}, modifier = Modifier.size(48.dp)) {
-                                Icon(Icons.Outlined.ViewList, contentDescription = "列表视图", tint = LibraryVisualTokens.muted)
-                            }
+                            Icon(Icons.Outlined.ViewList, contentDescription = "列表视图", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 2.dp),
@@ -632,9 +620,9 @@ internal fun LibraryScreen(
                                 "共 ${visibleMistakes.size} 道错题",
                                 modifier = Modifier.weight(1f),
                                 style = MaterialTheme.typography.titleSmall.copy(
-                                    fontSize = 12.sp,
+                                    fontSize = 14.sp,
                                     fontWeight = FontWeight.SemiBold,
-                                    color = LibraryVisualTokens.ink
+                                    color = MaterialTheme.colorScheme.onSurface
                                 )
                             )
                             Box(
@@ -645,22 +633,15 @@ internal fun LibraryScreen(
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
-                                    "选择",
+                                    "批量选择",
                                     modifier = Modifier.padding(horizontal = 4.dp),
                                     style = MaterialTheme.typography.labelMedium.copy(
-                                        fontSize = 12.sp,
-                                        color = LibraryVisualTokens.primary,
+                                        fontSize = 14.sp,
+                                        color = MaterialTheme.colorScheme.primary,
                                         fontWeight = FontWeight.Medium
                                     )
                                 )
-                                Text(
-                                    "批量选择",
-                                    modifier = Modifier
-                                        .matchParentSize()
-                                        .alpha(0f)
-                                        .clickable { selectionMode = true }
-                                        .testTag("library_batch_select_compat")
-                                )
+
                             }
                         }
                     }
@@ -745,17 +726,7 @@ internal fun LibraryScreen(
                     }
                 }
             }
-            subjectTabs.filter { it != "全部" }.forEachIndexed { index, value ->
-                Box(
-                    modifier = Modifier
-                        .padding(start = (index * 2).dp)
-                        .size(1.dp)
-                        .align(Alignment.TopStart)
-                        .alpha(0f)
-                        .clickable { onSelectSubject(value) }
-                        .testTag("library_subject_$value")
-                )
-            }
+
         }
     }
     }
@@ -815,15 +786,6 @@ internal fun LibraryScreen(
     }
 }
 
-private object LibraryVisualTokens {
-    val pageBackground = Color(0xFFF6F9FF)
-    val surface = Color(0xFFFFFFFF)
-    val ink = Color(0xFF23324D)
-    val muted = Color(0xFF8693AA)
-    val primary = Color(0xFF4E6DF5)
-    val outline = Color(0xFFE2E9F5)
-    val selectedCard = Color(0xFFF3F6FF)
-}
 
 @Composable
 private fun LibrarySearchField(
@@ -836,14 +798,14 @@ private fun LibrarySearchField(
         value = value,
         onValueChange = onValueChange,
         modifier = modifier
-            .height(38.dp)
+            .heightIn(min = 52.dp)
             .clip(shape)
-            .background(LibraryVisualTokens.surface)
-            .border(1.dp, LibraryVisualTokens.outline, shape)
+            .background(MaterialTheme.colorScheme.surface)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, shape)
             .padding(horizontal = 10.dp),
         textStyle = MaterialTheme.typography.bodySmall.copy(
-            fontSize = 12.sp,
-            color = LibraryVisualTokens.ink,
+            fontSize = 14.sp,
+            color = MaterialTheme.colorScheme.onSurface,
             fontFamily = FontFamily.Default
         ),
         singleLine = true,
@@ -856,15 +818,15 @@ private fun LibrarySearchField(
                     Icons.Outlined.Search,
                     contentDescription = null,
                     modifier = Modifier.size(18.dp),
-                    tint = LibraryVisualTokens.muted
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(Modifier.size(7.dp))
                 Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
                     if (value.isBlank()) {
                         Text(
                             "搜索题目、知识点或标签...",
-                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
-                            color = LibraryVisualTokens.muted,
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 14.sp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -874,11 +836,11 @@ private fun LibrarySearchField(
                 if (value.isNotBlank()) {
                     Box(
                         modifier = Modifier
-                            .size(28.dp)
+                            .size(48.dp)
                             .clickable { onValueChange("") },
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(Icons.Outlined.Close, contentDescription = "清除搜索", modifier = Modifier.size(16.dp), tint = LibraryVisualTokens.muted)
+                        Icon(Icons.Outlined.Close, contentDescription = "清除搜索", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
@@ -895,11 +857,11 @@ private fun LibraryFilterChip(
 ) {
     TijiSurface(
         onClick = onClick,
-        modifier = modifier.height(32.dp),
+        modifier = modifier.heightIn(min = 48.dp),
         shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
-        color = if (selected) LibraryVisualTokens.primary.copy(alpha = 0.11f) else LibraryVisualTokens.surface,
-        contentColor = if (selected) LibraryVisualTokens.primary else LibraryVisualTokens.ink,
-        border = androidx.compose.foundation.BorderStroke(1.dp, if (selected) LibraryVisualTokens.primary.copy(alpha = 0.28f) else LibraryVisualTokens.outline)
+        color = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.11f) else MaterialTheme.colorScheme.surface,
+        contentColor = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+        border = androidx.compose.foundation.BorderStroke(1.dp, if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.28f) else MaterialTheme.colorScheme.outlineVariant)
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 8.dp),
@@ -908,43 +870,12 @@ private fun LibraryFilterChip(
         ) {
             Text(
                 label,
-                style = MaterialTheme.typography.labelMedium.copy(fontSize = 11.sp),
+                style = MaterialTheme.typography.labelMedium.copy(fontSize = 13.sp),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
             Icon(Icons.Outlined.ExpandMore, contentDescription = null, modifier = Modifier.size(14.dp))
         }
-    }
-}
-
-internal enum class LibraryTagTone { Subject, Topic, Easy, Medium, Hard }
-
-@Composable
-internal fun LibraryTag(
-    text: String,
-    tone: LibraryTagTone,
-    modifier: Modifier = Modifier
-) {
-    val (container, content) = when (tone) {
-        LibraryTagTone.Subject -> Color(0xFFE7EEFF) to Color(0xFF4D68D6)
-        LibraryTagTone.Topic -> Color(0xFFEEF2FF) to Color(0xFF66759E)
-        LibraryTagTone.Easy -> Color(0xFFDFF5EE) to Color(0xFF459B7E)
-        LibraryTagTone.Medium -> Color(0xFFFFF0D3) to Color(0xFFC28126)
-        LibraryTagTone.Hard -> Color(0xFFFDE2E2) to Color(0xFFD36D70)
-    }
-    androidx.compose.material3.Surface(
-        modifier = modifier,
-        color = container,
-        contentColor = content,
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(7.dp)
-    ) {
-        Text(
-            text,
-            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
-            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 12.sp, fontWeight = FontWeight.Medium),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
     }
 }
 
@@ -960,8 +891,8 @@ private fun LibrarySelectionActionBar(
 ) {
     androidx.compose.material3.Surface(
         modifier = modifier,
-        color = LibraryVisualTokens.surface,
-        border = androidx.compose.foundation.BorderStroke(1.dp, LibraryVisualTokens.outline)
+        color = MaterialTheme.colorScheme.surface,
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     ) {
         Column(
             modifier = Modifier
@@ -973,48 +904,24 @@ private fun LibrarySelectionActionBar(
                 Text(
                     "已选择 $selectedCount 项",
                     modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.labelMedium.copy(fontSize = 11.sp, color = LibraryVisualTokens.muted)
+                    style = MaterialTheme.typography.labelMedium.copy(fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 )
                 Text(
                     "批量操作",
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, color = LibraryVisualTokens.muted)
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 )
             }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                LibraryActionButton(
-                    label = "复习",
-                    icon = Icons.Outlined.Replay,
-                    enabled = hasSelection,
-                    modifier = Modifier.weight(1f).testTag("library_add_selected_tomorrow"),
-                    onClick = onAddToTomorrow
-                )
-                LibraryActionButton(
-                    label = "打印",
-                    icon = Icons.Outlined.Print,
-                    enabled = hasSelection,
-                    secondary = true,
-                    modifier = Modifier.weight(1f).testTag("library_print_selected"),
-                    onClick = onPrint
-                )
-                LibraryActionButton(
-                    label = "删除",
-                    icon = Icons.Outlined.Delete,
-                    enabled = hasSelection,
-                    destructive = true,
-                    modifier = Modifier.weight(1f).testTag("library_delete_selected"),
-                    onClick = onDelete
-                )
-                Box(
-                    modifier = Modifier
-                        .size(1.dp)
-                        .alpha(0f)
-                        .clickable(enabled = hasSelection, onClick = onMore)
-                        .testTag("library_batch_more")
-                )
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                LibraryActionButton("明日复习", Icons.Outlined.Replay, hasSelection,
+                    Modifier.weight(1f).testTag("library_add_selected_tomorrow"), onClick = onAddToTomorrow)
+                LibraryActionButton("打印", Icons.Outlined.Print, hasSelection,
+                    Modifier.weight(1f).testTag("library_print_selected"), secondary = true, onClick = onPrint)
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                LibraryActionButton("批量修改", Icons.Outlined.MoreHoriz, hasSelection,
+                    Modifier.weight(1f).testTag("library_batch_more"), secondary = true, onClick = onMore)
+                LibraryActionButton("删除", Icons.Outlined.Delete, hasSelection,
+                    Modifier.weight(1f).testTag("library_delete_selected"), destructive = true, onClick = onDelete)
             }
         }
     }
@@ -1032,34 +939,32 @@ private fun LibraryActionButton(
 ) {
     val shape = androidx.compose.foundation.shape.RoundedCornerShape(9.dp)
     val container = when {
-        !enabled -> LibraryVisualTokens.outline.copy(alpha = 0.55f)
-        destructive -> Color(0xFFFFE3E5)
-        secondary -> Color(0xFFF0F4FB)
-        else -> LibraryVisualTokens.primary
+        !enabled -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f)
+        destructive -> MaterialTheme.colorScheme.errorContainer
+        secondary -> MaterialTheme.colorScheme.primaryContainer
+        else -> MaterialTheme.colorScheme.primary
     }
     val content = when {
-        !enabled -> LibraryVisualTokens.muted.copy(alpha = 0.55f)
-        destructive -> Color(0xFFD5545C)
-        secondary -> LibraryVisualTokens.ink
-        else -> Color.White
+        !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
+        destructive -> MaterialTheme.colorScheme.onErrorContainer
+        secondary -> MaterialTheme.colorScheme.onSurface
+        else -> MaterialTheme.colorScheme.onPrimary
     }
-    androidx.compose.material3.Surface(
+    TijiButton(
         onClick = onClick,
         enabled = enabled,
-        modifier = modifier.height(40.dp),
-        shape = shape,
-        color = container,
-        contentColor = content,
-        border = if (secondary && enabled) androidx.compose.foundation.BorderStroke(1.dp, LibraryVisualTokens.outline) else null
+        modifier = modifier,
+        shape = TijiShapes.M,
+        colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+            containerColor = container,
+            contentColor = content,
+            disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+            disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant
+        ),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp)
     ) {
-        Row(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(16.dp))
-            Spacer(Modifier.size(4.dp))
-            Text(label, style = MaterialTheme.typography.labelMedium.copy(fontSize = 12.sp, fontWeight = FontWeight.Medium))
-        }
+        Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.size(8.dp))
+        Text(label, style = MaterialTheme.typography.labelLarge)
     }
 }

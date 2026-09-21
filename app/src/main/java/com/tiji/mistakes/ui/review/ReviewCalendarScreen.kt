@@ -2,6 +2,8 @@
 
 package com.tiji.mistakes.ui.review
 
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import android.util.Log
@@ -108,7 +110,9 @@ internal fun ReviewProgressCard(
                 Text("今日复习", style = MaterialTheme.typography.titleLarge)
                 Text("已完成 $completed / $total 题", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Text("$completed/$total", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
+            TijiSurface(color = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer, shape = TijiShapes.M) {
+                Text("$completed/$total", modifier = Modifier.padding(12.dp), style = MaterialTheme.typography.headlineSmall)
+            }
         }
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Text("计划排序", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -159,7 +163,7 @@ internal fun ReviewCalendarScreen(
         topBar = {
             TijiTopBar(
                 title = { Text("复习日历") },
-                navigationIcon = { TijiIconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, null) } },
+                navigationIcon = { TijiIconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回复习") } },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
             )
         }
@@ -180,7 +184,7 @@ internal fun ReviewCalendarScreen(
                 TijiTextButton(onClick = { monthOffset += 1 }) { Text("下月") }
             }
             TijiCard(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -200,7 +204,10 @@ internal fun ReviewCalendarScreen(
                                     val checked = key in checkedInDates
                                     val recorded = reviewRecords[key].orEmpty().isNotEmpty()
                                     Column(
-                                        Modifier.weight(1f).heightIn(min = 54.dp).clip(TijiShapes.S).clickable { selectedDate = key }.padding(4.dp),
+                                        Modifier.weight(1f).heightIn(min = 54.dp).clip(TijiShapes.S)
+                                            .background(if (selectedDate == key) MaterialTheme.colorScheme.primaryContainer else androidx.compose.ui.graphics.Color.Transparent)
+                                            .semantics { selected = selectedDate == key; contentDescription = key }
+                                            .clickable { selectedDate = key }.padding(4.dp),
                                         horizontalAlignment = Alignment.CenterHorizontally,
                                         verticalArrangement = Arrangement.spacedBy(2.dp)
                                     ) {
@@ -219,7 +226,7 @@ internal fun ReviewCalendarScreen(
             }
             Text("点击日期查看当天每道复习题的复习档位。", color = MaterialTheme.colorScheme.onSurfaceVariant)
             TijiCard(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {

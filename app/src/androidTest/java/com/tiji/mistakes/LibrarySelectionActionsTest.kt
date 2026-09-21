@@ -1,6 +1,7 @@
 package com.tiji.mistakes
 
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -69,9 +70,12 @@ class LibrarySelectionActionsTest {
         composeRule.onNodeWithTag("library_delete_selected").assertIsNotEnabled()
 
         composeRule.onNodeWithTag("library_select_all").performClick()
-        composeRule.onNodeWithTag("library_add_selected_tomorrow").assertIsEnabled()
-        composeRule.onNodeWithTag("library_print_selected").assertIsEnabled()
-        composeRule.onNodeWithTag("library_delete_selected").assertIsEnabled()
+        composeRule.onNodeWithTag("library_add_selected_tomorrow").assertIsDisplayed().assertIsEnabled()
+        composeRule.onNodeWithTag("library_print_selected").assertIsDisplayed().assertIsEnabled()
+        composeRule.onNodeWithTag("library_delete_selected").assertIsDisplayed().assertIsEnabled()
+        composeRule.onNodeWithTag("library_batch_more").assertIsDisplayed().assertIsEnabled().performClick()
+        composeRule.onNodeWithText("应用修改").assertIsDisplayed()
+        composeRule.onNodeWithText("取消").performClick()
 
         composeRule.onNodeWithTag("library_print_selected").performClick()
         composeRule.onNodeWithTag("pdf_export_options").assertExists()

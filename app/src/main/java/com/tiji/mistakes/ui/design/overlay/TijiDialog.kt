@@ -27,19 +27,19 @@ internal fun TijiDialog(onDismissRequest: () -> Unit, confirmButton: @Composable
         text?.let { body -> { Column(Modifier.verticalScroll(rememberScrollState())) { body() } } },
         shape = TijiShapes.XL, containerColor = MaterialTheme.colorScheme.surface,
         titleContentColor = MaterialTheme.colorScheme.onSurface,
-        textContentColor = MaterialTheme.colorScheme.onSurfaceVariant, tonalElevation = 6.dp, properties = properties)
+        textContentColor = MaterialTheme.colorScheme.onSurfaceVariant, tonalElevation = 0.dp, properties = properties)
 }
 @Composable
 internal fun TijiBottomSheet(onDismissRequest: () -> Unit, modifier: Modifier = Modifier,
     sheetState: SheetState = rememberModalBottomSheetState(), content: @Composable ColumnScope.() -> Unit) {
     ModalBottomSheet(onDismissRequest, modifier, sheetState, shape = TijiShapes.XL,
-        containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 4.dp, content = content)
+        containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp, content = content)
 }
 @Composable
 internal fun TijiMenu(expanded: Boolean, onDismissRequest: () -> Unit, modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit) {
     DropdownMenu(expanded, onDismissRequest, modifier, shape = TijiShapes.M,
-        containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 2.dp, content = content)
+        containerColor = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp, content = content)
 }
 @Composable
 internal fun TijiMenuItem(text: @Composable () -> Unit, onClick: () -> Unit, modifier: Modifier = Modifier,

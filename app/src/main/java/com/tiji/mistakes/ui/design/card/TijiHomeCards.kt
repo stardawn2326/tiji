@@ -46,9 +46,13 @@ internal fun TijiSubjectCountRow(
     onClick: () -> Unit
 ) {
     TijiCard(onClick, Modifier.fillMaxWidth().testTag("home_subject_$subject")) {
-        Row(Modifier.fillMaxWidth().heightIn(min = 68.dp).padding(horizontal = 12.dp, vertical = 8.dp),
+        Row(Modifier.fillMaxWidth().heightIn(min = 88.dp).padding(horizontal = 16.dp, vertical = 16.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Box(Modifier.width(3.dp).height(36.dp).background(tijiSubjectColor(subject), TijiShapes.XS))
+            Surface(color = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.primary, shape = TijiShapes.S) {
+                Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+                    Text(subject.take(1), style = MaterialTheme.typography.titleLarge)
+                }
+            }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(subject, style = MaterialTheme.typography.titleMedium)
                 Text(

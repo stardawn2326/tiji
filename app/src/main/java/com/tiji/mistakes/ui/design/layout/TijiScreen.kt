@@ -32,13 +32,13 @@ internal fun TijiScreen(modifier: Modifier = Modifier, topBar: @Composable () ->
 internal fun TijiTopBar(title: @Composable () -> Unit, modifier: Modifier = Modifier,
     navigationIcon: @Composable () -> Unit = {}, actions: @Composable RowScope.() -> Unit = {},
     colors: TopAppBarColors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)) {
-    Surface(color = colors.containerColor) {
+    Surface(color = MaterialTheme.colorScheme.surface) {
         Row(modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.statusBars)
-            .heightIn(min = 64.dp).padding(horizontal = 4.dp, vertical = 8.dp),
+            .heightIn(min = 68.dp).padding(horizontal = 8.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically) {
             navigationIcon()
             Box(Modifier.weight(1f).padding(horizontal = 12.dp).semantics { heading() }) {
-                ProvideTextStyle(MaterialTheme.typography.headlineMedium, title)
+                ProvideTextStyle(MaterialTheme.typography.titleLarge, title)
             }
             Row(verticalAlignment = Alignment.CenterVertically, content = actions)
         }

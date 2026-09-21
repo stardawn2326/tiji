@@ -3,6 +3,7 @@ package com.tiji.mistakes.ui.design
 import androidx.compose.ui.unit.dp
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
@@ -46,7 +47,7 @@ internal fun TijiPageHeader(
     eyebrow: String? = null,
     action: @Composable () -> Unit = {}
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Column(modifier = Modifier.padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
@@ -84,7 +85,7 @@ internal fun TijiSectionHeader(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(title, style = MaterialTheme.typography.titleLarge)
+            Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
             if (!subtitle.isNullOrBlank()) {
                 Text(
                     subtitle,
@@ -140,6 +141,7 @@ internal fun TijiDropZone(
             .fillMaxWidth()
             .heightIn(min = minHeight)
             .clip(shape)
+            .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f))
             .clickable(onClick = onClick)
     ) {
         Canvas(Modifier.fillMaxSize()) {
@@ -215,7 +217,7 @@ internal fun TijiPaperCard(
         Card(
             colors = CardDefaults.cardColors(
                 containerColor = if (selected) {
-                    MaterialTheme.colorScheme.primary.copy(alpha = 0.04f)
+                    MaterialTheme.colorScheme.primaryContainer
                 } else {
                     MaterialTheme.colorScheme.surface
                 }
@@ -231,7 +233,7 @@ internal fun TijiPaperCard(
             onClick = onClick,
             colors = CardDefaults.cardColors(
                 containerColor = if (selected) {
-                    MaterialTheme.colorScheme.primary.copy(alpha = 0.04f)
+                    MaterialTheme.colorScheme.primaryContainer
                 } else {
                     MaterialTheme.colorScheme.surface
                 }

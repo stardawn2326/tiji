@@ -308,6 +308,9 @@ internal fun ReviewScreen(
             modifier = Modifier.padding(padding).fillMaxSize().testTag("review_center")
         ) {
         item {
+            com.tiji.mistakes.ui.design.TijiPageHeader("温故，而知新", "按自己的节奏，完成今天的复习。", eyebrow = "复习工作台")
+        }
+        item {
             ReviewProgressCard(completed = completedToday, total = planned.size, randomMode = false, modifier = Modifier.testTag("review_today_plan"))
         }
         if (planned.isEmpty()) {
