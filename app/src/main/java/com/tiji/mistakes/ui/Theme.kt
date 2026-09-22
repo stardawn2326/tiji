@@ -30,7 +30,12 @@ enum class ThemeMode(val key: String, val label: String) {
 }
 
 enum class ThemePalette(val key: String, val label: String, val preview: Color) {
-    BLUE("blue", "晴蓝 · 纯白", Color(0xFF2563EB));
+    BLUE("blue", "晴蓝", Color(0xFF2563EB)),
+    GREEN("green", "松绿", Color(0xFF087F5B)),
+    TEAL("teal", "湖青", Color(0xFF0E7490)),
+    PURPLE("purple", "鸢紫", Color(0xFF7C3AED)),
+    ROSE("rose", "玫粉", Color(0xFFBE185D)),
+    AMBER("amber", "琥珀", Color(0xFFB45309));
     companion object { fun fromKey(key: String) = entries.firstOrNull { it.key == key } ?: BLUE }
 }
 
@@ -79,7 +84,7 @@ fun TijiTheme(
     content: @Composable () -> Unit
 ) {
     val dark = when (mode) { ThemeMode.SYSTEM -> isSystemInDarkTheme(); ThemeMode.LIGHT -> false; ThemeMode.DARK -> true }
-    val colors = if (dark) TijiDarkColors else TijiLightColors
+    val colors = tijiColorScheme(palette, dark)
     CompositionLocalProvider(LocalTijiSemanticColors provides if (dark) DarkTijiSemanticColors else LightTijiSemanticColors) {
         MaterialTheme(
             colorScheme = colors,

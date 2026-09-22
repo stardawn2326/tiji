@@ -1,5 +1,12 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 package com.tiji.mistakes.ui.settings
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.platform.testTag
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -51,11 +58,13 @@ internal fun AppearanceSettingsScreen(
             item {
                 TijiSettingGroup("主题色", Icons.Outlined.Style) {
                     Text("用于按钮、选中状态和学习提示的强调色。")
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                        items(ThemePalette.entries) { value ->
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
+                        ThemePalette.entries.forEach { value ->
                             TijiChip(
                                 selected = themePalette == value,
                                 onClick = { onThemePalette(value) },
+                                modifier = Modifier.testTag("theme_palette_${value.key}"),
+                                leadingIcon = { Box(Modifier.size(16.dp).background(value.preview, CircleShape)) },
                                 label = { Text(value.label) }
                             )
                         }
