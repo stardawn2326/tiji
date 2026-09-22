@@ -124,6 +124,7 @@ internal fun MathText(
     }
 
     val context = LocalContext.current
+    val rendererPool = LocalMathWebViewPool.current
     val textColor = resolvedColor.toArgb()
     val hostTextStyle = when {
         emphasized && compact -> MaterialTheme.typography.titleSmall
@@ -137,7 +138,7 @@ internal fun MathText(
         compact -> 20f
         else -> 32f
     }
-    var contentHeight by remember(compact, emphasized) { mutableStateOf(minimumHeight.dp) }
+    var contentHeight by remember(displayValue, compact, emphasized) { mutableStateOf(minimumHeight.dp) }
     val preserveRawSource = preserveReturnedLayout || preserveSourceExactly
     val html = remember(
         displayValue,
@@ -210,6 +211,7 @@ internal fun MathText(
 
             override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
                 webViewGuard.release(view)
+                rendererPool?.invalidate(view)
                 rendererFailed = true
                 rendererGeneration += 1
                 return true
@@ -223,7 +225,7 @@ internal fun MathText(
                 .fillMaxWidth()
                 .height(contentHeight),
             factory = { webViewContext ->
-                WebView(webViewContext).apply {
+                (rendererPool?.acquire(webViewContext) ?: WebView(webViewContext)).apply {
                     settings.javaScriptEnabled = true
                     settings.domStorageEnabled = false
                     settings.allowFileAccess = false
@@ -234,7 +236,7 @@ internal fun MathText(
                     isClickable = interactive
                     isFocusable = interactive
                     isFocusableInTouchMode = interactive
-                    if (!interactive) importantForAccessibility = android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+                    importantForAccessibility = if (interactive) android.view.View.IMPORTANT_FOR_ACCESSIBILITY_AUTO else android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
                     setBackgroundColor(android.graphics.Color.TRANSPARENT)
                     this.webViewClient = webViewClient
                 }
@@ -256,10 +258,17 @@ internal fun MathText(
                     )
                 }
             },
-            onRelease = { webView ->
+            onReset = { webView ->
                 webViewGuard.release(webView)
                 webView.stopLoading()
-                webView.destroy()
+                webView.loadUrl("about:blank")
+            },
+            onRelease = { webView ->
+                webViewGuard.release(webView)
+                if (rendererPool != null) rendererPool.recycle(webView) else {
+                    webView.stopLoading()
+                    webView.destroy()
+                }
             }
         )
     }

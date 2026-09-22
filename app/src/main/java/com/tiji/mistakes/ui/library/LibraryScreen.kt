@@ -61,6 +61,9 @@ import androidx.compose.material3.Text
 import com.tiji.mistakes.ui.design.TijiTextButton
 import com.tiji.mistakes.ui.design.TijiTopBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.produceState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableIntStateOf
@@ -220,7 +223,9 @@ internal fun LibraryScreen(
             .sorted()
             .toList()
     }
-    val visibleItems = remember(mistakeItems, order, selectedSubject, masteryFilter, difficultyFilter, knowledgeFilter) {
+    val computedItems by produceState<List<MistakeListItem>?>(null, mistakeItems, order, selectedSubject, masteryFilter, difficultyFilter, knowledgeFilter) {
+        value = null
+        value = withContext(Dispatchers.Default) {
         val selectedMastery = masteryFilter
         val filtered = mistakeItems.filter { item ->
             val mistake = item.mistake
@@ -240,6 +245,8 @@ internal fun LibraryScreen(
             MistakeOrder.UPDATED -> filtered.sortedByDescending { it.mistake.updatedAt }
         }
     }
+    }
+    val visibleItems = computedItems.orEmpty()
     val visibleMistakes = remember(visibleItems) { visibleItems.map(MistakeListItem::mistake) }
     LaunchedEffect(query, order, selectedSubject, masteryFilter, difficultyFilter, knowledgeFilter) {
         selectedIds = emptySet()
@@ -569,7 +576,9 @@ internal fun LibraryScreen(
                         }
                     }
                 }
-                if (visibleMistakes.isEmpty()) {
+                if (computedItems == null) {
+                    item { androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth()) }
+                } else if (visibleMistakes.isEmpty()) {
                     item {
                         val hasFilter = query.isNotBlank() || selectedSubject != null ||
                             masteryFilter != null || difficultyFilter != null || knowledgeFilter != null
@@ -614,7 +623,7 @@ internal fun LibraryScreen(
                         }
                     }
                 } else {
-                    items(displayedItems, key = { it.mistake.id }) { item ->
+                    items(displayedItems, key = { it.mistake.id }, contentType = { "mistake" }) { item ->
                         val mistake = item.mistake
                         TijiMistakeCard(
                             item = item,

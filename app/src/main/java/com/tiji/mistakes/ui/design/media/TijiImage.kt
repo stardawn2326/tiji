@@ -17,7 +17,7 @@ internal fun TijiImage(model: Any?, contentDescription: String?, modifier: Modif
     contentScale: ContentScale = ContentScale.Fit, onError: ((AsyncImagePainter.State.Error) -> Unit)? = null) {
     var loading by remember(model) { mutableStateOf(true) }
     var failed by remember(model) { mutableStateOf(false) }
-    Box(modifier.background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
+    Box(modifier, contentAlignment = Alignment.Center) {
         AsyncImage(model, contentDescription, Modifier.matchParentSize(), contentScale = contentScale,
             onLoading = { loading = true; failed = false },
             onSuccess = { loading = false; failed = false },

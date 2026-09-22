@@ -12,6 +12,10 @@ import androidx.compose.material3.Typography
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.remember
+import com.tiji.mistakes.ui.math.MathWebViewPool
+import com.tiji.mistakes.ui.math.LocalMathWebViewPool
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
@@ -34,7 +38,9 @@ enum class ThemePalette(val key: String, val label: String, val preview: Color) 
     TEAL("teal", "湖青", Color(0xFF0E7490)),
     PURPLE("purple", "鸢紫", Color(0xFF7C3AED)),
     ROSE("rose", "玫粉", Color(0xFFBE185D)),
-    AMBER("amber", "琥珀", Color(0xFFB45309));
+    AMBER("amber", "琥珀", Color(0xFFB45309)),
+    INDIGO("indigo", "靛青", Color(0xFF4338CA)),
+    COCOA("cocoa", "可可", Color(0xFF795548));
     companion object { fun fromKey(key: String) = entries.firstOrNull { it.key == key } ?: BLUE }
 }
 
@@ -84,7 +90,9 @@ fun TijiTheme(
 ) {
     val dark = when (mode) { ThemeMode.SYSTEM -> isSystemInDarkTheme(); ThemeMode.LIGHT -> false; ThemeMode.DARK -> true }
     val colors = tijiColorScheme(palette, dark)
-    CompositionLocalProvider(LocalTijiSemanticColors provides if (dark) DarkTijiSemanticColors else LightTijiSemanticColors) {
+    val mathPool = remember { MathWebViewPool() }
+    DisposableEffect(mathPool) { onDispose { mathPool.close() } }
+    CompositionLocalProvider(LocalMathWebViewPool provides mathPool, LocalTijiSemanticColors provides if (dark) DarkTijiSemanticColors else LightTijiSemanticColors) {
         MaterialTheme(
             colorScheme = colors,
             typography = TijiTypography,

@@ -302,7 +302,14 @@ internal enum class AiInputMode(val label: String) {
 @Composable
 internal fun AiInputModeSelector(selected: AiInputMode, onSelected: (AiInputMode) -> Unit, title: String) {
     if (title.isNotBlank()) Text(title, style = MaterialTheme.typography.labelLarge)
-    com.tiji.mistakes.ui.design.TijiSegmentedControl(AiInputMode.entries, selected, onSelected, { it.label })
+    androidx.compose.foundation.layout.FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        AiInputMode.entries.forEach { mode ->
+            TijiChip(selected = mode == selected, onClick = { onSelected(mode) }, label = { Text(mode.label) })
+        }
+    }
 }
 @Composable
 internal fun NewCaptureScreen(

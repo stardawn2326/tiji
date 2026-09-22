@@ -3,6 +3,7 @@ package com.tiji.mistakes.ui.image
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -63,8 +64,8 @@ internal fun ImagePreview(
             .data(if (path.startsWith("content://")) path else File(path))
             .memoryCacheKey(revision)
             .diskCacheKey(revision)
-            .memoryCachePolicy(CachePolicy.DISABLED)
-            .diskCachePolicy(CachePolicy.DISABLED)
+            .memoryCachePolicy(CachePolicy.ENABLED)
+            .diskCachePolicy(CachePolicy.ENABLED)
             .build()
     }
     val sourceAvailable = remember(path) { path.startsWith("content://") || File(path).isFile }
@@ -92,7 +93,9 @@ internal fun ImagePreview(
             }.getOrDefault(1f)
         }
     }
-    val previewHeight = ((configuration.screenWidthDp.dp - 32.dp) / imageAspect.coerceAtLeast(0.2f)).coerceIn(48.dp, 420.dp)
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+    val previewHeight = (maxWidth / imageAspect.coerceAtLeast(0.2f)).coerceIn(48.dp, 420.dp)
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
     Box(Modifier.fillMaxWidth().height(previewHeight)) {
         TijiImage(
             model = imageModel,
@@ -101,12 +104,15 @@ internal fun ImagePreview(
             contentScale = ContentScale.Fit,
             onError = { loadFailed = true }
         )
+    }
         if (!overlayActionLabel.isNullOrBlank() && onOverlayAction != null) {
-            com.tiji.mistakes.ui.design.TijiSecondaryButton(
+            com.tiji.mistakes.ui.design.TijiTextButton(
                 onClick = onOverlayAction,
-                modifier = Modifier.align(Alignment.BottomStart).padding(8.dp)
+                modifier = Modifier.align(Alignment.End),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp)
             ) { Text(overlayActionLabel) }
         }
+    }
     }
     if (expanded) {
         ExpandedImageDialog(

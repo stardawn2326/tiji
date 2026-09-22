@@ -1,3 +1,4 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 package com.tiji.mistakes.ui.image
 
 import android.Manifest
@@ -8,6 +9,11 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.ui.platform.testTag
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -57,16 +63,19 @@ internal fun ExpandedImageDialog(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var replacementEditingPath by remember(path) { mutableStateOf<String?>(null) }
+    var reprocessing by remember(path) { mutableStateOf(false) }
+    var preparing by remember(path) { mutableStateOf(false) }
     var saving by remember(path) { mutableStateOf(false) }
     val replacementLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) {
+            reprocessing = false
             replacementEditingPath = ImageStorage.copyToPrivate(context, uri, "replacement_source")
             if (replacementEditingPath == null) Toast.makeText(context, "图片读取失败，请重新选择", Toast.LENGTH_SHORT).show()
         }
     }
     fun saveCurrentImage() {
         if (saving) return
-        scope.launch {
+        scope.launch(Dispatchers.Main.immediate) {
             saving = true
             val result = withContext(Dispatchers.IO) { ImageStorage.saveToGallery(context, path) }
             Toast.makeText(
@@ -94,12 +103,16 @@ internal fun ExpandedImageDialog(
         var scale by remember(path) { mutableFloatStateOf(1f) }
         var offsetX by remember(path) { mutableFloatStateOf(0f) }
         var offsetY by remember(path) { mutableFloatStateOf(0f) }
-        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.88f)).padding(12.dp)) {
+        Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(12.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                if (onDelete != null) TijiTextButton(onClick = onDelete) { Text("删除图片", color = MaterialTheme.colorScheme.error) }
+                TijiTextButton(onClick = onDismiss) { Text("关闭", color = MaterialTheme.colorScheme.primary) }
+            }
             TijiImage(
                 model = imageModel,
                 contentDescription = "放大的题目图片",
                 contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxSize().clip(TijiShapes.XL)
+                modifier = Modifier.fillMaxWidth().weight(1f).clip(TijiShapes.S)
                     .graphicsLayer(scaleX = scale, scaleY = scale, translationX = offsetX, translationY = offsetY)
                     .pointerInput(path) {
                         detectTransformGestures { _, pan, zoom, _ ->
@@ -109,23 +122,24 @@ internal fun ExpandedImageDialog(
                         }
                     }
             )
-            TijiTextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.TopEnd).padding(12.dp)) {
-                Text("关闭", color = Color.White)
+            androidx.compose.foundation.layout.FlowRow(
+                modifier = Modifier.fillMaxWidth().navigationBarsPadding(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                TijiTextButton(enabled = !preparing, onClick = {
+                    scope.launch(Dispatchers.Main.immediate) {
+                        preparing = true
+                        val copy = withContext(Dispatchers.IO) {
+                            ImageStorage.copyFileToPrivate(context, File(path), "reprocess_source")
+                        }
+                        preparing = false
+                        if (copy != null) { reprocessing = true; replacementEditingPath = copy }
+                        else Toast.makeText(context, "图片读取失败", Toast.LENGTH_SHORT).show()
+                    }
+                }, modifier = Modifier.testTag("image_reprocess")) { Text(if (preparing) "读取中…" else "重新处理", color = MaterialTheme.colorScheme.primary) }
+                TijiTextButton(onClick = { replacementLauncher.launch("image/*") }) { Text("替换图片", color = MaterialTheme.colorScheme.primary) }
+                TijiTextButton(enabled = !saving, onClick = ::requestSave) { Text(if (saving) "正在保存…" else "保存到本地", color = MaterialTheme.colorScheme.primary) }
             }
-            if (onDelete != null) {
-                TijiTextButton(onClick = onDelete, modifier = Modifier.align(Alignment.TopStart).padding(12.dp)) {
-                    Text("删除图片", color = MaterialTheme.colorScheme.error)
-                }
-            }
-            TijiTextButton(
-                onClick = { replacementLauncher.launch("image/*") },
-                modifier = Modifier.align(Alignment.BottomStart).navigationBarsPadding().padding(12.dp)
-            ) { Text("替换图片", color = Color.White) }
-            TijiTextButton(
-                enabled = !saving,
-                onClick = ::requestSave,
-                modifier = Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(12.dp)
-            ) { Text(if (saving) "正在保存…" else "保存到本地", color = Color.White) }
         }
     }
 
@@ -133,15 +147,15 @@ internal fun ExpandedImageDialog(
         Dialog(onDismissRequest = {}, properties = DialogProperties(usePlatformDefaultWidth = false)) {
             StandaloneImageEditor(
                 initialPath = importedPath,
-                title = "替换图片",
+                title = if (reprocessing) "重新处理" else "替换图片",
                 onCancel = {
                     ImageStorage.deletePrivateFiles(context, listOf(importedPath))
                     replacementEditingPath = null
                 },
-                onDiscard = { paths -> ImageStorage.deletePrivateFiles(context, paths) },
+                onDiscard = { paths -> ImageStorage.deletePrivateFiles(context, paths.filterNot { it == path }) },
                 onConfirm = { processedPath ->
-                    scope.launch {
-                        val finalPath = if (isGraphicCrop) {
+                    scope.launch(Dispatchers.Main.immediate) {
+                        val finalPath = if (isGraphicCrop && !reprocessing) {
                             val cleaned = withContext(Dispatchers.IO) {
                                 ImageProcessor.cleanGraphicCrop(context, processedPath)
                             }
