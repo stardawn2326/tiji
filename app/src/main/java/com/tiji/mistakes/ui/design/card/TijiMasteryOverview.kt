@@ -4,6 +4,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.StrokeCap
@@ -14,9 +16,18 @@ import java.util.Locale
 
 @Composable
 internal fun TijiMasteryOverview(summary: MistakeProgressSummary) {
+    val ornament = MaterialTheme.colorScheme.onPrimary
     Surface(shape = TijiShapes.L, color = MaterialTheme.colorScheme.primary,
         contentColor = MaterialTheme.colorScheme.onPrimary) {
-        Column(Modifier.fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
+        Column(Modifier.fillMaxWidth().drawBehind {
+            val center = Offset(size.width - 12.dp.toPx(), 0f)
+            drawCircle(ornament.copy(alpha = 0.055f), 96.dp.toPx(), center)
+            drawCircle(ornament.copy(alpha = 0.10f), 126.dp.toPx(), center, style = Stroke(1.dp.toPx()))
+            drawCircle(ornament.copy(alpha = 0.07f), 146.dp.toPx(), center, style = Stroke(1.dp.toPx()))
+            repeat(4) { column -> repeat(2) { row ->
+                drawCircle(ornament.copy(alpha = 0.16f), 1.5.dp.toPx(), Offset(size.width - (32 + column * 10).dp.toPx(), size.height - (12 + row * 10).dp.toPx()))
+            } }
+        }.padding(24.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
             Text("掌握概览", style = MaterialTheme.typography.titleLarge)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
