@@ -65,6 +65,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.mapLatest
+import kotlinx.coroutines.Dispatchers
+import com.tiji.mistakes.ui.library.LibraryIndex
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.Flow
@@ -257,13 +261,17 @@ class MistakeViewModel(
             repository.observeLatestReviewRecordsForMistakes(rows.map(MistakeEntity::id))
                 .map { records -> rows.toMistakeListItems(latestReviewGrades(records)) }
         }
+        .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-    val mistakeItems: StateFlow<List<MistakeListItem>> = mistakes
-        .flatMapLatest { rows ->
-            repository.observeLatestReviewRecordsForMistakes(rows.map(MistakeEntity::id))
-                .map { records -> rows.toMistakeListItems(latestReviewGrades(records)) }
-        }
+    val mistakeItems: StateFlow<List<MistakeListItem>> = combine(mistakes, allMistakeItems) { rows, allItems ->
+        val grades = allItems.associate { it.mistake.id to it.latestReviewGrade }
+        rows.map { MistakeListItem(it, grades[it.id]) }
+    }.flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    internal val libraryIndex: StateFlow<LibraryIndex?> = mistakeItems
+        .mapLatest { LibraryIndex(it) }
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
     val dueMistakes: StateFlow<List<MistakeEntity>> = reviewClock.flatMapLatest(repository::observeDue)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val totalCount: StateFlow<Int> = repository.observeCount()

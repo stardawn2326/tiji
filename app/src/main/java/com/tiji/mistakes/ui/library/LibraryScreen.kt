@@ -134,7 +134,8 @@ internal fun LibraryScreen(
     onBack: () -> Unit = {},
     onAddSelectedToTomorrow: (List<Long>) -> Unit = {}
 ) {
-    val mistakes = remember(mistakeItems) { mistakeItems.map(MistakeListItem::mistake) }
+    val index by viewModel.libraryIndex.collectAsStateWithLifecycle()
+    val mistakes = index?.mistakes.orEmpty()
     val query by viewModel.searchQuery.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -212,47 +213,37 @@ internal fun LibraryScreen(
             Toast.makeText(context, "PDF 导出失败：未能恢复待导出题目", Toast.LENGTH_LONG).show()
         }
     }
-    val subjectTabs = remember(mistakes, selectedSubject) {
-        buildList {
-            add("全部")
-            addAll(subjectCounts(mistakes).map { it.first }.filterNot { it in this })
-            if (selectedSubject != null && selectedSubject !in this) add(selectedSubject)
-        }
+    val subjectTabs = remember(index, selectedSubject) {
+        (listOf("全部") + index?.subjects.orEmpty() + listOfNotNull(selectedSubject)).distinct()
     }
-    val knowledgeOptions = remember(mistakes, selectedSubject) {
-        mistakes.asSequence()
-            .filter { selectedSubject == null || normalizedSubject(it.subject) == selectedSubject }
-            .flatMap { parseTagValues(it.tags).asSequence() }
-            .filter(String::isNotBlank)
-            .distinct()
-            .sorted()
-            .toList()
-    }
+    val knowledgeOptions = if (selectedSubject == null) index?.allKnowledge.orEmpty()
+        else index?.knowledgeBySubject?.get(selectedSubject).orEmpty()
     LaunchedEffect(selectedSubject, knowledgeOptions) {
-        if (knowledgeFilter !in knowledgeOptions) knowledgeFilter = null
+        if (index != null && knowledgeFilter !in knowledgeOptions) knowledgeFilter = null
     }
-    val computedItems by produceState<List<MistakeListItem>?>(null, mistakeItems, order, selectedSubject, masteryFilter, difficultyFilter, knowledgeFilter) {
-        value = null
+    val computedItems by produceState<List<MistakeListItem>?>(null, index, order, selectedSubject, masteryFilter, difficultyFilter, knowledgeFilter) {
+        val snapshot = index ?: return@produceState
+        val subject = selectedSubject
+        val mastery = masteryFilter
+        val difficulty = difficultyFilter
+        val knowledge = knowledgeFilter
+        val sort = order
+        // Keep the last rendered rows attached until their replacement is ready.
         value = withContext(Dispatchers.Default) {
-        val selectedMastery = masteryFilter
-        val filtered = mistakeItems.filter { item ->
-            val mistake = item.mistake
-            val reviewStatusMatches = when (selectedMastery) {
-                null -> true
-                0 -> item.latestReviewGrade == null
-                else -> item.latestReviewGrade == ReviewGrade.entries.getOrNull(selectedMastery - 1)
+            val sorted = when (sort) {
+                MistakeOrder.NEWEST -> snapshot.newest
+                MistakeOrder.OLDEST -> snapshot.oldest
+                MistakeOrder.UPDATED -> snapshot.updated
             }
-            (selectedSubject == null || normalizedSubject(mistake.subject) == selectedSubject) &&
-                reviewStatusMatches &&
-                difficultyMatchesFilter(mistake.difficulty, difficultyFilter) &&
-                (knowledgeFilter == null || parseTagValues(mistake.tags).contains(knowledgeFilter))
+            sorted.filter { item ->
+                val mistake = item.mistake
+                (subject == null || snapshot.subjectById[mistake.id] == subject) &&
+                    (mastery == null || if (mastery == 0) item.latestReviewGrade == null
+                    else item.latestReviewGrade == ReviewGrade.entries.getOrNull(mastery - 1)) &&
+                    difficultyMatchesFilter(mistake.difficulty, difficulty) &&
+                    (knowledge == null || snapshot.tagsById[mistake.id]?.contains(knowledge) == true)
+            }
         }
-        when(order) {
-            MistakeOrder.NEWEST -> filtered.sortedByDescending { it.mistake.uploadedAt }
-            MistakeOrder.OLDEST -> filtered.sortedBy { it.mistake.uploadedAt }
-            MistakeOrder.UPDATED -> filtered.sortedByDescending { it.mistake.updatedAt }
-        }
-    }
     }
     val visibleItems = computedItems.orEmpty()
     val visibleMistakes = remember(visibleItems) { visibleItems.map(MistakeListItem::mistake) }

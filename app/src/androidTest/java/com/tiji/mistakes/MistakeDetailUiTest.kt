@@ -55,7 +55,7 @@ class MistakeDetailUiTest {
             composeRule.onNodeWithText(label).assertDoesNotExist()
         }
         composeRule.onNodeWithTag("detail_more_info_toggle").assertDoesNotExist()
-        listOf("正确答案").forEach { label ->
+        listOf("答案").forEach { label ->
             detailContent.performScrollToNode(hasText(label))
             composeRule.onNodeWithText(label).assertExists()
         }

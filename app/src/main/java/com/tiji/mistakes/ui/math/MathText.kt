@@ -140,7 +140,9 @@ internal fun MathText(
     }
     var contentHeight by remember(displayValue, compact, emphasized) { mutableStateOf(minimumHeight.dp) }
     val preserveRawSource = preserveReturnedLayout || preserveSourceExactly
+    val viewportWidth = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp
     val html = remember(
+        viewportWidth,
         displayValue,
         maxLines,
         textColor,
@@ -160,7 +162,7 @@ internal fun MathText(
             preserveRawSource,
             responsiveQuestionLayout = naturalQuestionWrap || compactQuestionLayout,
             compactVerticalSpacing = compactVerticalSpacing
-        )
+        ) + "<!-- viewport=$viewportWidth -->"
     }
     val assetLoader = remember(context) {
         WebViewAssetLoader.Builder()
@@ -180,7 +182,7 @@ internal fun MathText(
 
             override fun onPageFinished(view: WebView, url: String?) {
                 super.onPageFinished(view, url)
-                if (!webViewGuard.isActive(view)) return
+                if (!webViewGuard.isActive(view) || view.tag != html || url == "about:blank") return
                 if (!renderReported) {
                     renderReported = true
                     Log.i(
@@ -198,6 +200,8 @@ internal fun MathText(
                             if (webViewGuard.isActive(view) && view.tag == html) {
                                 measured.trim('"').toFloatOrNull()?.let { cssPixels ->
                                     contentHeight = cssPixels.coerceIn(minimumHeight, 8_000f).dp
+                                    rendererPool?.measured(view, contentHeight.value)
+                                    rendererPool?.rendered(view)
                                 }
                             }
                         }
@@ -205,8 +209,10 @@ internal fun MathText(
                 }
                 webViewGuard.post(view, 0L) { measureRenderedHeight() }
                 webViewGuard.post(view, 80L) { measureRenderedHeight() }
-                webViewGuard.post(view, 240L) { measureRenderedHeight() }
-                webViewGuard.post(view, 600L) { measureRenderedHeight() }
+                if (maxLines == Int.MAX_VALUE) {
+                    webViewGuard.post(view, 240L) { measureRenderedHeight() }
+                    webViewGuard.post(view, 600L) { measureRenderedHeight() }
+                }
             }
 
             override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
@@ -225,7 +231,7 @@ internal fun MathText(
                 .fillMaxWidth()
                 .height(contentHeight),
             factory = { webViewContext ->
-                (rendererPool?.acquire(webViewContext) ?: WebView(webViewContext)).apply {
+                (rendererPool?.acquire(webViewContext, html) ?: WebView(webViewContext)).apply {
                     settings.javaScriptEnabled = true
                     settings.domStorageEnabled = false
                     settings.allowFileAccess = false
@@ -246,7 +252,10 @@ internal fun MathText(
                 webView.isClickable = interactive
                 webView.isFocusable = interactive
                 webView.isFocusableInTouchMode = interactive
+                if (!webViewGuard.isActive(webView)) webViewGuard.activate(webView)
+                if (webView.tag == html) rendererPool?.height(webView)?.let { contentHeight = it.dp }
                 if (webView.tag != html) {
+                    rendererPool?.loading(webView)
                     webViewGuard.activate(webView)
                     webView.tag = html
                     webView.loadDataWithBaseURL(
@@ -259,12 +268,12 @@ internal fun MathText(
                 }
             },
             onReset = { webView ->
-                webViewGuard.release(webView)
+                webViewGuard.release(webView, preserveContent = rendererPool != null)
                 webView.stopLoading()
-                webView.loadUrl("about:blank")
+                // Keep a completed document available for content-keyed reuse.
             },
             onRelease = { webView ->
-                webViewGuard.release(webView)
+                webViewGuard.release(webView, preserveContent = rendererPool != null)
                 if (rendererPool != null) rendererPool.recycle(webView) else {
                     webView.stopLoading()
                     webView.destroy()
