@@ -1016,9 +1016,9 @@ internal fun AiSolveScreen(
                 TijiPaperCard(contentPadding = 12.dp) {
                     TijiSectionHeader(
                         "输入题目",
-                        action = { TijiTextButton(onClick = { showSolveConfiguration = !showSolveConfiguration }) { Text(if (showSolveConfiguration) "收起" else "更多设置") } }
+                        action = { TijiTextButton(onClick = { showSolveConfiguration = !showSolveConfiguration }) { Text(if (showSolveConfiguration) "收起" else "使用模型+方式") } }
                     )
-                    if (imagePaths.isNotEmpty()) {
+                    if (showSolveConfiguration) {
                         Text("解题方式", style = MaterialTheme.typography.labelLarge)
                         AiInputModeSelector(
                             selected = aiInputMode,
@@ -1044,7 +1044,7 @@ internal fun AiSolveScreen(
                             subtitle = "支持多张图片，AI 会按顺序识别",
                             icon = Icons.Outlined.AddAPhoto,
                             onClick = { galleryLauncher.launch("image/*") },
-                            minHeight = 140.dp,
+                            minHeight = 112.dp,
                             compact = true,
                             actions = {
                                 TijiSecondaryButton(
@@ -1084,11 +1084,24 @@ internal fun AiSolveScreen(
                                     imagePath = imagePaths.firstOrNull()
                                     viewModel.removeAiSolveImage(path)
                                     message = "已删除第 ${index + 1} 张图片"
-                                }, overlayActionLabel = "重新处理", onOverlayAction = {
-                                    editingOriginalPath = path
-                                    imagePath = path
-                                    imageEditing = true
                                 })
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    TijiTextButton(onClick = {
+                                        editingOriginalPath = path
+                                        imagePath = path
+                                        imageEditing = true
+                                    }) { Text("重新处理") }
+                                    TijiTextButton(enabled = index > 0, onClick = {
+                                        imagePaths = imagePaths.toMutableList().apply { add(index - 1, removeAt(index)) }
+                                        imageHistory = imagePaths
+                                        imagePath = imagePaths.firstOrNull()
+                                    }) { Text("上移") }
+                                    TijiTextButton(enabled = index < imagePaths.lastIndex, onClick = {
+                                        imagePaths = imagePaths.toMutableList().apply { add(index + 1, removeAt(index)) }
+                                        imageHistory = imagePaths
+                                        imagePath = imagePaths.firstOrNull()
+                                    }) { Text("下移") }
+                                }
                             }
                         }
                     }

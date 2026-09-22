@@ -12,6 +12,7 @@ import android.graphics.BitmapFactory
 import android.Manifest
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
@@ -78,6 +79,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -290,7 +292,7 @@ internal val mistakeDraftSaver: Saver<MistakeDraft, String> = Saver(
 internal fun EntryModeSegmented(selected: EntryMode, enabled: Boolean, onSelected: (EntryMode) -> Unit) {
     androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         EntryMode.entries.forEach { value ->
-            TijiChip(selected = value == selected, enabled = enabled, onClick = { onSelected(value) }, label = { Text(value.label) })
+            TijiChip(modifier = Modifier.testTag("capture_mode_${value.name}"), selected = value == selected, enabled = enabled, onClick = { onSelected(value) }, label = { Text(value.label) })
         }
     }
 }
@@ -306,10 +308,7 @@ internal enum class AiInputMode(val label: String) {
 @Composable
 internal fun AiInputModeSelector(selected: AiInputMode, onSelected: (AiInputMode) -> Unit, title: String) {
     if (title.isNotBlank()) Text(title, style = MaterialTheme.typography.labelLarge)
-    androidx.compose.foundation.layout.FlowRow(
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
+    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         AiInputMode.entries.forEach { mode ->
             TijiChip(selected = mode == selected, onClick = { onSelected(mode) }, label = { Text(mode.label) })
         }
@@ -354,7 +353,8 @@ internal fun NewCaptureScreen(
     val draftBindings = remember(savedDraft) { CaptureDraftBindings(savedDraft) }
     val draftController = draftBindings.controller
     with(draftBindings) {
-    val mode = EntryMode.entries.firstOrNull { it.name == modeName } ?: EntryMode.PHOTO
+    val mode = EntryMode.entries.firstOrNull { it.name == savedDraft.value.captureMode } ?: EntryMode.PHOTO
+    var modeChosenByUser by rememberSaveable { mutableStateOf(false) }
     var aiRecognitionEditingOriginalPath by rememberSaveable { mutableStateOf<String?>(null) }
     var aiInputModeName by rememberSaveable { mutableStateOf(initialAiInputMode) }
     var pendingModeName by rememberSaveable { mutableStateOf("") }
@@ -439,7 +439,8 @@ internal fun NewCaptureScreen(
     }
 
     fun applyModeSwitch(next: EntryMode) {
-        if (next == mode) return
+        if (next.name == modeName) return
+        modeChosenByUser = true
         val beforePaths = currentDraftAssetPaths()
         val retainedPaths = when (next) {
             EntryMode.AI -> aiRecognitionImages.toSet()
@@ -470,7 +471,7 @@ internal fun NewCaptureScreen(
     }
 
     fun requestModeSwitch(next: EntryMode) {
-        if (next == mode) return
+        if (next.name == modeName) return
         if (hasUnsavedEntryDraft()) pendingModeName = next.name else applyModeSwitch(next)
     }
 
@@ -705,12 +706,13 @@ internal fun NewCaptureScreen(
         aiRecognitionState.result,
         aiRecognitionState.imagePaths
     ) {
+        if (modeChosenByUser && modeName != EntryMode.AI.name) return@LaunchedEffect
         if (aiRecognitionState.imagePaths.isNotEmpty() && aiRecognitionImages.isEmpty()) {
             // The recognition service persists the image list, so returning to this screen can
             // restore the draft and keep the result associated with the original photos.
             aiRecognitionImages = aiRecognitionState.imagePaths
         }
-        if (aiRecognitionState.imagePaths.isNotEmpty() && modeName != EntryMode.AI.name) {
+        if (!modeChosenByUser && aiRecognitionState.imagePaths.isNotEmpty() && modeName != EntryMode.AI.name) {
             modeName = EntryMode.AI.name
         }
         if (aiRecognitionState.imagePaths.isNotEmpty()) {
@@ -1060,7 +1062,7 @@ internal fun NewCaptureScreen(
                                                  onClick = { movePhotoQuestionImage(index, index + 1) }
                                              ) { Text("下移") }
                                              Spacer(Modifier.weight(1f))
-                                             TijiTextButton(onClick = { load(path, PhotoRole.QUESTION) }) { Text("裁剪/替换") }
+                                             TijiTextButton(onClick = { load(path, PhotoRole.QUESTION) }) { Text("重新处理") }
                                          }
                                     }
                                 }

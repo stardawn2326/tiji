@@ -131,13 +131,13 @@ internal fun TijiDropZone(
     icon: ImageVector,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    minHeight: Dp = 148.dp,
+    minHeight: Dp = 112.dp,
     compact: Boolean = false,
     actions: (@Composable RowScope.() -> Unit)? = null
 ) {
     val shape = TijiShapes.L
     val borderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.56f)
-    val contentPadding = if (compact) 12.dp else 18.dp
+    val contentPadding = if (compact) 8.dp else 12.dp
     val iconPadding = if (compact) 8.dp else 10.dp
     val iconSize = if (compact) 23.dp else 25.dp
     val titleGap = if (compact) 6.dp else 10.dp
@@ -149,16 +149,6 @@ internal fun TijiDropZone(
             .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f))
             .clickable(onClick = onClick)
     ) {
-        Canvas(Modifier.fillMaxSize()) {
-            drawRoundRect(
-                color = borderColor,
-                style = Stroke(
-                    width = 1.5.dp.toPx(),
-                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(10.dp.toPx(), 7.dp.toPx()))
-                ),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(16.dp.toPx())
-            )
-        }
         Column(
             modifier = Modifier.fillMaxWidth().padding(contentPadding),
             horizontalAlignment = Alignment.CenterHorizontally,

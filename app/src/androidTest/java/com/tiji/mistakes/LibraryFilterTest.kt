@@ -133,6 +133,8 @@ class LibraryFilterTest {
         composeRule.onNodeWithTag("mistake_card_${fixtureIds[2]}").assertDoesNotExist()
 
         composeRule.onNodeWithTag("library_search").performTextClearance()
+        scrollToFilters()
+        composeRule.onNodeWithTag("library_subject_filter").performClick()
         composeRule.onNodeWithTag("library_subject_数学").performClick()
         scrollToFixture(fixtureIds[0])
         composeRule.onNodeWithTag("mistake_card_${fixtureIds[0]}").assertExists()
@@ -144,6 +146,7 @@ class LibraryFilterTest {
         composeRule.onNodeWithTag("library_knowledge_filter_visual").performClick()
         composeRule.onNodeWithTag("library_mastery_options").assertDoesNotExist()
         composeRule.onNodeWithTag("library_difficulty_options").assertDoesNotExist()
+        composeRule.onNodeWithTag("library_knowledge_option_电场").assertDoesNotExist()
         composeRule.onNodeWithTag("library_knowledge_option_函数").performClick()
         composeRule.onNodeWithTag("library_knowledge_options").assertDoesNotExist()
         scrollToFixture(fixtureIds[0])

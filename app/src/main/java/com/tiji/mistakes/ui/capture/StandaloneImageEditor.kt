@@ -317,7 +317,6 @@ internal fun StandaloneImageEditor(
                                 lineTo(point.x, point.y)
                                 lineTo(point.x, point.y + directionY * cornerLength)
                             }
-                            drawPath(corner, Color.White, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 5.dp.toPx()))
                             drawPath(corner, handleColor, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3.dp.toPx()))
                         }
                         val edgeHandleLength = 52f

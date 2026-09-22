@@ -110,9 +110,6 @@ internal fun ReviewProgressCard(
                 Text("今日复习", style = MaterialTheme.typography.titleLarge)
                 Text("已完成 $completed / $total 题", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            TijiSurface(color = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer, shape = TijiShapes.M) {
-                Text("$completed/$total", modifier = Modifier.padding(12.dp), style = MaterialTheme.typography.headlineSmall)
-            }
         }
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             Text("计划排序", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)

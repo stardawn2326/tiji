@@ -39,7 +39,7 @@ internal fun TijiProgress(progress: () -> Float, modifier: Modifier = Modifier,
 @Composable
 internal fun TijiEmptyState(title: String, message: String, modifier: Modifier = Modifier,
     action: @Composable () -> Unit = {}) {
-    Column(modifier.fillMaxWidth().padding(vertical = 24.dp, horizontal = 16.dp),
+    Column(modifier.fillMaxWidth().padding(vertical = 14.dp, horizontal = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Surface(shape = TijiShapes.L, color = MaterialTheme.colorScheme.primaryContainer) {
             Icon(Icons.Outlined.MenuBook, null, Modifier.padding(16.dp).size(32.dp), tint = MaterialTheme.colorScheme.primary)

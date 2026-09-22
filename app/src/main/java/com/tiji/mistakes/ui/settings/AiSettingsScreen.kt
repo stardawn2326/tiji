@@ -195,11 +195,6 @@ internal fun AiSettingsScreen(
                                         onClick = { model = option },
                                         label = { Text(option, maxLines = 1) }
                                     )
-                                    Text(
-                                        preset.modelModalityLabel(option),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
                                 }
                             }
                         }

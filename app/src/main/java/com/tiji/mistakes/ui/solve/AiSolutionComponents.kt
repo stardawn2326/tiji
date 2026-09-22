@@ -145,8 +145,10 @@ internal fun AiSolutionSection(
     ) {
     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(label, fontWeight = FontWeight.Bold, color = if (label == "最终答案") MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.primary)
+        val parts = if (label == "答案" || label == "最终答案") com.tiji.mistakes.ui.math.numberedAnswerParts(content) else listOf(content)
+        parts.forEach { part ->
         MathText(
-            content,
+            part,
             normalizeTerminalPeriod = label == "最终答案",
             preserveReturnedLayout = true,
             preserveSourceExactly = preserveSourceExactly,
@@ -154,6 +156,7 @@ internal fun AiSolutionSection(
             compactQuestionLayout = label == "题目识别",
             compactVerticalSpacing = true
         )
+        }
     }
     }
 }

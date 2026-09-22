@@ -100,7 +100,7 @@ internal fun ImagePreview(
         TijiImage(
             model = imageModel,
             contentDescription = "题目图片，点击放大",
-            modifier = Modifier.fillMaxSize().clip(TijiShapes.L).clickable { expanded = true },
+            modifier = Modifier.fillMaxSize().clickable { expanded = true },
             contentScale = ContentScale.Fit,
             onError = { loadFailed = true }
         )

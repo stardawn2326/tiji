@@ -603,11 +603,13 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                 }
                 if (!photoOnly) item {
                     TijiPaperCard {
-                        TijiSectionHeader("正确答案", "核对结果，再回顾解题过程")
+                        TijiSectionHeader("答案")
                         if (answer.isBlank()) {
                             Text("暂未补充正确答案", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         } else {
-                            MathText(answer, compactVerticalSpacing = true)
+                            com.tiji.mistakes.ui.math.numberedAnswerParts(answer).forEach { part ->
+                                MathText(part, preserveSourceExactly = true, compactVerticalSpacing = true)
+                            }
                         }
                         ContentBlockImages(detailContentBlocks.filter { it.role == ContentBlockRole.ANSWER }, onDelete = ::removeDetailContentBlock)
                     }

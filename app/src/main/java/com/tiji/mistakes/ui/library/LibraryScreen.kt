@@ -21,6 +21,10 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -215,13 +219,17 @@ internal fun LibraryScreen(
             if (selectedSubject != null && selectedSubject !in this) add(selectedSubject)
         }
     }
-    val knowledgeOptions = remember(mistakes) {
+    val knowledgeOptions = remember(mistakes, selectedSubject) {
         mistakes.asSequence()
+            .filter { selectedSubject == null || normalizedSubject(it.subject) == selectedSubject }
             .flatMap { parseTagValues(it.tags).asSequence() }
             .filter(String::isNotBlank)
             .distinct()
             .sorted()
             .toList()
+    }
+    LaunchedEffect(selectedSubject, knowledgeOptions) {
+        if (knowledgeFilter !in knowledgeOptions) knowledgeFilter = null
     }
     val computedItems by produceState<List<MistakeListItem>?>(null, mistakeItems, order, selectedSubject, masteryFilter, difficultyFilter, knowledgeFilter) {
         value = null
@@ -432,7 +440,7 @@ internal fun LibraryScreen(
                         contentPadding = PaddingValues(horizontal = 8.dp)
                     ) { Text("全选") }
                 } else {
-                    TijiIconButton(onClick = onCreate) {
+                    TijiIconButton(onClick = onCreate, modifier = Modifier.testTag("library_capture")) {
                         Icon(Icons.Outlined.CameraAlt, contentDescription = "录入错题")
                     }
                 }
@@ -445,20 +453,6 @@ internal fun LibraryScreen(
                     .padding(horizontal = 20.dp, vertical = 12.dp)
                     .testTag("library_search")
             )
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = TijiDimens.pagePadding),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.testTag("library_subject_filters")
-            ) {
-                items(subjectTabs) { value ->
-                    TijiChip(
-                        selected = if (value == "全部") selectedSubject == null else selectedSubject == value,
-                        onClick = { onSelectSubject(value.takeUnless { it == "全部" }) },
-                        modifier = Modifier.testTag("library_subject_${if (value == "全部") "all" else value}"),
-                        label = { Text(value) }
-                    )
-                }
-            }
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -477,11 +471,22 @@ internal fun LibraryScreen(
                         modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(7.dp)
                     ) {
+                        BoxWithConstraints(Modifier.fillMaxWidth()) {
+                        val filterWidth = ((maxWidth - 32.dp) / 5).coerceAtLeast(60.dp)
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            LibraryFilterChip(
+                                label = selectedSubject ?: "全部", selected = selectedSubject != null, onClick = {},
+                                options = subjectTabs.map { value ->
+                                    LibraryFilterOption(value, "library_subject_${if (value == "全部") "all" else value}", value == (selectedSubject ?: "全部")) {
+                                        knowledgeFilter = null
+                                        onSelectSubject(value.takeUnless { it == "全部" })
+                                    }
+                                }, optionsTag = "library_subject_options", modifier = Modifier.width(filterWidth), triggerTag = "library_subject_filter"
+                            )
                             LibraryFilterChip(
                                 label = knowledgeFilter ?: "知识点",
                                 selected = knowledgeFilter != null,
@@ -490,26 +495,20 @@ internal fun LibraryScreen(
                                     LibraryFilterOption(value ?: "全部", "library_knowledge_option_${value ?: "all"}", knowledgeFilter == value) { knowledgeFilter = value }
                                 },
                                 optionsTag = "library_knowledge_options",
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier.width(filterWidth),
                                 triggerTag = "library_knowledge_filter_visual"
                             )
                             LibraryFilterChip(
-                                label = masteryFilter?.let(::reviewStatusFilterLabel) ?: "掌握状态",
+                                label = masteryFilter?.let(::reviewStatusFilterLabel) ?: "掌握",
                                 selected = masteryFilter != null,
                                 onClick = {},
                                 options = (listOf(null) + (0..4).toList()).map { value ->
                                     LibraryFilterOption(value?.let(::reviewStatusFilterLabel) ?: "全部", "library_mastery_option_${value?.toString() ?: "all"}", masteryFilter == value) { masteryFilter = value }
                                 },
                                 optionsTag = "library_mastery_options",
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier.width(filterWidth),
                                 triggerTag = "library_mastery_filter"
                             )
-                        }
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
                             LibraryFilterChip(
                                 label = difficultyFilter?.let(::difficultyFilterLabel) ?: "难度",
                                 selected = difficultyFilter != null,
@@ -518,10 +517,10 @@ internal fun LibraryScreen(
                                     LibraryFilterOption(value?.let(::difficultyFilterLabel) ?: "全部", "library_difficulty_option_${value?.toString() ?: "all"}", difficultyFilter == value) { difficultyFilter = value }
                                 },
                                 optionsTag = "library_difficulty_options",
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier.width(filterWidth),
                                 triggerTag = "library_difficulty_filter"
                             )
-                            Box(Modifier.weight(1f)) {
+                            Box(Modifier.width(filterWidth)) {
                                 LibraryFilterChip(
                                     label = if (order == MistakeOrder.NEWEST) "排序" else order.label,
                                     selected = order != MistakeOrder.NEWEST,
@@ -541,6 +540,7 @@ internal fun LibraryScreen(
                                     }
                                 }
                             }
+                        }
                         }
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 2.dp),
@@ -803,18 +803,18 @@ private fun LibraryFilterChip(
         border = androidx.compose.foundation.BorderStroke(1.dp, if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.28f) else MaterialTheme.colorScheme.outlineVariant)
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(2.dp)
         ) {
             Text(
                 label,
                 modifier = Modifier.weight(1f),
-                style = MaterialTheme.typography.labelMedium.copy(fontSize = 13.sp),
+                style = MaterialTheme.typography.labelMedium.copy(fontSize = 12.sp),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            Icon(Icons.Outlined.ExpandMore, contentDescription = null, modifier = Modifier.size(14.dp))
+            Icon(Icons.Outlined.ExpandMore, contentDescription = null, modifier = Modifier.size(10.dp))
         }
     }
     TijiMenu(expanded = expanded, onDismissRequest = { expanded = false }, modifier = Modifier.testTag(optionsTag)) {
