@@ -32,7 +32,7 @@ import com.tiji.mistakes.ui.design.TijiShapes
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.AddAPhoto
-import androidx.compose.material.icons.outlined.Assignment
+import androidx.compose.material.icons.outlined.CameraAlt
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.ExpandMore
@@ -433,7 +433,7 @@ internal fun LibraryScreen(
                     ) { Text("全选") }
                 } else {
                     TijiIconButton(onClick = onCreate) {
-                        Icon(Icons.Outlined.Assignment, contentDescription = "录入错题")
+                        Icon(Icons.Outlined.CameraAlt, contentDescription = "录入错题")
                     }
                 }
             }

@@ -212,6 +212,24 @@ class AiProviderContractHarnessTest {
         assertTrue(aiProviderErrorMessage(500, "").contains("暂时不可用"))
     }
 
+    @Test
+    fun unknownVisionModelsReachProviderAndDoNotForceThinkingOff() = runBlocking {
+        val transport = FakeAiProviderTransport(
+            response = """{"choices":[{"message":{"content":"TIJI_VISION_TEST_OK"}}]}""",
+            streamLines = listOf(sseDelta("<thi"), sseDelta("nk>secret</think>答案"))
+        )
+        val service = AiVisionService(transport)
+        service.testVisionConnection("https://api.deepseek.com", "deepseek-v4-flash", "test-key").getOrThrow()
+        assertTrue(transport.lastRequestBody.toString().contains("image_url"))
+        val visible = StringBuilder()
+        val result = service.streamSolve("https://api.deepseek.com", "deepseek-v4-flash", "test-key",
+            question = "题目", onDelta = { visible.append(it) }).getOrThrow()
+        assertEquals("答案", visible.toString())
+        assertEquals("答案", result)
+        val body = transport.lastStreamBody!!
+        listOf("thinking", "enable_thinking", "max_tokens", "temperature").forEach { assertTrue(!body.has(it)) }
+    }
+
     private fun v2Candidate(): String = """
         [[TIJI_SOLUTION_V2_START]]
         {"schemaVersion":2,"sections":[{"id":"recognition","segments":[{"type":"text","text":"求 1+1"}]},{"id":"approach","segments":[{"type":"text","text":"直接相加"}]},{"id":"derivation","segments":[{"type":"text","text":"1+1=2"}]},{"id":"finalAnswer","segments":[{"type":"text","text":"2"}]}]}
@@ -230,10 +248,11 @@ class AiProviderContractHarnessTest {
         private val streamLineSets: List<List<String>> = emptyList(),
         private val streamDelayMs: Long = 0L
     ) : AiProviderTransport {
+        var lastRequestBody: JSONObject? = null
         var lastStreamBody: JSONObject? = null
         var streamCallCount: Int = 0
 
-        override fun request(endpoint: String, apiKey: String, body: JSONObject): String = response
+        override fun request(endpoint: String, apiKey: String, body: JSONObject): String { lastRequestBody = body; return response }
 
         override suspend fun stream(
             endpoint: String,

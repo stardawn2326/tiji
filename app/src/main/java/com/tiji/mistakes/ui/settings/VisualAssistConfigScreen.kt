@@ -54,20 +54,8 @@ internal fun VisualAssistConfigScreen(
     val scope = rememberCoroutineScope()
     val secureStore = remember { SecureKeyStore(context) }
     val aiService = remember { AiVisionService() }
-    val visualPresets = remember {
-        listOf(
-            AiProviderPreset.OPENAI,
-            AiProviderPreset.GEMINI,
-            AiProviderPreset.DEEPSEEK,
-            AiProviderPreset.QWEN,
-            AiProviderPreset.KIMI,
-            AiProviderPreset.CUSTOM
-        )
-    }
-    fun visionModels(value: AiProviderPreset): List<String> = when (value) {
-        AiProviderPreset.CUSTOM -> emptyList()
-        else -> value.modelOptions.filter { value.supportsVisionFor(it) }
-    }
+    val visualPresets = remember { AiProviderPreset.entries.toList() }
+    fun visionModels(value: AiProviderPreset): List<String> = value.modelOptions
     val initialPreset = AiProviderPreset.detect(
         existingProfile?.endpoint ?: AiProviderPreset.OPENAI.endpoint,
         existingProfile?.model ?: AiProviderPreset.OPENAI.model

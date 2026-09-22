@@ -858,57 +858,49 @@ enum class AiProviderPreset(
     val label: String,
     val endpoint: String,
     val model: String,
-    val hint: String,
-    val supportsVision: Boolean
+    val hint: String
 ) {
     OPENAI(
         label = "OpenAI",
         endpoint = "https://api.openai.com/v1",
         model = "gpt-5.6-sol",
-        hint = "通用文本与视觉模型服务",
-        supportsVision = true
+        hint = "通用文本与视觉模型服务"
     ),
     GEMINI(
         label = "Gemini",
         endpoint = "https://generativelanguage.googleapis.com/v1beta/openai",
         model = "gemini-3.6-flash",
-        hint = "Google 多模态模型服务",
-        supportsVision = true
+        hint = "Google 多模态模型服务"
     ),
     DEEPSEEK(
         label = "DeepSeek",
         endpoint = "https://api.deepseek.com",
         model = "deepseek-v4-flash",
-        hint = "文本与视觉模型服务",
-        supportsVision = false
+        hint = "文本与视觉模型服务"
     ),
     QWEN(
         label = "通义千问",
         endpoint = "https://ws-drhjmed71vu3fx2z.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
         model = "qwen3.7-max",
-        hint = "文本与多模态模型服务",
-        supportsVision = false
+        hint = "文本与多模态模型服务"
     ),
     KIMI(
         label = "Kimi",
         endpoint = "https://api.moonshot.ai/v1",
         model = "kimi-k3",
-        hint = "长文本与多模态模型服务",
-        supportsVision = true
+        hint = "长文本与多模态模型服务"
     ),
     ZHIPU(
         label = "智谱 GLM",
         endpoint = "https://open.bigmodel.cn/api/paas/v4",
         model = "glm-5.2",
-        hint = "中文文本模型服务",
-        supportsVision = false
+        hint = "中文文本模型服务"
     ),
     CUSTOM(
         label = "自定义",
         endpoint = "",
         model = "",
-        hint = "OpenAI 兼容接口",
-        supportsVision = true
+        hint = "OpenAI 兼容接口"
     );
 
     val modelOptions: List<String>
@@ -937,29 +929,11 @@ enum class AiProviderPreset(
             ?: model
     }
 
-    fun supportsVisionFor(modelName: String): Boolean {
-        val normalized = modelName.trim().lowercase()
-        return when (this) {
-            DEEPSEEK -> normalized == "deepseek-v4-flash-vision-exp"
-            QWEN -> normalized == "qwen3.7-plus" ||
-                normalized.startsWith("qwen3.7-plus-") ||
-                normalized.contains("qwen-vl") ||
-                normalized.startsWith("qwen3-vl") ||
-                normalized.contains("-vl-")
-            else -> supportsVision
-        }
-    }
+    // This is permission to attempt image input, not a claim about provider capabilities.
+    // Only the actual endpoint response can establish model support.
+    fun supportsVisionFor(modelName: String): Boolean = true
 
-    fun modelModalityLabel(modelName: String): String {
-        return when (this) {
-            DEEPSEEK -> if (supportsVisionFor(modelName)) "多模态模型" else "文本模型"
-            ZHIPU -> "文本模型"
-            QWEN -> if (supportsVisionFor(modelName)) "多模态模型" else "文本模型"
-            GEMINI, KIMI -> "多模态模型"
-            OPENAI -> "文本/视觉模型"
-            CUSTOM -> "自定义模态"
-        }
-    }
+    fun modelModalityLabel(modelName: String): String = "能力以实际请求为准"
 
     companion object {
         fun detect(endpoint: String, model: String): AiProviderPreset {
@@ -1044,11 +1018,6 @@ class AiVisionService internal constructor(
         val result = runCatching {
             requireConfig(endpoint, model, apiKey)
             require(!question.isNullOrBlank() || orderedSourcePaths.isNotEmpty() || graphicImagePath != null || supplementalImagePaths.isNotEmpty()) { "请提供题目文字或图片" }
-            if (orderedSourcePaths.isNotEmpty() || graphicImagePath != null || supplementalImagePaths.isNotEmpty()) {
-                require(AiProviderPreset.detect(endpoint, model).supportsVisionFor(model)) {
-                    "当前模型不支持含图题视觉识别/解题；请切换到视觉模型"
-                }
-            }
             val hiddenDiagramInstruction = diagramEvidence.orEmpty().trim().takeIf { it.isNotBlank() }?.let {
                 """
                 以下是图形区域 OCR 的隐藏证据，只供理解图形和推理使用：
@@ -1135,10 +1104,9 @@ class AiVisionService internal constructor(
             }
             val body = JSONObject()
                 .put("model", model)
-                .put("max_tokens", 4_000)
                 .put("stream", true)
                 .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", content)))
-            applyDeepSeekTextOptions(body, endpoint, model)
+
             val streamed = runCatching {
                 streamWithSingleContinuation(endpoint, apiKey, body, onDelta)
             }
@@ -1184,8 +1152,6 @@ class AiVisionService internal constructor(
             require(prompt.isNotBlank()) { "文本请求不能为空" }
             val body = JSONObject()
                 .put("model", model)
-                .put("max_tokens", maxTokens.coerceIn(256, 8_000))
-                .put("temperature", 0)
                 .put(
                     "messages",
                     JSONArray().put(
@@ -1194,7 +1160,7 @@ class AiVisionService internal constructor(
                             .put("content", prompt)
                     )
                 )
-            applyDeepSeekTextOptions(body, endpoint, model)
+
             extractContent(request(endpoint, apiKey, body))
         }
         result.exceptionOrNull()?.let { error ->
@@ -1225,9 +1191,6 @@ class AiVisionService internal constructor(
         runCatching {
             requireConfig(endpoint, model, apiKey)
             val image = imagePath?.let {
-                require(AiProviderPreset.detect(endpoint, model).supportsVisionFor(model)) {
-                    "当前模型仅支持文字，不支持图片输入；请切换到视觉模型"
-                }
                 ImageProcessor.prepareForUpload(it).getOrThrow()
             }
             require(image != null || !question.isNullOrBlank()) { "请先提供题目图片或 OCR 文本" }
@@ -1295,10 +1258,8 @@ class AiVisionService internal constructor(
                 }
                 val body = JSONObject()
                     .put("model", model)
-                    .put("max_tokens", 4_000)
                     .put("stream", true)
                     .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", messageContent)))
-                    .also { applyDeepSeekTextOptions(it, endpoint, model) }
                 val contentText = runCatching { streamRequest(endpoint, apiKey, body, onDelta) }
                     .getOrElse {
                         currentCoroutineContext().ensureActive()
@@ -1341,16 +1302,8 @@ class AiVisionService internal constructor(
             val requestedVisualPaths = (orderedSourcePaths + listOfNotNull(graphicImagePath) + followUpImagePaths)
                 .filter(String::isNotBlank)
                 .distinct()
-            val supportsVision = AiProviderPreset.detect(endpoint, model).supportsVisionFor(model)
-            // Text-only models can still answer a follow-up from the OCR/AI
-            // text already included in context. Do not send unsupported image
-            // parts and do not turn this valid fallback into an error.
-            val visualPaths = requestedVisualPaths.takeIf { supportsVision }.orEmpty()
-            val textOnlyFallbackNote = if (!supportsVision && requestedVisualPaths.isNotEmpty()) {
-                "当前模型不支持图片输入；请仅依据下面已识别的题目文字和已有解答继续回答，不要声称看到了原图。"
-            } else {
-                ""
-            }
+            val visualPaths = requestedVisualPaths
+            val textOnlyFallbackNote = ""
             val instruction = buildFollowUpPrompt(
                 context = context,
                 prompt = prompt,
@@ -1372,10 +1325,9 @@ class AiVisionService internal constructor(
             }
             val body = JSONObject()
                 .put("model", model)
-                .put("max_tokens", 4_000)
                 .put("stream", true)
                 .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", messageContent)))
-            applyDeepSeekTextOptions(body, endpoint, model)
+
             runCatching { streamRequest(endpoint, apiKey, body, onDelta) }
                 .getOrElse {
                     currentCoroutineContext().ensureActive()
@@ -1427,7 +1379,7 @@ class AiVisionService internal constructor(
 
                 $solvedContent
             """.trimIndent()
-            val body = JSONObject().put("model", model).put("temperature", 0.1).put("max_tokens", 1800)
+            val body = JSONObject().put("model", model)
                 .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", prompt)))
             // Classification is metadata-only. Parsing without a required
             // question lets the response omit all solve fields.
@@ -1440,7 +1392,6 @@ class AiVisionService internal constructor(
             requireConfig(endpoint, model, apiKey)
             val body = JSONObject()
                 .put("model", model)
-                .put("max_tokens", 8)
                 .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", "Reply only OK")))
             request(endpoint, apiKey, body)
             Unit
@@ -1451,12 +1402,8 @@ class AiVisionService internal constructor(
     suspend fun testVisionConnection(endpoint: String, model: String, apiKey: String): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
             requireConfig(endpoint, model, apiKey)
-            require(AiProviderPreset.detect(endpoint, model).supportsVisionFor(model)) {
-                "当前模型不支持图片输入；请选择视觉模型或多模态模型"
-            }
             val body = JSONObject()
                 .put("model", model)
-                .put("max_tokens", 8)
                 .put(
                     "messages",
                     JSONArray().put(
@@ -1520,7 +1467,6 @@ class AiVisionService internal constructor(
                 requireConfig(endpoint, model, apiKey)
                 val body = JSONObject()
                     .put("model", model)
-                    .put("max_tokens", 8)
                     .put("stream", true)
                     .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", "Reply only OK")))
                 streamRequest(endpoint, apiKey, body) {}
@@ -1544,9 +1490,6 @@ class AiVisionService internal constructor(
         logInfo(TAG, "vision_evidence_start provider=${AiProviderPreset.detect(endpoint, model)} model=${model.take(80)}")
         val result = runCatching {
             requireConfig(endpoint, model, apiKey)
-            require(AiProviderPreset.detect(endpoint, model).supportsVisionFor(model)) {
-                "视觉辅助模型不支持图片输入；请选择视觉模型或多模态模型"
-            }
             val image = ImageProcessor.prepareForUpload(imagePath).getOrThrow()
             val prompt = """
                 你是视觉证据提取器，不是解题器。只忠实读取图片，不要计算答案、解释题意、补充缺失条件或猜测模糊内容。
@@ -1565,10 +1508,8 @@ class AiVisionService internal constructor(
                 .put(JSONObject().put("type", "image_url").put("image_url", JSONObject().put("url", "data:image/jpeg;base64,${Base64.encodeToString(image, Base64.NO_WRAP)}")))
             val body = JSONObject()
                 .put("model", model)
-                .put("max_tokens", 3_000)
                 .put("stream", true)
                 .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", content)))
-                .also { applyDeepSeekTextOptions(it, endpoint, model) }
             val raw = runCatching { streamRequest(endpoint, apiKey, body, onDelta) }
                 .getOrElse {
                     currentCoroutineContext().ensureActive()
@@ -1728,9 +1669,6 @@ class AiVisionService internal constructor(
     ): Result<AiRecognitionResult> = withContext(Dispatchers.IO) {
         runCatching {
             requireConfig(endpoint, model, apiKey)
-            require(AiProviderPreset.detect(endpoint, model).supportsVisionFor(model)) {
-                "当前模型仅支持文字，不支持图片输入；请改用 Qwen-VL、Gemini 视觉模型或 OpenAI 视觉模型"
-            }
             val image = ImageProcessor.prepareForUpload(imagePath).getOrThrow()
             val prompt = """
                 你要根据图片识别并填充错题信息，只返回一个 JSON 对象，不要 Markdown，不要额外文字。
@@ -1753,10 +1691,8 @@ class AiVisionService internal constructor(
                 .put(JSONObject().put("type", "image_url").put("image_url", JSONObject().put("url", "data:image/jpeg;base64,${Base64.encodeToString(image, Base64.NO_WRAP)}")))
             val body = JSONObject()
                 .put("model", model)
-                .put("max_tokens", 4_000)
                 .put("stream", true)
                 .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", content)))
-                .also { applyDeepSeekJsonOptions(it, endpoint, model) }
             val contentText = runCatching { streamRequest(endpoint, apiKey, body, onDelta) }
                 .getOrElse {
                     currentCoroutineContext().ensureActive()
@@ -1832,10 +1768,8 @@ $retryInstruction
             """.trimIndent()
             val body = JSONObject()
                 .put("model", model)
-                .put("max_tokens", 4_000)
                 .put("stream", true)
                 .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", prompt)))
-                .also { applyDeepSeekTextOptions(it, endpoint, model) }
             val contentText = runCatching { streamRequest(endpoint, apiKey, body, onDelta) }
                 .getOrElse {
                     currentCoroutineContext().ensureActive()
@@ -1910,10 +1844,8 @@ $retryInstruction
             """.trimIndent()
             val body = JSONObject()
                 .put("model", model)
-                .put("max_tokens", 4_000)
                 .put("stream", true)
                 .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", prompt + "\n\n" + solveTextSourceOrderInstruction)))
-                .also { applyDeepSeekJsonOptions(it, endpoint, model) }
             val contentText = runCatching { streamRequest(endpoint, apiKey, body, onDelta) }
                 .getOrElse {
                     currentCoroutineContext().ensureActive()
@@ -1968,6 +1900,7 @@ $retryInstruction
 
     private suspend fun streamRequest(endpoint: String, apiKey: String, body: JSONObject, onDelta: suspend (String) -> Unit): String {
         val complete = StringBuilder()
+        val answerFilter = AnswerContentFilter()
         var receivedReasoning = false
         var finishReason = ""
         transport.stream(endpoint, apiKey, body) { line ->
@@ -1988,10 +1921,13 @@ $retryInstruction
                         receivedReasoning = receivedReasoning || jsonText(deltaObject, "reasoning_content").isNotBlank()
                         jsonText(deltaObject, "content")
                     }.getOrDefault("")
-                    if (delta.isNotEmpty()) { complete.append(delta); onDelta(delta) }
+                    val visibleDelta = answerFilter.append(delta)
+                    if (visibleDelta.isNotEmpty()) { complete.append(visibleDelta); onDelta(visibleDelta) }
                 }
             }
         }
+        val tail = answerFilter.finish()
+        if (tail.isNotEmpty()) { complete.append(tail); onDelta(tail) }
         if (isOutputLengthLimit(finishReason)) {
             throw AiOutputLimitException(complete.toString())
         }
@@ -2063,10 +1999,10 @@ $retryInstruction
             ?: error("服务商响应缺少 message：请检查模型是否支持 chat completions")
         val contentValue = message.opt("content")
         val content = when (contentValue) {
-            is String -> contentValue
+            is String -> AnswerContentFilter.clean(contentValue)
             is JSONArray -> (0 until contentValue.length()).mapNotNull { index ->
-                contentValue.optJSONObject(index)?.optString("text")?.takeIf(String::isNotBlank)
-            }.joinToString("")
+                contentValue.optJSONObject(index)?.takeIf { it.optString("type") in listOf("", "text", "output_text") }?.optString("text")?.takeIf(String::isNotBlank)
+            }.joinToString("").let(AnswerContentFilter::clean)
             else -> ""
         }.trim()
         if (isOutputLengthLimit(firstChoice.optString("finish_reason"))) {
@@ -2078,31 +2014,6 @@ $retryInstruction
             error("模型只返回了思考过程，没有返回最终答案；请稍后重试或检查服务商返回格式")
         }
         error("服务商返回空内容：可能是模型拒答、模型名不支持，或输出被截断")
-    }
-
-    private fun applyDeepSeekTextOptions(body: JSONObject, endpoint: String, model: String) {
-        // Recognition/fill-in needs a visible answer payload. Some reasoning models
-        // otherwise send only reasoning_content, which cannot be parsed as the
-        // requested JSON or final solution.
-        when (AiProviderPreset.detect(endpoint, model)) {
-            AiProviderPreset.DEEPSEEK -> body
-                .put("thinking", JSONObject().put("type", "disabled"))
-                .put("temperature", 0)
-            AiProviderPreset.QWEN -> if (model.trim().lowercase().startsWith("qwen3")) {
-                body
-                    .put("enable_thinking", false)
-                    .put("temperature", 0)
-            }
-            else -> Unit
-        }
-    }
-
-    private fun applyDeepSeekJsonOptions(body: JSONObject, endpoint: String, model: String) {
-        val preset = AiProviderPreset.detect(endpoint, model)
-        applyDeepSeekTextOptions(body, endpoint, model)
-        if (preset == AiProviderPreset.DEEPSEEK) {
-            body.put("response_format", JSONObject().put("type", "json_object"))
-        }
     }
 
     internal fun parseRecognition(raw: String, requireQuestion: Boolean = true): AiRecognitionResult {

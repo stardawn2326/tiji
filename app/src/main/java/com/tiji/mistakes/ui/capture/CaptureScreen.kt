@@ -288,7 +288,11 @@ internal val mistakeDraftSaver: Saver<MistakeDraft, String> = Saver(
 
 @Composable
 internal fun EntryModeSegmented(selected: EntryMode, enabled: Boolean, onSelected: (EntryMode) -> Unit) {
-    com.tiji.mistakes.ui.design.TijiSegmentedControl(EntryMode.entries, selected, onSelected, { it.label }, enabled = enabled)
+    androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        EntryMode.entries.forEach { value ->
+            TijiChip(selected = value == selected, enabled = enabled, onClick = { onSelected(value) }, label = { Text(value.label) })
+        }
+    }
 }
 
 internal val stringListSaver = listSaver<List<String>, String>(save = { it }, restore = { it })
@@ -669,10 +673,7 @@ internal fun NewCaptureScreen(
             captureMessage = "此模型尚未配置视觉辅助。"
             return
         }
-        if (aiInputMode == AiInputMode.VISION && !preset.supportsVisionFor(aiModel)) {
-            captureMessage = "AI 识别失败：当前模型不支持图片，请切换到视觉模型"
-            return
-        }
+
         if (aiInputMode == AiInputMode.VISUAL_ASSISTED && visualApiKey.isBlank()) {
             captureMessage = "此模型尚未配置视觉辅助。"
             return
@@ -963,7 +964,7 @@ internal fun NewCaptureScreen(
                 if (duplicateCandidates.isNotEmpty()) showDuplicateDialog = true else showSaveSheet = true
             },
                         shape = TijiShapes.M,
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                     ) { Text(if (aiRecognitionState.running) "正在识别…" else if (saving) "正在保存…" else "保存错题") }
             }
         },
@@ -1020,7 +1021,7 @@ internal fun NewCaptureScreen(
                                 subtitle = "支持拍照或从相册选择",
                                 icon = Icons.Outlined.AddAPhoto,
                                 onClick = { selectedRole = PhotoRole.QUESTION; galleryLauncher.launch("image/*") },
-                                minHeight = 160.dp,
+                                minHeight = 112.dp,
                                 compact = true,
                                 actions = {
                                     TijiSecondaryButton(
