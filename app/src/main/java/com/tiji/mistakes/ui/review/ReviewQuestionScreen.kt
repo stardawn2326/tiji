@@ -626,10 +626,10 @@ internal fun ReviewQuestionScreen(
                                         shape = TijiShapes.M,
                                         modifier = Modifier
                                             .weight(1f)
-                                            .heightIn(min = 88.dp)
+                                            .heightIn(min = 64.dp)
                                             .testTag("review_grade_${grade.name.lowercase()}"),
                                     ) {
-                                        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                             Text(reviewGradeUiLabel(grade), style = MaterialTheme.typography.titleSmall, color = gradeColor)
                                             Text(reviewIntervalLabel(preview), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         }

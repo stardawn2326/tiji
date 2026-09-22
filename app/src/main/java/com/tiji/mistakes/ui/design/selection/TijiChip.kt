@@ -1,6 +1,8 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 package com.tiji.mistakes.ui.design
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.interaction.*
@@ -22,11 +24,15 @@ import androidx.compose.ui.window.*
 internal fun TijiChip(selected: Boolean, onClick: () -> Unit, label: @Composable () -> Unit,
     modifier: Modifier = Modifier, enabled: Boolean = true,
     leadingIcon: (@Composable () -> Unit)? = null, trailingIcon: (@Composable () -> Unit)? = null) {
-    FilterChip(selected, onClick, label, modifier.heightIn(min = 48.dp), enabled,
+    val background by animateColorAsState(
+        if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+        tween(TijiMotion.Fast), label = "chipSelection"
+    )
+    FilterChip(selected, onClick, label, modifier, enabled,
         leadingIcon = leadingIcon, trailingIcon = trailingIcon, shape = TijiShapes.Pill,
         colors = FilterChipDefaults.filterChipColors(
-            containerColor = MaterialTheme.colorScheme.surface,
-            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+            containerColor = background,
+            selectedContainerColor = background,
             selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
             labelColor = MaterialTheme.colorScheme.onSurfaceVariant))
 }
@@ -34,5 +40,5 @@ internal fun TijiChip(selected: Boolean, onClick: () -> Unit, label: @Composable
 @Composable
 internal fun TijiAssistChip(onClick: () -> Unit, label: @Composable () -> Unit, modifier: Modifier = Modifier,
     enabled: Boolean = true, leadingIcon: (@Composable () -> Unit)? = null, trailingIcon: (@Composable () -> Unit)? = null) {
-    AssistChip(onClick, label, modifier.heightIn(min = 48.dp), enabled, leadingIcon, trailingIcon, shape = TijiShapes.Pill)
+    AssistChip(onClick, label, modifier, enabled, leadingIcon, trailingIcon, shape = TijiShapes.Pill)
 }

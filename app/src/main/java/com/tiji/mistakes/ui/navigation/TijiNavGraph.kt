@@ -149,7 +149,8 @@ internal fun TijiNavGraph(
                 composable(TijiRoutes.HOME) {
                     HomeScreen(
                         progressSummary = state.progressSummary,
-                        resetScrollToken = state.homeVisitToken
+                        resetScrollToken = state.homeVisitToken,
+                        onOpenKnowledge = { navController.navigate(TijiRoutes.knowledgeDetail(it)) }
                     )
                 }
                 composable(TijiRoutes.LIBRARY) {

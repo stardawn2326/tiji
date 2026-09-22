@@ -1,6 +1,8 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 package com.tiji.mistakes.ui.design
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.interaction.*
@@ -24,13 +26,14 @@ internal fun TijiButton(
     shape: Shape = TijiShapes.M, colors: ButtonColors = ButtonDefaults.buttonColors(
         disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
         disabledContentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)),
-    contentPadding: PaddingValues = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+    contentPadding: PaddingValues = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
     loading: Boolean = false, content: @Composable RowScope.() -> Unit
 ) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
+    val pressScale by animateFloatAsState(if (pressed) 0.97f else 1f, tween(TijiMotion.Fast), label = "buttonPress")
     val pressedColor = lerp(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.onPrimary, 0.12f)
-    Button(onClick, modifier.heightIn(min = 48.dp), enabled && !loading, shape,
+    Button(onClick, modifier.heightIn(min = 48.dp).graphicsLayer { scaleX = pressScale; scaleY = pressScale }, enabled && !loading, shape,
         if (pressed && colors.containerColor == MaterialTheme.colorScheme.primary) colors.copy(containerColor = pressedColor) else colors,
         elevation = ButtonDefaults.buttonElevation(0.dp, 0.dp),
         contentPadding = contentPadding, interactionSource = interaction) {
@@ -41,12 +44,15 @@ internal fun TijiButton(
 
 @Composable
 internal fun TijiSecondaryButton(onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true,
-    shape: Shape = TijiShapes.M, contentPadding: PaddingValues = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+    shape: Shape = TijiShapes.M, contentPadding: PaddingValues = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
     content: @Composable RowScope.() -> Unit) {
-    OutlinedButton(onClick, modifier.heightIn(min = 48.dp), enabled, shape,
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val pressScale by animateFloatAsState(if (pressed) 0.97f else 1f, tween(TijiMotion.Fast), label = "secondaryPress")
+    OutlinedButton(onClick, modifier.heightIn(min = 48.dp).graphicsLayer { scaleX = pressScale; scaleY = pressScale }, enabled, shape,
         colors = ButtonDefaults.outlinedButtonColors(containerColor = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer),
         border = BorderStroke(1.dp, if (enabled) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.outlineVariant),
-        contentPadding = contentPadding, content = content)
+        contentPadding = contentPadding, interactionSource = interaction, content = content)
 }
 
 @Composable

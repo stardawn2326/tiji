@@ -562,41 +562,41 @@ internal fun LibraryScreen(
                         modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(7.dp)
                     ) {
-                        androidx.compose.foundation.layout.FlowRow(
+                        Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(7.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
                             LibraryFilterChip(
                                 label = knowledgeFilter ?: "知识点",
                                 selected = knowledgeFilter != null,
                                 onClick = { showFilterDialog = true },
-                                modifier = Modifier.testTag("library_knowledge_filter_visual")
+                                modifier = Modifier.weight(1f).testTag("library_knowledge_filter_visual")
                             )
                             LibraryFilterChip(
                                 label = masteryFilter?.let(::reviewStatusFilterLabel) ?: "掌握状态",
                                 selected = masteryFilter != null,
                                 onClick = { showFilterDialog = true },
-                                modifier = Modifier.testTag("library_mastery_filter")
+                                modifier = Modifier.weight(1f).testTag("library_mastery_filter")
                             )
                         }
-                        androidx.compose.foundation.layout.FlowRow(
+                        Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(7.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
                             LibraryFilterChip(
                                 label = difficultyFilter?.let(::difficultyFilterLabel) ?: "难度",
                                 selected = difficultyFilter != null,
                                 onClick = { showFilterDialog = true },
-                                modifier = Modifier.testTag("library_difficulty_filter")
+                                modifier = Modifier.weight(1f).testTag("library_difficulty_filter")
                             )
-                            Box {
+                            Box(Modifier.weight(1f)) {
                                 LibraryFilterChip(
                                     label = if (order == MistakeOrder.NEWEST) "排序" else order.label,
                                     selected = order != MistakeOrder.NEWEST,
                                     onClick = { sortMenuExpanded = true },
-                                    modifier = Modifier.testTag("library_sort_filter")
+                                    modifier = Modifier.fillMaxWidth().testTag("library_sort_filter")
                                 )
                                 TijiMenu(
                                     expanded = sortMenuExpanded,
@@ -610,7 +610,6 @@ internal fun LibraryScreen(
                                     }
                                 }
                             }
-                            Icon(Icons.Outlined.ViewList, contentDescription = "列表视图", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 2.dp),
@@ -858,18 +857,19 @@ private fun LibraryFilterChip(
     TijiSurface(
         onClick = onClick,
         modifier = modifier.heightIn(min = 48.dp),
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
         color = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.11f) else MaterialTheme.colorScheme.surface,
         contentColor = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
         border = androidx.compose.foundation.BorderStroke(1.dp, if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.28f) else MaterialTheme.colorScheme.outlineVariant)
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 8.dp),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(2.dp)
         ) {
             Text(
                 label,
+                modifier = Modifier.weight(1f),
                 style = MaterialTheme.typography.labelMedium.copy(fontSize = 13.sp),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
