@@ -2,7 +2,6 @@ package com.tiji.mistakes.ui
 
 import com.tiji.mistakes.ui.design.*
 import android.app.Activity
-import android.graphics.Color as AndroidColor
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.darkColorScheme
@@ -67,7 +66,7 @@ private fun SystemBars(dark: Boolean, background: Color) {
         val activity = context as? Activity
         if (activity != null) {
             val window = activity.window
-            window.statusBarColor = if (dark) background.toArgb() else AndroidColor.TRANSPARENT
+            window.statusBarColor = background.toArgb()
             window.navigationBarColor = background.toArgb()
             WindowCompat.getInsetsController(window, window.decorView).apply {
                 isAppearanceLightStatusBars = !dark
