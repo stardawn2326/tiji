@@ -142,7 +142,6 @@ internal fun LibraryScreen(
     var batchTags by remember { mutableStateOf("") }
     var batchDifficulty by remember { mutableStateOf<Int?>(null) }
     var batchReviewPlan by remember { mutableStateOf<Boolean?>(null) }
-    var showFilterDialog by remember { mutableStateOf(false) }
     var masteryFilter by remember { mutableStateOf<Int?>(null) }
     var difficultyFilter by remember { mutableStateOf<Int?>(null) }
     var knowledgeFilter by remember { mutableStateOf<String?>(null) }
@@ -382,75 +381,6 @@ internal fun LibraryScreen(
             dismissButton = { TijiTextButton(onClick = { showBatchDeleteDialog = false }) { Text("取消") } }
         )
     }
-    if (showFilterDialog) {
-        TijiDialog(
-            onDismissRequest = { showFilterDialog = false },
-            title = { Text("筛选错题") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("知识点", style = MaterialTheme.typography.titleSmall)
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.testTag("library_knowledge_options")
-                    ) {
-                        item {
-                            TijiChip(selected = knowledgeFilter == null, onClick = { knowledgeFilter = null }, label = { Text("全部") })
-                        }
-                        items(knowledgeOptions) { value ->
-                            TijiChip(
-                                selected = knowledgeFilter == value,
-                                onClick = { knowledgeFilter = value },
-                                label = { Text(value) }
-                            )
-                        }
-                    }
-                    Text("复习状态", style = MaterialTheme.typography.titleSmall)
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.testTag("library_mastery_options")
-                    ) {
-                        item {
-                            TijiChip(selected = masteryFilter == null, onClick = { masteryFilter = null }, label = { Text("全部") })
-                        }
-                        items((0..4).map { it to reviewStatusFilterLabel(it) }) { (value, label) ->
-                            TijiChip(
-                                selected = masteryFilter == value,
-                                onClick = { masteryFilter = value },
-                                modifier = Modifier.testTag("library_mastery_option_$value"),
-                                label = { Text(label) }
-                            )
-                        }
-                    }
-                    Text("难度", style = MaterialTheme.typography.titleSmall)
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.testTag("library_difficulty_options")
-                    ) {
-                        item {
-                            TijiChip(selected = difficultyFilter == null, onClick = { difficultyFilter = null }, label = { Text("全部") })
-                        }
-                        items(difficultyOptions) { (value, label) ->
-                            TijiChip(
-                                selected = difficultyFilter == value,
-                                onClick = { difficultyFilter = value },
-                                modifier = Modifier.testTag("library_difficulty_option_$value"),
-                                label = { Text(label) }
-                            )
-                        }
-                    }
-                }
-            },
-            confirmButton = { TijiTextButton(onClick = { showFilterDialog = false }) { Text("完成") } },
-            dismissButton = {
-                TijiTextButton(onClick = {
-                    masteryFilter = null
-                    difficultyFilter = null
-                    knowledgeFilter = null
-                    showFilterDialog = false
-                }) { Text("清除筛选") }
-            }
-        )
-    }
     TijiScreen(
         contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0),
         snackbarHost = { TijiSnackbar(snackbarHostState) },
@@ -475,34 +405,12 @@ internal fun LibraryScreen(
                 .background(MaterialTheme.colorScheme.background)
                 .padding(padding)
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 68.dp)
-                    .padding(horizontal = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                TijiIconButton(
-                    onClick = if (selectionMode) {
-                        { selectionMode = false; selectedIds = emptySet() }
-                    } else onBack,
-                    modifier = Modifier.testTag(if (selectionMode) "library_exit_selection" else "library_back")
-                ) {
-                    Icon(
-                        if (selectionMode) Icons.Outlined.Close else Icons.AutoMirrored.Outlined.ArrowBack,
-                        contentDescription = if (selectionMode) "退出批量选择" else "返回"
-                    )
+            com.tiji.mistakes.ui.design.TijiPrimaryHeader("错题库") {
+                if (selectionMode) {
+                    TijiIconButton(onClick = { selectionMode = false; selectedIds = emptySet() }, modifier = Modifier.testTag("library_exit_selection")) {
+                        Icon(Icons.Outlined.Close, contentDescription = "退出批量选择")
+                    }
                 }
-                Text(
-                    "错题库",
-                    modifier = Modifier.weight(1f).padding(horizontal = 4.dp),
-                    style = MaterialTheme.typography.titleLarge.copy(
-                        fontSize = 19.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    ),
-                    maxLines = 1
-                )
                 if (selectionMode) {
                     TijiTextButton(
                         onClick = {
@@ -527,7 +435,7 @@ internal fun LibraryScreen(
                 onValueChange = viewModel::setQuery,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 3.dp)
+                    .padding(horizontal = 20.dp, vertical = 12.dp)
                     .testTag("library_search")
             )
             LazyRow(
@@ -554,7 +462,7 @@ internal fun LibraryScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .testTag("library_mistakes_list"),
-                    contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 14.dp),
+                    contentPadding = PaddingValues(start = 20.dp, top = 8.dp, end = 20.dp, bottom = 14.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                 item {
@@ -570,14 +478,24 @@ internal fun LibraryScreen(
                             LibraryFilterChip(
                                 label = knowledgeFilter ?: "知识点",
                                 selected = knowledgeFilter != null,
-                                onClick = { showFilterDialog = true },
-                                modifier = Modifier.weight(1f).testTag("library_knowledge_filter_visual")
+                                onClick = {},
+                                options = (listOf(null) + knowledgeOptions).map { value ->
+                                    LibraryFilterOption(value ?: "全部", "library_knowledge_option_${value ?: "all"}", knowledgeFilter == value) { knowledgeFilter = value }
+                                },
+                                optionsTag = "library_knowledge_options",
+                                modifier = Modifier.weight(1f),
+                                triggerTag = "library_knowledge_filter_visual"
                             )
                             LibraryFilterChip(
                                 label = masteryFilter?.let(::reviewStatusFilterLabel) ?: "掌握状态",
                                 selected = masteryFilter != null,
-                                onClick = { showFilterDialog = true },
-                                modifier = Modifier.weight(1f).testTag("library_mastery_filter")
+                                onClick = {},
+                                options = (listOf(null) + (0..4).toList()).map { value ->
+                                    LibraryFilterOption(value?.let(::reviewStatusFilterLabel) ?: "全部", "library_mastery_option_${value?.toString() ?: "all"}", masteryFilter == value) { masteryFilter = value }
+                                },
+                                optionsTag = "library_mastery_options",
+                                modifier = Modifier.weight(1f),
+                                triggerTag = "library_mastery_filter"
                             )
                         }
                         Row(
@@ -588,15 +506,21 @@ internal fun LibraryScreen(
                             LibraryFilterChip(
                                 label = difficultyFilter?.let(::difficultyFilterLabel) ?: "难度",
                                 selected = difficultyFilter != null,
-                                onClick = { showFilterDialog = true },
-                                modifier = Modifier.weight(1f).testTag("library_difficulty_filter")
+                                onClick = {},
+                                options = (listOf<Int?>(null) + difficultyOptions.map { it.first }).map { value ->
+                                    LibraryFilterOption(value?.let(::difficultyFilterLabel) ?: "全部", "library_difficulty_option_${value?.toString() ?: "all"}", difficultyFilter == value) { difficultyFilter = value }
+                                },
+                                optionsTag = "library_difficulty_options",
+                                modifier = Modifier.weight(1f),
+                                triggerTag = "library_difficulty_filter"
                             )
                             Box(Modifier.weight(1f)) {
                                 LibraryFilterChip(
                                     label = if (order == MistakeOrder.NEWEST) "排序" else order.label,
                                     selected = order != MistakeOrder.NEWEST,
                                     onClick = { sortMenuExpanded = true },
-                                    modifier = Modifier.fillMaxWidth().testTag("library_sort_filter")
+                                    modifier = Modifier.fillMaxWidth(),
+                                    triggerTag = "library_sort_filter"
                                 )
                                 TijiMenu(
                                     expanded = sortMenuExpanded,
@@ -847,16 +771,23 @@ private fun LibrarySearchField(
     )
 }
 
+private data class LibraryFilterOption(val label: String, val tag: String, val selected: Boolean, val select: () -> Unit)
+
 @Composable
 private fun LibraryFilterChip(
     label: String,
     selected: Boolean,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    options: List<LibraryFilterOption> = emptyList(),
+    optionsTag: String = "",
+    triggerTag: String = ""
 ) {
+    var expanded by remember { mutableStateOf(false) }
+    Box(modifier) {
     TijiSurface(
-        onClick = onClick,
-        modifier = modifier.heightIn(min = 48.dp),
+        onClick = { if (options.isEmpty()) onClick() else expanded = true },
+        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag(triggerTag),
         shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
         color = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.11f) else MaterialTheme.colorScheme.surface,
         contentColor = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
@@ -876,6 +807,16 @@ private fun LibraryFilterChip(
             )
             Icon(Icons.Outlined.ExpandMore, contentDescription = null, modifier = Modifier.size(14.dp))
         }
+    }
+    TijiMenu(expanded = expanded, onDismissRequest = { expanded = false }, modifier = Modifier.testTag(optionsTag)) {
+        options.forEach { option ->
+            TijiMenuItem(
+                text = { Text(if (option.selected) "✓ ${option.label}" else option.label) },
+                modifier = Modifier.testTag(option.tag),
+                onClick = { option.select(); expanded = false }
+            )
+        }
+    }
     }
 }
 

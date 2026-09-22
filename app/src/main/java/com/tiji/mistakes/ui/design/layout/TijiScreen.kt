@@ -56,3 +56,15 @@ internal fun TijiBottomActionBar(modifier: Modifier = Modifier, supportingText: 
         }
     }
 }
+
+@Composable
+internal fun TijiPrimaryHeader(title: String, actions: @Composable RowScope.() -> Unit = {}) {
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 76.dp).padding(horizontal = TijiDimens.pagePadding, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(title, modifier = Modifier.weight(1f).semantics { heading() },
+            style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onBackground)
+        actions()
+    }
+}

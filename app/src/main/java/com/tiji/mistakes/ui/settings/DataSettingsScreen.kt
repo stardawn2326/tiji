@@ -238,9 +238,6 @@ internal fun DataSettingsScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item {
-                com.tiji.mistakes.ui.design.TijiFeatureBanner("学习记录，安心留存", "备份错题和复习记录，或从已有备份恢复。")
-            }
-            item {
                 TijiSettingGroup("备份与恢复", Icons.Outlined.FolderOpen) {
                     Text(
                         "可供各版本读取：包含错题、图片、复习计划和复习记录，不包含 API Key。",

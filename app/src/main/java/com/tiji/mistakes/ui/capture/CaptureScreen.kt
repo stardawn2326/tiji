@@ -995,9 +995,6 @@ internal fun NewCaptureScreen(
             verticalArrangement = Arrangement.spacedBy(TijiDimens.sectionGap)
         ) {
             item {
-                com.tiji.mistakes.ui.design.TijiFeatureBanner("记录一道题，理清一个知识点", "选择录入方式，整理题目与解析，确认后保存到错题库。")
-            }
-            item {
                 EntryModeSegmented(
                     selected = mode,
                     enabled = !saving && !aiRecognitionState.running,

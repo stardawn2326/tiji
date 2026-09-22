@@ -46,13 +46,14 @@ internal fun HomeScreen(
     val listState = rememberLazyListState()
     var expandedSubjects by remember { mutableStateOf<Set<String>>(emptySet()) }
     LaunchedEffect(resetScrollToken) { if (resetScrollToken > 0) listState.scrollToItem(0) }
+    androidx.compose.foundation.layout.Column(Modifier.fillMaxSize()) {
+    com.tiji.mistakes.ui.design.TijiPrimaryHeader("题迹")
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = TijiDimens.pagePadding, vertical = 20.dp),
+        contentPadding = PaddingValues(horizontal = TijiDimens.pagePadding, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        item { TijiPageHeader("题迹", "每一次回顾，都是下一次进步。", eyebrow = "学习工作台") }
         item {
             com.tiji.mistakes.ui.design.TijiMasteryOverview(progressSummary)
         }
@@ -116,5 +117,6 @@ internal fun HomeScreen(
                 }
             }
         }
+    }
     }
 }

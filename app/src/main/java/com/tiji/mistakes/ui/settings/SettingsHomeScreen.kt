@@ -56,17 +56,15 @@ internal fun SettingsHomeScreen(
     LaunchedEffect(resetScrollToken) {
         if (resetScrollToken > 0) listState.scrollToItem(0)
     }
+    androidx.compose.foundation.layout.Column(Modifier.fillMaxSize()) {
+    com.tiji.mistakes.ui.design.TijiPrimaryHeader("设置")
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize().testTag("my_settings_list"),
-        contentPadding = PaddingValues(horizontal = TijiDimens.pagePadding, vertical = 20.dp),
+        contentPadding = PaddingValues(horizontal = TijiDimens.pagePadding, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
-            TijiPageHeader("设置", "让题迹更适合你的学习习惯", eyebrow = "个人偏好")
-        }
-        item {
-            Spacer(Modifier.height(12.dp))
             com.tiji.mistakes.ui.design.TijiSettingRow(
                 title = "AI 模型",
                 subtitle = "当前模型：${activeAiProfile.model}",
@@ -106,5 +104,6 @@ internal fun SettingsHomeScreen(
                 onClick = onOpenAbout
             )
         }
+    }
     }
 }

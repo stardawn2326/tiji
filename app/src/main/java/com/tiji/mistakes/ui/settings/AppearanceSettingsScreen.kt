@@ -35,9 +35,6 @@ internal fun AppearanceSettingsScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item {
-                com.tiji.mistakes.ui.design.TijiFeatureBanner("清晰、舒适，专注内容", "蓝白主题随浅色、深色或系统模式切换。")
-            }
-            item {
                 TijiSettingGroup("显示模式", Icons.Outlined.Style) {
                     Text("选择题迹在本机上的显示方式。")
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {

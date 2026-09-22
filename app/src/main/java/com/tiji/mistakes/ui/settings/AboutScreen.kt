@@ -27,9 +27,6 @@ internal fun AboutScreen(onBack: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item {
-                com.tiji.mistakes.ui.design.TijiFeatureBanner("题迹", "记录错题，理解方法，让每一次复习都有迹可循。")
-            }
-            item {
                 TijiPageHeader("题迹")
             }
             item {

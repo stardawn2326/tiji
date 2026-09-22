@@ -141,7 +141,20 @@ class LibraryFilterTest {
         composeRule.onNodeWithTag("mistake_card_${fixtureIds[2]}").assertDoesNotExist()
 
         scrollToFilters()
+        composeRule.onNodeWithTag("library_knowledge_filter_visual").performClick()
+        composeRule.onNodeWithTag("library_mastery_options").assertDoesNotExist()
+        composeRule.onNodeWithTag("library_difficulty_options").assertDoesNotExist()
+        composeRule.onNodeWithTag("library_knowledge_option_函数").performClick()
+        composeRule.onNodeWithTag("library_knowledge_options").assertDoesNotExist()
+        scrollToFixture(fixtureIds[0])
+        composeRule.onNodeWithTag("mistake_card_${fixtureIds[1]}").assertDoesNotExist()
+        scrollToFilters()
+        composeRule.onNodeWithTag("library_knowledge_filter_visual").performClick()
+        composeRule.onNodeWithTag("library_knowledge_option_all").performClick()
+
         composeRule.onNodeWithTag("library_mastery_filter").performClick()
+        composeRule.onNodeWithTag("library_difficulty_options").assertDoesNotExist()
+        composeRule.onNodeWithTag("library_knowledge_options").assertDoesNotExist()
         composeRule.onNodeWithText("结构化知识点").assertDoesNotExist()
         composeRule.onNodeWithText("旧标签兼容").assertDoesNotExist()
         composeRule.waitUntil(5_000) {
@@ -153,13 +166,13 @@ class LibraryFilterTest {
             }.getOrDefault(false)
         }
         composeRule.onNodeWithTag("library_mastery_option_0").performClick()
-        composeRule.onNodeWithText("完成").performClick()
         scrollToFixture(fixtureIds[0])
         composeRule.onNodeWithTag("mistake_card_${fixtureIds[0]}").assertExists()
         composeRule.onNodeWithTag("mistake_card_${fixtureIds[1]}").assertDoesNotExist()
 
         scrollToFilters()
         composeRule.onNodeWithTag("library_difficulty_filter").performClick()
+        composeRule.onNodeWithTag("library_mastery_options").assertDoesNotExist()
         composeRule.waitUntil(5_000) {
             runCatching {
                 composeRule.onNodeWithTag("library_difficulty_options")
@@ -169,7 +182,6 @@ class LibraryFilterTest {
             }.getOrDefault(false)
         }
         composeRule.onNodeWithTag("library_difficulty_option_1").performClick()
-        composeRule.onNodeWithText("完成").performClick()
         scrollToFixture(fixtureIds[0])
         composeRule.onNodeWithTag("mistake_card_${fixtureIds[0]}").assertExists()
         composeRule.onNodeWithTag("mistake_card_${fixtureIds[1]}").assertDoesNotExist()

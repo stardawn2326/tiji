@@ -99,9 +99,6 @@ internal fun AiSettingsScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item {
-                com.tiji.mistakes.ui.design.TijiFeatureBanner("AI 服务，由你掌控", "管理模型、连接方式与视觉输入，所有配置都在这里。")
-            }
-            item {
                 TijiSettingGroup("AI 模型配置", Icons.Outlined.AutoAwesome) {
                     Text(
                         "按需配置，未配置时核心功能完全离线。每套配置独立保存服务商、模型和本机密钥。",

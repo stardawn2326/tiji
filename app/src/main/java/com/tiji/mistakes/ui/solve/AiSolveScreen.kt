@@ -979,11 +979,7 @@ internal fun AiSolveScreen(
     val savedCurrent = aiMistakeSaveState.requestId == aiSolveState.requestId && aiMistakeSaveState.mistakeId != null
     TijiScreen(
         topBar = {
-            TijiTopBar(
-                title = { Text("AI 解题") },
-                actions = { TijiTextButton(onClick = onOpenSolveHistory) { Text("历史记录") } },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
-            )
+            com.tiji.mistakes.ui.design.TijiPrimaryHeader("AI 解题") { TijiTextButton(onClick = onOpenSolveHistory) { Text("历史记录") } }
         },
         bottomBar = {
             if (hasSolution) com.tiji.mistakes.ui.design.TijiBottomActionBar(
@@ -1004,13 +1000,10 @@ internal fun AiSolveScreen(
         }
     ) { padding ->
         LazyColumn(
-            contentPadding = PaddingValues(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 24.dp),
+            contentPadding = PaddingValues(start = 20.dp, top = 12.dp, end = 20.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
             modifier = Modifier.padding(padding).fillMaxSize()
         ) {
-            if (!hasSolution) item {
-                com.tiji.mistakes.ui.design.TijiFeatureBanner("把问题交给 AI，把方法留给自己", "拍照、上传图片或输入题目，获取解析后可继续追问并保存错题。")
-            }
             if (hasSolution) item {
                 TijiPaperCard {
                     TijiSectionHeader(

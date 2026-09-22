@@ -294,22 +294,15 @@ internal fun ReviewScreen(
     }
     TijiScreen(
         topBar = {
-            TijiTopBar(
-                title = { Text("复习") },
-                actions = { TijiIconButton(onClick = onOpenCalendar) { Icon(Icons.Outlined.CalendarMonth, contentDescription = "复习日历") } },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
-            )
+            com.tiji.mistakes.ui.design.TijiPrimaryHeader("复习") { TijiIconButton(onClick = onOpenCalendar) { Icon(Icons.Outlined.CalendarMonth, contentDescription = "复习日历") } }
         }
     ) { padding ->
         LazyColumn(
             state = reviewListState,
-            contentPadding = PaddingValues(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 24.dp),
+            contentPadding = PaddingValues(start = 20.dp, top = 12.dp, end = 20.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
             modifier = Modifier.padding(padding).fillMaxSize().testTag("review_center")
         ) {
-        item {
-            com.tiji.mistakes.ui.design.TijiPageHeader("温故，而知新", "按自己的节奏，完成今天的复习。", eyebrow = "复习工作台")
-        }
         item {
             ReviewProgressCard(completed = completedToday, total = planned.size, randomMode = false, modifier = Modifier.testTag("review_today_plan"))
         }
