@@ -305,10 +305,20 @@ internal fun StandaloneImageEditor(
                         drawRect(dim, Offset(imageLeft, top), Size(left - imageLeft, bottom - top))
                         drawRect(dim, Offset(right, top), Size(imageLeft + imageWidth - right, bottom - top))
                         drawRect(Color.White, Offset(left, top), Size(right - left, bottom - top), style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3f))
-                        val handle = 18f
-                        listOf(Offset(left, top), Offset(right, top), Offset(left, bottom), Offset(right, bottom)).forEach { point ->
-                            drawCircle(Color.White, handle / 2f, point)
-                            drawCircle(handleColor, handle / 2f - 3f, point)
+                        val cornerLength = minOf(18.dp.toPx(), (right - left) / 3f, (bottom - top) / 3f)
+                        listOf(
+                            Triple(Offset(left, top), 1f, 1f),
+                            Triple(Offset(right, top), -1f, 1f),
+                            Triple(Offset(left, bottom), 1f, -1f),
+                            Triple(Offset(right, bottom), -1f, -1f)
+                        ).forEach { (point, directionX, directionY) ->
+                            val corner = androidx.compose.ui.graphics.Path().apply {
+                                moveTo(point.x + directionX * cornerLength, point.y)
+                                lineTo(point.x, point.y)
+                                lineTo(point.x, point.y + directionY * cornerLength)
+                            }
+                            drawPath(corner, Color.White, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 5.dp.toPx()))
+                            drawPath(corner, handleColor, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3.dp.toPx()))
                         }
                         val edgeHandleLength = 52f
                         val edgeHandleWidth = 9f
