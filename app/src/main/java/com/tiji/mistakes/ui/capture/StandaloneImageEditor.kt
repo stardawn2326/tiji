@@ -200,7 +200,7 @@ internal fun StandaloneImageEditor(
             processing = false
         }
     }
-    TijiScreen(topBar={TijiTopBar(title={Text("处理$title")},navigationIcon={TijiIconButton(onClick={ onDiscard(history); onCancel() }){Icon(Icons.AutoMirrored.Outlined.ArrowBack,"取消图片处理")}})}) { padding ->
+    TijiScreen(topBar={TijiTopBar(title={Text(if (title == "重新处理") title else "处理$title")},navigationIcon={TijiIconButton(onClick={ onDiscard(history); onCancel() }){Icon(Icons.AutoMirrored.Outlined.ArrowBack,"取消图片处理")}})}) { padding ->
         Column(
             Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)
                 .navigationBarsPadding(),
@@ -208,7 +208,7 @@ internal fun StandaloneImageEditor(
         ) {
             val editorHeight = ((configuration.screenWidthDp.dp - 32.dp) / imageAspect.coerceAtLeast(0.2f))
                 .coerceIn(180.dp, configuration.screenHeightDp.dp * 0.44f)
-            BoxWithConstraints(Modifier.height(editorHeight).fillMaxWidth().clip(TijiShapes.L)) {
+            BoxWithConstraints(Modifier.height(editorHeight).fillMaxWidth()) {
                 val widthPx = constraints.maxWidth.toFloat().coerceAtLeast(1f)
                 val heightPx = constraints.maxHeight.toFloat().coerceAtLeast(1f)
                 val containerAspect = widthPx / heightPx

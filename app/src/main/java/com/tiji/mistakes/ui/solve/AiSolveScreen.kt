@@ -264,6 +264,13 @@ private fun AiSolveScreenBody(
         aiInputMode == AiInputMode.VISUAL_ASSISTED &&
             (visualAssistProfile == null || visualApiKey.isBlank())
     val isLoading = aiSolveState.running
+    var elapsedSeconds by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(isLoading, aiSolveState.startedAt) {
+        while (isLoading) {
+            elapsedSeconds = ((System.currentTimeMillis() - aiSolveState.startedAt) / 1_000).coerceAtLeast(0L)
+            kotlinx.coroutines.delay(1_000)
+        }
+    }
     val completeSolution = aiSolveState.completeText.orEmpty()
     val solutionSections = remember(completeSolution) { parseAiSolutionSections(completeSolution) }
     val duplicateCandidates = remember(question, imagePaths, allMistakes) {
@@ -1056,25 +1063,20 @@ private fun AiSolveScreenBody(
             modifier = Modifier.padding(padding).fillMaxSize()
         ) {
             item {
-                TijiPaperCard {
+                TijiPaperCard(contentPadding = 12.dp) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("本次解题", style = MaterialTheme.typography.titleLarge)
+                        Text("输入题目", style = MaterialTheme.typography.titleLarge)
                         TijiTextButton(enabled = !aiMistakeSaveState.running, modifier = Modifier.testTag("ai_solve_clear"), onClick = {
                             val draftPaths = imagePaths + pendingImagePaths + followUpImagePaths + followUpPendingImagePaths + listOfNotNull(editingOriginalPath, followUpEditingPath)
                             viewModel.resetAiSolveSession()
                             viewModel.deleteImagesIfUnreferenced(draftPaths)
                             onPageReset()
                         }) { Text("清空") }
-                        TijiTextButton(onClick = { showSolveInputs = !showSolveInputs }) { Text(if (showSolveInputs) "收起" else "查看原题") }
+                        if (hasSolution) TijiTextButton(onClick = { showSolveInputs = !showSolveInputs }) { Text(if (showSolveInputs) "收起" else "展开") }
                     }
-                }
-            }
-            if (!hasSolution || showSolveInputs) item {
-                TijiPaperCard(contentPadding = 12.dp) {
-                    TijiSectionHeader(
-                        "输入题目",
-                        action = { TijiTextButton(onClick = { showSolveConfiguration = !showSolveConfiguration }) { Text(if (showSolveConfiguration) "收起" else "使用模型+方式") } }
-                    )
+                    if (!hasSolution || showSolveInputs) {
+                    androidx.compose.material3.HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    TijiTextButton(onClick = { showSolveConfiguration = !showSolveConfiguration }) { Text(if (showSolveConfiguration) "收起模型设置" else "使用模型+方式") }
                     if (showSolveConfiguration) {
                         Text("解题方式", style = MaterialTheme.typography.labelLarge)
                         AiInputModeSelector(
@@ -1082,6 +1084,15 @@ private fun AiSolveScreenBody(
                             onSelected = { aiInputModeName = it.name; onAiInputMode(it) },
                             title = ""
                         )
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            AiSolveReliabilityMode.entries.forEach { mode ->
+                                TijiChip(selected = reliabilityMode == mode, onClick = {
+                                    reliabilityModeName = mode.name
+                                    onReliabilityMode(mode)
+                                }, label = { Text(mode.label) })
+                            }
+                        }
+                        Text(reliabilityMode.description, style = MaterialTheme.typography.bodySmall)
                     }
                     if (showSolveConfiguration) {
                         Text("当前 AI 配置", style = MaterialTheme.typography.labelLarge)
@@ -1177,6 +1188,7 @@ private fun AiSolveScreenBody(
                         if (isLoading) TijiSecondaryButton(onClick = viewModel::stopAiSolve) { Text("停止") }
                     }
                     if (visualAssistBindingMissing) TijiTag("此模型尚未配置视觉辅助", containerColor = MaterialTheme.colorScheme.primaryContainer)
+                    }
                 }
             }
             item {
@@ -1185,9 +1197,10 @@ private fun AiSolveScreenBody(
                     .orEmpty()
                 val statusMessage = when {
                     aiSolveState.error != null -> "AI 解题失败：${aiSolveState.error?.trimEnd('。', '.')}。"
-                    aiSolveState.status == AiSolveStatus.VERIFYING ||
-                        aiSolveState.status == AiSolveStatus.REPAIRING -> "AI 正在整理解答…"
-                    isLoading -> "AI 正在后台编写解答，切换页面、回到桌面或锁屏都不会中断…"
+                    aiSolveState.status == AiSolveStatus.VERIFYING -> "答案已返回，正在独立校验；可先查看下方解答。已用时 ${elapsedSeconds} 秒"
+                    aiSolveState.status == AiSolveStatus.REPAIRING -> "正在修正并复验解答。已用时 ${elapsedSeconds} 秒"
+                    isLoading && aiSolveState.streamedText.isBlank() -> "正在等待模型返回答案，已用时 ${elapsedSeconds} 秒"
+                    isLoading -> "正在接收解答，已用时 ${elapsedSeconds} 秒"
                     aiSolveState.status == AiSolveStatus.CANCELED -> "已停止解题。"
                     aiSolveState.status == AiSolveStatus.COMPLETED && completeSolution.isNotBlank() ->
                         "解题完成。即使切换页面，AI 任务也已在后台完成。"
@@ -1215,21 +1228,25 @@ private fun AiSolveScreenBody(
                     }
                 }
             }
-            if (completeSolution.isNotBlank() && !isLoading) item {
+            if (completeSolution.isNotBlank() && (!isLoading || aiSolveState.status == AiSolveStatus.VERIFYING || aiSolveState.status == AiSolveStatus.REPAIRING)) item {
                 TijiPaperCard {
                     TijiSectionHeader(
                         "答案与解析",
                         action = {
                             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                 if (aiSolveState.previousCompleteText.isNotBlank()) {
-                                    TijiTextButton(onClick = viewModel::undoAiSolveCorrection) { Text("撤销本次修正") }
+                                    TijiTextButton(enabled = !isLoading, onClick = viewModel::undoAiSolveCorrection) { Text("撤销本次修正") }
                                 }
                                 TijiTextButton(onClick = { aiSolutionExpanded = !aiSolutionExpanded }) { Text(if (aiSolutionExpanded) "收起" else "展开") }
                             }
                         }
                     )
                     if (aiSolutionExpanded) {
-                        if (solutionSections.structured) {
+                        if (isLoading) {
+                            // Verification is still running: expose returned text
+                            // without enabling edits to an unfinished solve state.
+                            AiSolutionSection("解答预览", visibleAiSolution(completeSolution))
+                        } else if (solutionSections.structured) {
                             AiSolutionSection(
                                 "题目",
                                 if (solutionSections.schemaVersion >= 2) {
@@ -1244,6 +1261,7 @@ private fun AiSolveScreenBody(
                                 onDelete = { block -> viewModel.removeAiSolveContentBlock(block.path) }
                             )
                             TijiTextButton(
+                                enabled = !isLoading,
                                 onClick = {
                                     recognitionEditDraft = question
                                     showRecognitionEditor = true

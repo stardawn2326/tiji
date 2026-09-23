@@ -56,9 +56,9 @@ internal fun PdfExportOptionsDialog(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text("包含原题图片", style = MaterialTheme.typography.bodyLarge)
+                            Text("黑白图片 PDF", style = MaterialTheme.typography.bodyLarge)
                             Text(
-                                "默认不导出原图；纯照片题需要原图时可开启。",
+                                "开启后只打印经黑白净化的题目图片，不打印识别文字。",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -72,7 +72,7 @@ internal fun PdfExportOptionsDialog(
                 }
                 if (template == PdfTemplate.PRACTICE) {
                     Text(
-                        "题目 PDF 只保留题目、必要图片和每题作答区。",
+                        if (includeSourceImages) "无题目图片的题目会标明缺图，不替换成识别文字。" else "题目 PDF 只保留题目、必要图片和每题作答区。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -92,7 +92,7 @@ internal fun PdfExportOptionsDialog(
                         initial.copy(
                             template = template,
                             includeSourceImages = includeSourceImages,
-                            originalImagesOnly = false
+                            originalImagesOnly = includeSourceImages
                         )
                     )
                 },

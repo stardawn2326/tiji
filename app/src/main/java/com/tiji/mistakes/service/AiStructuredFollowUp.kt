@@ -92,7 +92,7 @@ internal fun repairMalformedFollowUpLatex(raw: String): String {
         }
         .replace(Regex("""(?<![\\A-Za-z])xi\s*in(?=\s*(?:\(|\[))""")) { "\\xi\\in" }
         .replace(Regex("""(?<![\\A-Za-z])int(?=\s*[_^])""")) { "\\int" }
-        .replace(Regex("""(?<![\\A-Za-z])mathrm\s*\{\s*d\s*}""")) { "\\mathrm{d}" }
+        .replace(Regex("""(?<![\\A-Za-z])mathrm\s*\{\s*d\s*\}""")) { "\\mathrm{d}" }
         .replace(Regex("""(?<![\\A-Za-z])(?:eta|xi)(?=\s*[_^{(])""")) { "\\${it.value}" }
         .replace(Regex("""(?<=[0-9})])\s+subset(?=\s*(?:\(|\[))""")) { " \\subset" }
         .replace(Regex("""(?<![\\A-Za-z])mathrm\s*d(?=\s*t\b)""")) { "\\mathrm{d}" }
@@ -166,7 +166,7 @@ private fun incompleteFollowUpForDisplay(raw: String): String {
     if (payload.isBlank()) return raw.trim()
 
     val completeSegment = Regex(
-        """(?s)\{\s*\"type\"\s*:\s*\"(text|math|block)\"\s*,\s*\"(?:text|latex)\"\s*:\s*\"((?:\\.|[^\"\\])*)\"\s*}"""
+        """(?s)\{\s*\"type\"\s*:\s*\"(text|math|block)\"\s*,\s*\"(?:text|latex)\"\s*:\s*\"((?:\\.|[^\"\\])*)\"\s*\}"""
     )
     val completeMatches = completeSegment.findAll(payload).toList()
     val recovered = completeMatches.mapNotNull { match ->

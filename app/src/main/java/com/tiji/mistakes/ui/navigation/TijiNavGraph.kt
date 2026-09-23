@@ -357,10 +357,6 @@ internal fun TijiNavGraph(
                 }
                 composable(TijiRoutes.SETTINGS_DATA) {
                     DataSettingsScreen(
-                        aiExcludeSourceImageByDefault = state.aiExcludeSourceImageByDefault,
-                        onAiExcludeSourceImageByDefault = { value ->
-                            scope.launch { preferences.setAiExcludeSourceImageByDefault(value) }
-                        },
                         backgroundScope = scope,
                         onClearLearningData = { onFinished ->
                             scope.launch {

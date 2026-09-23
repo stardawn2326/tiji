@@ -14,6 +14,13 @@ import org.junit.Test
 
 class PdfOptionsUiTest {
     @get:Rule val rule = createComposeRule()
+    @Test fun imageOptionSelectsPhotoOnlyMode() {
+        var result: PdfExportOptions? = null
+        rule.setContent { MaterialTheme { PdfExportOptionsDialog(1, PdfExportOptions(), {}, { result = it }) } }
+        rule.onNodeWithTag("pdf_include_source_images").performClick()
+        rule.onNodeWithTag("pdf_export_options_confirm").performClick()
+        rule.runOnIdle { assertEquals(true, result?.originalImagesOnly) }
+    }
     @Test fun onlyQuestionPdfAndImagesDefaultOff() {
         var result: PdfExportOptions? = null
         rule.setContent { MaterialTheme {

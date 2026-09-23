@@ -49,12 +49,12 @@ data class PdfExportOptions(
     /** The only source-image decision used by the current export operation. */
     val includeSourceImages: Boolean = false,
     val answerSpaceMm: Int = 24,
-    /** Retained for the legacy photo-only export setting. It is only valid for practice PDFs. */
+    /** Black-and-white photo export is separate from the recognized-text layout. */
     val originalImagesOnly: Boolean = false
 ) {
     fun normalized(): PdfExportOptions = copy(
         answerSpaceMm = answerSpaceMm.coerceIn(14, 80),
-        originalImagesOnly = originalImagesOnly && template == PdfTemplate.PRACTICE
+        originalImagesOnly = (originalImagesOnly || includeSourceImages) && template == PdfTemplate.PRACTICE
     )
 }
 
@@ -298,7 +298,9 @@ object HtmlPdfExportService {
         options: PdfExportOptions
     ): String {
         val normalizedOptions = options.normalized()
-        val exportedOn = SimpleDateFormat("yyyy年M月d日", Locale.getDefault()).format(Date())
+        val exportedOn = SimpleDateFormat("yyyy年M月d日 HH:mm", Locale.getDefault()).format(Date())
+        val subjectSummary = mistakes.groupingBy { it.subject.trim().ifBlank { "未分类" } }
+            .eachCount().entries.joinToString(" · ") { (subject, count) -> "$subject $count 道" }
         val content = if (normalizedOptions.template == PdfTemplate.PRACTICE) {
             mistakes.mapIndexed { index, mistake ->
                 buildQuestionHtml(index, mistake, normalizedOptions)
@@ -337,10 +339,8 @@ object HtmlPdfExportService {
                 }
                 .pdf-page-content { width: 100%; height: 100%; overflow: hidden; }
                 .book-header { border-bottom: .6pt solid #d7e3ee; padding: 0 0 2mm; margin-bottom: 1.2mm; }
-                .book-title { display: flex; align-items: center; gap: 3mm; font-size: 18pt; line-height: 1.1; font-weight: 700; }
-                .book-title, .question-title, .section-label, .answer-label { font-family: "SimSun", "宋体", "STSong", serif; }
-                .book-title::before { content: ""; width: 1.3mm; height: 10mm; border-radius: 1mm; background: #3b5ecc; }
-                .book-meta { margin: 1.2mm 0 0 4.3mm; color: #718599; font-size: 9.2pt; }
+                .question-title, .section-label, .answer-label { font-family: "SimSun", "宋体", "STSong", serif; }
+                .book-meta { margin: 0; color: #718599; font-size: 9.2pt; }
                 .question {
                   border-top: .55pt solid #d7e3ee;
                   padding: .9mm 0 .8mm;
@@ -386,6 +386,7 @@ object HtmlPdfExportService {
                   object-fit: contain;
                 }
                 .original-images-only .question-image { width: auto; max-width: 100%; max-height: 165mm; }
+                .photo-question-title { font-size: 10.5pt; line-height: 1.35; font-weight: 600; margin: 0 0 1mm; }
                 .answer-label { margin-top: .5mm; margin-bottom: 0; }
                 .answer-space { width: 100%; min-height: 10mm; break-inside: avoid; page-break-inside: avoid; }
                 .original-images-only .answer-label { margin-top: 1.5mm; }
@@ -423,8 +424,7 @@ object HtmlPdfExportService {
             </head>
             <body class="question-pdf ${if (normalizedOptions.template == PdfTemplate.ANSWER) "answer-pdf" else "practice-pdf"}">
               <header class="book-header">
-                <div class="book-title">${escapeHtml(documentTitle)}</div>
-                <div class="book-meta">${escapeHtml(templateLabel)} · 共 ${mistakes.size} 道题 · 导出于 ${escapeHtml(exportedOn)} · A4 纵向</div>
+                <div class="book-meta">共 ${mistakes.size} 道题 · ${escapeHtml(subjectSummary)} · 导出于 ${escapeHtml(exportedOn)}</div>
               </header>
               <main>$content</main>
               <script src="katex.min.js"></script>
@@ -754,18 +754,17 @@ object HtmlPdfExportService {
             val images = sourceImagePaths(mistake)
             return buildString {
                 append("<article class=\"question original-images-only\">")
-                append("<div class=\"question-head\"><div class=\"question-title\">")
+                append("<div class=\"question-head\"><div class=\"photo-question-title\">")
                 append(mathText("${index + 1}. $title"))
                 append("</div>")
                 if (metadata.isNotBlank()) append("<div class=\"question-meta\">${escapeHtml(metadata)}</div>")
                 append("</div>")
                 images.forEachIndexed { sourceIndex, path ->
-                    appendImageSection(this, "", path, blackAndWhite = true)
+                    appendImageSection(this, if (sourceIndex == 0) "题目" else "", path, blackAndWhite = true)
                 }
-                if (images.any { File(it).isFile }) {
-                    append("<div class=\"answer-label\">作答区</div>")
-                    append("<div class=\"answer-space original-photo-answer-space\"></div>")
-                }
+                if (images.none { File(it).isFile }) append("<div class=\"question-meta\">无题目图片</div>")
+                append("<div class=\"answer-label\">作答区</div>")
+                append("<div class=\"answer-space\" style=\"height:${options.answerSpaceMm}mm\"></div>")
                 append("</article>")
             }
         }
