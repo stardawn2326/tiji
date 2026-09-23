@@ -263,16 +263,16 @@ internal fun TijiNavGraph(
                 }
                 composable(TijiRoutes.KNOWLEDGE_DETAIL_PATTERN) { entry ->
                     val stableId = Uri.decode(entry.arguments?.getString("stableId").orEmpty())
-                    val relatedMistakes by viewModel.knowledgePointMistakes(stableId)
+                    val relatedMistakes by remember(viewModel, stableId) { viewModel.knowledgePointMistakes(stableId) }
                         .collectAsStateWithLifecycle(emptyList())
-                    val reviewHistory by viewModel.knowledgePointReviewHistory(stableId)
+                    val reviewHistory by remember(viewModel, stableId) { viewModel.knowledgePointReviewHistory(stableId) }
                         .collectAsStateWithLifecycle(emptyList())
                     KnowledgeDetailScreen(
                         point = state.knowledgePoints.firstOrNull { it.stableId == stableId },
                         progress = knowledgeProgress.firstOrNull { it.stableId == stableId },
                         relatedMistakes = relatedMistakes,
                         reviewRecords = reviewHistory,
-                        latestReviewGrades = state.allMistakeItems.associate { it.mistake.id to it.latestReviewGrade },
+                        latestReviewGrades = remember(state.allMistakeItems) { state.allMistakeItems.associate { it.mistake.id to it.latestReviewGrade } },
                         exportOriginalImagesOnly = !state.aiExcludeSourceImageByDefault,
                         onBack = { navController.popBackStack() },
                         onOpenMistake = { id -> navController.navigate(TijiRoutes.detail(id)) },

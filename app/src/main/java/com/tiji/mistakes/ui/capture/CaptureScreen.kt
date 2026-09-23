@@ -339,7 +339,6 @@ internal fun NewCaptureScreen(
     var showSaveSheet by rememberSaveable { mutableStateOf(false) }
     var showDuplicateDialog by rememberSaveable { mutableStateOf(false) }
     var duplicateUpdateId by rememberSaveable { mutableStateOf(0L) }
-    var showSupplementImages by rememberSaveable { mutableStateOf(false) }
     var showCaptureConfiguration by rememberSaveable { mutableStateOf(false) }
     val initialDraft = remember {
         MistakeDraft(
@@ -995,7 +994,7 @@ internal fun NewCaptureScreen(
             )
         }
         LazyColumn(
-            Modifier.padding(padding).fillMaxSize(),
+            Modifier.padding(padding).fillMaxSize().testTag("capture_content"),
             contentPadding = PaddingValues(
                 start = TijiDimens.pagePadding,
                 top = 20.dp,
@@ -1016,13 +1015,14 @@ internal fun NewCaptureScreen(
             }
             if (mode == EntryMode.PHOTO) {
                 item {
-                    TijiPaperCard {
+                    TijiPaperCard(modifier = Modifier.testTag("capture_photo_question")) {
+                        Text("题目 · 必填", style = MaterialTheme.typography.titleMedium)
                         if (photoQuestionImages.isEmpty()) {
                             TijiDropZone(
                                 title = "拍照或选择图片",
                                 subtitle = "支持拍照或从相册选择",
                                 icon = Icons.Outlined.AddAPhoto,
-                                onClick = { selectedRole = PhotoRole.QUESTION; galleryLauncher.launch("image/*") },
+                                onClick = { requestCamera(PhotoRole.QUESTION) },
                                 minHeight = 112.dp,
                                 compact = true,
                                 actions = {
@@ -1078,44 +1078,23 @@ internal fun NewCaptureScreen(
                         }
                     }
                 }
-                item {
-                    TijiPaperCard {
-                        Text("照片内容", style = MaterialTheme.typography.titleMedium)
-                        Text(
-                            "题目图片必填；答案和解析图片可选。",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-                item {
-                    TijiPaperCard {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text("补充图片", style = MaterialTheme.typography.titleMedium)
-                                Text("答案和解析图片为选填项", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                PhotoRole.entries.filter { it != PhotoRole.QUESTION }.forEach { role ->
+                    item(key = role.name) {
+                        TijiPaperCard(modifier = Modifier.testTag("capture_photo_${role.name.lowercase()}")) {
+                            Text(if (role == PhotoRole.ANSWER) "答案 · 选填" else "解析 · 选填", style = MaterialTheme.typography.titleMedium)
+                            val path = if (role == PhotoRole.ANSWER) answerImage else explanationImage
+                            if (path == null) {
+                                TijiDropZone(
+                                    title = "拍摄${if (role == PhotoRole.ANSWER) "答案" else "解析"}",
+                                    subtitle = "也可从相册选择", icon = Icons.Outlined.CameraAlt,
+                                    onClick = { requestCamera(role) }, minHeight = 88.dp, compact = true
+                                )
+                            } else {
+                                ImagePreview(path, overlayActionLabel = "重新处理", onOverlayAction = { load(path, role) })
                             }
-                            TijiTextButton(onClick = { showSupplementImages = !showSupplementImages }) { Text(if (showSupplementImages) "收起" else "添加") }
-                        }
-                        if (showSupplementImages) {
-                            PhotoRole.entries.filter { it != PhotoRole.QUESTION }.forEach { role ->
-                                val path = if (role == PhotoRole.ANSWER) answerImage else explanationImage
-                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Text(role.label, style = MaterialTheme.typography.titleSmall)
-                                    if (path == null) {
-                                        TijiDropZone(
-                                            title = "添加${role.label}",
-                                            subtitle = "拍照或从相册选择",
-                                            icon = Icons.Outlined.Image,
-                                            onClick = { selectedRole = role; singleGalleryLauncher.launch("image/*") },
-                                            modifier = Modifier.heightIn(min = 112.dp)
-                                        )
-                                    } else ImagePreview(path)
-                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                                        TijiSecondaryButton(onClick = { selectedRole = role; singleGalleryLauncher.launch("image/*") }, modifier = Modifier.weight(1f)) { Text("相册") }
-                                        TijiSecondaryButton(onClick = { requestCamera(role) }, modifier = Modifier.weight(1f)) { Text("拍照") }
-                                    }
-                                }
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                TijiSecondaryButton(onClick = { requestCamera(role) }) { Text("拍照") }
+                                TijiSecondaryButton(onClick = { selectedRole = role; singleGalleryLauncher.launch("image/*") }) { Text("相册") }
                             }
                         }
                     }

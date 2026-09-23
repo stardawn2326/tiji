@@ -165,8 +165,8 @@ internal fun LibraryScreen(
     var pdfOptions by remember(exportOriginalImagesOnly) {
         mutableStateOf(
             PdfExportOptions(
-                includeSourceImages = true,
-                originalImagesOnly = exportOriginalImagesOnly
+                includeSourceImages = false,
+                originalImagesOnly = false
             )
         )
     }
@@ -280,8 +280,8 @@ internal fun LibraryScreen(
         pendingExportIds = validIds.toLongArray()
         PendingPdfExportStore.libraryIds = pendingExportIds.copyOf()
         pdfOptions = PdfExportOptions(
-            includeSourceImages = true,
-            originalImagesOnly = exportOriginalImagesOnly
+            includeSourceImages = false,
+            originalImagesOnly = false
         )
         showPdfOptions = true
     }
@@ -490,7 +490,7 @@ internal fun LibraryScreen(
                                 triggerTag = "library_knowledge_filter_visual"
                             )
                             LibraryFilterChip(
-                                label = masteryFilter?.let(::reviewStatusFilterLabel) ?: "掌握",
+                                label = masteryFilter?.let(::reviewStatusFilterLabel) ?: "状态",
                                 selected = masteryFilter != null,
                                 onClick = {},
                                 options = (listOf(null) + (0..4).toList()).map { value ->

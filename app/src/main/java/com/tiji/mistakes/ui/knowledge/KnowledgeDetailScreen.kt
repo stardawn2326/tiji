@@ -139,8 +139,8 @@ internal fun KnowledgeDetailScreen(
     var pdfOptions by remember(exportOriginalImagesOnly) {
         mutableStateOf(
             PdfExportOptions(
-                includeSourceImages = true,
-                originalImagesOnly = exportOriginalImagesOnly
+                includeSourceImages = false,
+                originalImagesOnly = false
             )
         )
     }
@@ -191,8 +191,8 @@ internal fun KnowledgeDetailScreen(
         pendingExportIds = relatedMistakes.map { it.id }.toLongArray()
         PendingPdfExportStore.knowledgeIds = pendingExportIds.copyOf()
         pdfOptions = PdfExportOptions(
-            includeSourceImages = true,
-            originalImagesOnly = exportOriginalImagesOnly
+            includeSourceImages = false,
+            originalImagesOnly = false
         )
         showPdfOptions = true
     }
@@ -286,7 +286,7 @@ internal fun KnowledgeDetailScreen(
             verticalArrangement = Arrangement.spacedBy(TijiDimens.cardGap)
         ) {
             item {
-                TijiPaperCard {
+                TijiPaperCard(animateContentSizeEnabled = false) {
                     Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         TijiSurface(
                             color = MaterialTheme.colorScheme.primaryContainer,
@@ -327,7 +327,7 @@ internal fun KnowledgeDetailScreen(
                 }
             }
             item {
-                TijiPaperCard {
+                TijiPaperCard(animateContentSizeEnabled = false) {
                     TijiSectionHeader("学习概览")
                     Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                         KnowledgeMetric("关联错题", resolvedProgress.total.toString(), Modifier.weight(1f))
@@ -342,7 +342,7 @@ internal fun KnowledgeDetailScreen(
                 }
             }
             item {
-                TijiPaperCard {
+                TijiPaperCard(animateContentSizeEnabled = false) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text("最近复习", style = MaterialTheme.typography.titleMedium)
@@ -363,7 +363,7 @@ internal fun KnowledgeDetailScreen(
             }
             if (relatedMistakes.isEmpty()) {
                 item {
-                    TijiPaperCard {
+                    TijiPaperCard(animateContentSizeEnabled = false) {
                         Text("暂无关联错题", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
@@ -372,6 +372,7 @@ internal fun KnowledgeDetailScreen(
                     TijiPaperCard(
                         modifier = Modifier.testTag("knowledge_mistake_${mistake.id}"),
                         onClick = { onOpenMistake(mistake.id) },
+                        animateContentSizeEnabled = false,
                         contentPadding = 12.dp
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {

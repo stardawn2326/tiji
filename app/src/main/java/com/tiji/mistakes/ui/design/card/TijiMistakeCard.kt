@@ -43,12 +43,15 @@ internal fun TijiMistakeCard(
                 contentPadding = 16.dp,
                 animateContentSizeEnabled = false
             ) {
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    TijiTag(normalizedSubject(mistake.subject))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
+                    FlowRow(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        TijiTag(normalizedSubject(mistake.subject))
+                        TijiTag(mistake.questionType.ifBlank { "未分类" })
+                        TijiTag(difficultyLabel(mistake.difficulty),
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer)
+                    }
                     TijiStatusBadge(item.statusLabel)
-                    TijiTag(difficultyLabel(mistake.difficulty),
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer)
                 }
                 MathText(mistake.title.ifBlank { "未命名错题" }, maxLines = 2,
                     compact = true, emphasized = true, interactive = false)
@@ -60,9 +63,8 @@ internal fun TijiMistakeCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 val topics = parseTagValues(mistake.tags)
-                if (topics.isNotEmpty() || mistake.questionType.isNotBlank()) {
-                    Text(listOf(mistake.questionType.takeUnless { it == "未分类" }.orEmpty(), topics.joinToString(" · "))
-                        .filter(String::isNotBlank).joinToString(" · "),
+                if (topics.isNotEmpty()) {
+                    Text(topics.joinToString(" · "),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }

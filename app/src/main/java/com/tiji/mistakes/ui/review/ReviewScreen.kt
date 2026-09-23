@@ -160,8 +160,8 @@ internal fun ReviewScreen(
     var pdfOptions by remember(exportOriginalImagesOnly) {
         mutableStateOf(
             PdfExportOptions(
-                includeSourceImages = true,
-                originalImagesOnly = exportOriginalImagesOnly
+                includeSourceImages = false,
+                originalImagesOnly = false
             )
         )
     }
@@ -212,8 +212,8 @@ internal fun ReviewScreen(
         pendingExportIds = planned.map { it.id }.toLongArray()
         PendingPdfExportStore.reviewIds = pendingExportIds.copyOf()
         pdfOptions = PdfExportOptions(
-            includeSourceImages = true,
-            originalImagesOnly = exportOriginalImagesOnly
+            includeSourceImages = false,
+            originalImagesOnly = false
         )
         showPdfOptions = true
     }

@@ -104,7 +104,7 @@ internal fun MistakeFields(
         com.tiji.mistakes.ui.design.TijiMultilineField(
             answer,
             onAnswer,
-            label = { Text("正确答案") },
+            label = { Text("答案") },
             textStyle = editorBodyTextStyle,
             minLines = 2,
             modifier = Modifier.fillMaxWidth()

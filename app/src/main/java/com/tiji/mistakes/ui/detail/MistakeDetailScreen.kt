@@ -185,7 +185,7 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
     var previewFilename by rememberSaveable { mutableStateOf("") }
     var isPreparingPdf by remember { mutableStateOf(false) }
     var pdfOptions by remember {
-        mutableStateOf(PdfExportOptions(includeSourceImages = true))
+        mutableStateOf(PdfExportOptions(includeSourceImages = false))
     }
     fun submitReview(grade: ReviewGrade) {
         if (reviewSubmitting) return
@@ -591,7 +591,7 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                 if (!photoOnly && question.isNotBlank()) item {
                     TijiPaperCard {
                         TijiSectionHeader("题目")
-                        MathText(question, preserveSourceExactly = true, naturalQuestionWrap = true, compactQuestionLayout = true, compactVerticalSpacing = true)
+                        MathText(question, compact = true, preserveSourceExactly = true, naturalQuestionWrap = true, compactQuestionLayout = true, compactVerticalSpacing = true)
                         ContentBlockImages(detailContentBlocks.filter { it.role == ContentBlockRole.QUESTION }, onDelete = ::removeDetailContentBlock)
                     }
                 }
@@ -605,7 +605,7 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                     TijiPaperCard {
                         TijiSectionHeader("答案")
                         if (answer.isBlank()) {
-                            Text("暂未补充正确答案", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("暂未补充答案", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         } else {
                             com.tiji.mistakes.ui.math.numberedAnswerParts(answer).forEach { part ->
                                 MathText(part, preserveSourceExactly = true, compactVerticalSpacing = true)
