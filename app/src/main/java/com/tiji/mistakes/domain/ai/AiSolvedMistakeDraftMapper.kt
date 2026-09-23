@@ -38,9 +38,10 @@ object AiSolvedMistakeDraftMapper {
             ?: input.answer
         val explanation = listOf(
             structured?.section("approach")?.displaySource(),
-            structured?.section("derivation")?.displaySource(),
-            input.explanation
-        ).mapNotNull { it?.takeIf(String::isNotBlank) }.distinct().joinToString("\n\n")
+            structured?.section("derivation")?.displaySource()
+        ).mapNotNull { it?.takeIf(String::isNotBlank) }.joinToString("\n\n")
+            // The input is already the combined display text, not a third section.
+            .ifBlank { input.explanation }
         // The V2 solve payload contains content only. Classification and all
         // editable metadata come from the save sheet or the durable classifier.
         val subject = input.subject.ifBlank { "未分类" }
