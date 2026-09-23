@@ -8,11 +8,16 @@ const val TIJI_SOLUTION_V2_END = "[[TIJI_SOLUTION_V2_END]]"
 
 /** Keep provider content even when a segment uses a compatible field name. */
 internal fun JSONObject.segmentContent(math: Boolean): String {
-    val fields = if (math) listOf("latex", "text", "content", "value") else listOf("text", "content", "value", "latex")
+    val fields = if (math) listOf("latex", "math", "block", "formula", "display", "text", "content", "value") else listOf("text", "content", "value", "latex")
     return fields.firstNotNullOfOrNull { field ->
         (opt(field) as? String)?.takeIf(String::isNotBlank)
     }.orEmpty()
 }
+
+/** Some compatible providers encode segments as {"math":"..."} without a type. */
+internal fun JSONObject.segmentTypeName(): String = optString("type").takeIf { it.isNotBlank() && it != "null" }
+    ?: listOf("math", "block", "formula", "latex", "display", "lineBreak", "paragraphBreak", "blank", "text")
+        .firstOrNull(::has).orEmpty()
 
 data class AiStructuredSolutionSection(
     val id: String,
@@ -38,8 +43,13 @@ data class AiStructuredSolution(
     val schemaVersion: Int,
     val sections: List<AiStructuredSolutionSection>
 ) {
-    fun section(id: String): AiStructuredSolutionSection? =
-        sections.firstOrNull { it.id.equals(id, ignoreCase = true) }
+    fun section(id: String): AiStructuredSolutionSection? {
+        val matching = sections.filter { it.id.equals(id, ignoreCase = true) }
+        if (matching.isEmpty()) return null
+        return AiStructuredSolutionSection(id, matching.flatMapIndexed { index, section ->
+            if (index == 0) section.segments else listOf(QuestionSegment("paragraphBreak", "")) + section.segments
+        })
+    }
 
     fun copyText(): String = buildList {
         listOf(
@@ -120,7 +130,7 @@ object AiStructuredSolutionCodec {
         return buildList {
             for (index in 0 until raw.length()) {
                 val item = raw.optJSONObject(index) ?: continue
-                val type = canonicalSegmentType(item.optString("type"))
+                val type = canonicalSegmentType(item.segmentTypeName())
                 val value = when (type) {
                     "math", "block" -> item.segmentContent(math = true)
                     "lineBreak", "paragraphBreak", "blank" -> ""
@@ -202,7 +212,7 @@ private fun recoverPartialStructuredSolutionForDisplay(raw: String): String? {
             val objects = extractCompleteJsonObjects(region, segmentsStart)
             val parsed = objects.complete.mapNotNull(::parseRecoveredSegment).toMutableList()
             objects.partial?.let(::parsePartialSegment)?.let(parsed::add)
-            if (parsed.isNotEmpty() && none { it.id == id }) {
+            if (parsed.isNotEmpty()) {
                 add(AiStructuredSolutionSection(id, parsed))
             }
         }
@@ -260,7 +270,7 @@ internal fun extractCompleteJsonObjects(source: String, startIndex: Int): Recove
 
 private fun parseRecoveredSegment(raw: String): QuestionSegment? = runCatching {
     val item = JSONObject(raw)
-    val type = canonicalPartialSegmentType(item.optString("type"))
+    val type = canonicalPartialSegmentType(item.segmentTypeName())
     val value = when (type) {
         "math", "block" -> item.segmentContent(math = true)
         "lineBreak", "paragraphBreak", "blank" -> ""

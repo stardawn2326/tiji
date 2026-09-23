@@ -23,6 +23,9 @@ internal class AiOutputLimitException(
     val partialContent: String
 ) : IllegalStateException("AI 输出达到长度上限，回答可能未完成，请重新解题或重新追问")
 
+internal class AiIncompleteResponseException(val partialContent: String) :
+    IllegalStateException("AI 回复传输提前结束，已保留收到的内容，尚未完成，请重试")
+
 data class AiCapabilityResult(val ok: Boolean, val detail: String)
 
 data class AiProviderCapabilityCheck(
@@ -1132,7 +1135,7 @@ class AiVisionService internal constructor(
             streamed.getOrElse {
                 logError(TAG, "vision_stream_failed model=${model.take(80)} image=${visualPaths.isNotEmpty()}", it)
                 currentCoroutineContext().ensureActive()
-                if (it is AiOutputLimitException) throw it
+                if (it is AiOutputLimitException || it is AiIncompleteResponseException) throw it
                 // Never resend a Base64 image after a visual stream failure.
                 // The retry used to upload and infer on the same image a second
                 // time, which made Qwen appear hung and raised the app heap peak.
@@ -1347,9 +1350,10 @@ class AiVisionService internal constructor(
                 .put("stream", true)
                 .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", messageContent)))
 
-            runCatching { streamRequest(endpoint, apiKey, body, onDelta) }
+            runCatching { streamWithSingleContinuation(endpoint, apiKey, body, onDelta) }
                 .getOrElse {
                     currentCoroutineContext().ensureActive()
+                    if (it is AiOutputLimitException || it is AiIncompleteResponseException) throw it
                     val fallback = extractContent(request(endpoint, apiKey, body.put("stream", false))).trim()
                     if (fallback.isNotBlank()) onDelta(fallback)
                     fallback
@@ -1922,10 +1926,12 @@ $retryInstruction
         val answerFilter = AnswerContentFilter()
         var receivedReasoning = false
         var finishReason = ""
+        var receivedDone = false
         transport.stream(endpoint, apiKey, configureThinking(endpoint, body)) { line ->
             currentCoroutineContext().ensureActive()
             if (line.startsWith("data:")) {
                 val data = line.removePrefix("data:").trim()
+                if (data == "[DONE]") receivedDone = true
                 if (data != "[DONE]" && data.isNotBlank()) {
                     val apiError = runCatching {
                         JSONObject(data).optJSONObject("error")?.optString("message").orEmpty()
@@ -1950,6 +1956,9 @@ $retryInstruction
         if (isOutputLengthLimit(finishReason)) {
             throw AiOutputLimitException(complete.toString())
         }
+        if (!receivedDone && finishReason.isBlank()) {
+            throw AiIncompleteResponseException(complete.toString())
+        }
         return complete.toString().also {
             require(it.isNotBlank()) {
                 if (receivedReasoning) {
@@ -1970,7 +1979,12 @@ $retryInstruction
     ): String {
         return try {
             streamRequest(endpoint, apiKey, body, onDelta)
-        } catch (first: AiOutputLimitException) {
+        } catch (first: Exception) {
+            val partial = when (first) {
+                is AiOutputLimitException -> first.partialContent
+                is AiIncompleteResponseException -> first.partialContent
+                else -> throw first
+            }
             currentCoroutineContext().ensureActive()
             logWarn(TAG, "vision_stream_output_limit_continue", first)
             val continuationBody = JSONObject(body.toString())
@@ -1978,21 +1992,23 @@ $retryInstruction
             messages.put(
                 JSONObject()
                     .put("role", "assistant")
-                    .put("content", first.partialContent)
+                    .put("content", partial)
             )
             messages.put(
                 JSONObject()
                     .put("role", "user")
                     .put(
                         "content",
-                        "上一条回答在输出上限处被截断。请从截断处继续，不能重复已经输出的内容；保持原题、四个 V2 section 和原有格式，直到完整结束。"
+                        "上一条回答在传输或输出上限处被截断。请从截断处继续，不能重复已经输出的内容；保持原题、当前协议结构和格式（解题为 V2，追问为单正文），直到完整结束。"
                     )
             )
             continuationBody.put("messages", messages)
             try {
-                first.partialContent + streamRequest(endpoint, apiKey, continuationBody, onDelta)
+                partial + streamRequest(endpoint, apiKey, continuationBody, onDelta)
             } catch (second: AiOutputLimitException) {
-                throw AiOutputLimitException(first.partialContent + second.partialContent)
+                throw AiOutputLimitException(partial + second.partialContent)
+            } catch (second: AiIncompleteResponseException) {
+                throw AiIncompleteResponseException(partial + second.partialContent)
             }
         }
     }

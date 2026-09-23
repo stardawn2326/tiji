@@ -42,7 +42,7 @@ object AiStructuredFollowUpCodec {
         return buildList {
             for (index in 0 until raw.length()) {
                 val item = raw.optJSONObject(index) ?: continue
-                val type = when (item.optString("type").trim().lowercase()) {
+                val type = when (item.segmentTypeName().trim().lowercase()) {
                     "math", "formula", "latex" -> "math"
                     "block", "display", "displaymath", "display_math" -> "block"
                     "linebreak", "line_break", "line break" -> "lineBreak"
