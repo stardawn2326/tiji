@@ -1230,10 +1230,7 @@ private fun AiSolveScreenBody(
                 }
             }
             if (completeSolution.isNotBlank() && (!isLoading || aiSolveState.status == AiSolveStatus.VERIFYING || aiSolveState.status == AiSolveStatus.REPAIRING)) item {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
+                TijiPaperCard {
                     TijiSectionHeader(
                         "答案与解析",
                         action = {

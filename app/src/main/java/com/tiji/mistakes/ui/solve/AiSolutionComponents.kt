@@ -137,14 +137,11 @@ internal fun AiSolutionSection(
     preserveSourceExactly: Boolean = false
 ) {
     if (content.isBlank()) return
-    TijiSurface(
-        color = if (label == "最终答案") MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
-        shape = TijiShapes.M,
-        border = BorderStroke(1.dp, if (label == "最终答案") MaterialTheme.colorScheme.primary.copy(alpha = 0.32f) else MaterialTheme.colorScheme.outlineVariant),
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(label, fontWeight = FontWeight.Bold, color = if (label == "最终答案") MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.primary)
+        Text(label, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
         val parts = if (label == "答案" || label == "最终答案") com.tiji.mistakes.ui.math.numberedAnswerParts(content) else listOf(content)
         parts.forEach { part ->
         MathText(
@@ -157,7 +154,6 @@ internal fun AiSolutionSection(
             compactVerticalSpacing = true
         )
         }
-    }
     }
 }
 
