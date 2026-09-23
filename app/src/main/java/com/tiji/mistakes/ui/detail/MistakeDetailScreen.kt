@@ -563,7 +563,7 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                                 }
                                 Text(
                                     title.ifBlank { if (photoOnly) "照片错题" else "未命名错题" },
-                                    style = MaterialTheme.typography.headlineSmall,
+                                    style = MaterialTheme.typography.titleMedium,
                                     maxLines = 3,
                                     overflow = TextOverflow.Ellipsis
                                 )
@@ -591,7 +591,7 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                 if (!photoOnly && question.isNotBlank()) item {
                     TijiPaperCard {
                         TijiSectionHeader("题目")
-                        MathText(question, compact = true, preserveSourceExactly = true, naturalQuestionWrap = true, compactQuestionLayout = true, compactVerticalSpacing = true)
+                        MathText(question, preserveSourceExactly = true, naturalQuestionWrap = true, compactQuestionLayout = true, compactVerticalSpacing = true)
                         ContentBlockImages(detailContentBlocks.filter { it.role == ContentBlockRole.QUESTION }, onDelete = ::removeDetailContentBlock)
                     }
                 }
