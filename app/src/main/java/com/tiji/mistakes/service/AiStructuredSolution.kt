@@ -6,6 +6,14 @@ import org.json.JSONObject
 const val TIJI_SOLUTION_V2_START = "[[TIJI_SOLUTION_V2_START]]"
 const val TIJI_SOLUTION_V2_END = "[[TIJI_SOLUTION_V2_END]]"
 
+/** Keep provider content even when a segment uses a compatible field name. */
+internal fun JSONObject.segmentContent(math: Boolean): String {
+    val fields = if (math) listOf("latex", "text", "content", "value") else listOf("text", "content", "value", "latex")
+    return fields.firstNotNullOfOrNull { field ->
+        (opt(field) as? String)?.takeIf(String::isNotBlank)
+    }.orEmpty()
+}
+
 data class AiStructuredSolutionSection(
     val id: String,
     val segments: List<QuestionSegment>
@@ -114,9 +122,9 @@ object AiStructuredSolutionCodec {
                 val item = raw.optJSONObject(index) ?: continue
                 val type = canonicalSegmentType(item.optString("type"))
                 val value = when (type) {
-                    "math", "block" -> item.optString("latex")
+                    "math", "block" -> item.segmentContent(math = true)
                     "lineBreak", "paragraphBreak", "blank" -> ""
-                    else -> item.optString("text")
+                    else -> item.segmentContent(math = false)
                 }
                 if (type in setOf("lineBreak", "paragraphBreak", "blank") || value.isNotBlank()) {
                     add(QuestionSegment(type, value))
@@ -209,12 +217,12 @@ private fun recoverPartialStructuredSolutionForDisplay(raw: String): String? {
     return payload
 }
 
-private data class RecoveredJsonObjects(
+internal data class RecoveredJsonObjects(
     val complete: List<String>,
     val partial: String?
 )
 
-private fun extractCompleteJsonObjects(source: String, startIndex: Int): RecoveredJsonObjects {
+internal fun extractCompleteJsonObjects(source: String, startIndex: Int): RecoveredJsonObjects {
     val complete = mutableListOf<String>()
     var objectStart = -1
     var depth = 0
@@ -254,21 +262,21 @@ private fun parseRecoveredSegment(raw: String): QuestionSegment? = runCatching {
     val item = JSONObject(raw)
     val type = canonicalPartialSegmentType(item.optString("type"))
     val value = when (type) {
-        "math", "block" -> item.optString("latex")
+        "math", "block" -> item.segmentContent(math = true)
         "lineBreak", "paragraphBreak", "blank" -> ""
-        else -> item.optString("text")
+        else -> item.segmentContent(math = false)
     }
     QuestionSegment(type, value).takeIf {
         type in setOf("lineBreak", "paragraphBreak", "blank") || value.isNotBlank()
     }
 }.getOrNull()
 
-private fun parsePartialSegment(raw: String): QuestionSegment? {
+internal fun parsePartialSegment(raw: String): QuestionSegment? {
     val typeValue = Regex("\\\"type\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"")
         .find(raw)?.groupValues?.getOrNull(1) ?: return null
     val type = canonicalPartialSegmentType(typeValue)
     if (type in setOf("lineBreak", "paragraphBreak", "blank")) return QuestionSegment(type, "")
-    val field = if (type == "math" || type == "block") "latex" else "text"
+    val field = if (type == "math" || type == "block") "(?:latex|text|content|value)" else "(?:text|content|value|latex)"
     val fieldMatch = Regex("\\\"$field\\\"\\s*:\\s*\\\"").find(raw) ?: return null
     val encodedStart = fieldMatch.range.last + 1
     val encoded = buildString {

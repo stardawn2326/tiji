@@ -1230,7 +1230,10 @@ private fun AiSolveScreenBody(
                 }
             }
             if (completeSolution.isNotBlank() && (!isLoading || aiSolveState.status == AiSolveStatus.VERIFYING || aiSolveState.status == AiSolveStatus.REPAIRING)) item {
-                TijiPaperCard {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
                     TijiSectionHeader(
                         "答案与解析",
                         action = {
@@ -1269,6 +1272,7 @@ private fun AiSolveScreenBody(
                                 },
                                 modifier = Modifier.heightIn(min = 48.dp)
                             ) { Text("编辑题目") }
+                            androidx.compose.material3.HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                             val explanation = listOf(solutionSections.approach, solutionSections.derivation)
                                 .filter(String::isNotBlank)
                                 .joinToString("\n\n")
@@ -1281,6 +1285,7 @@ private fun AiSolveScreenBody(
                                 solveContentBlocks.filter { it.role == ContentBlockRole.EXPLANATION },
                                 onDelete = { block -> viewModel.removeAiSolveContentBlock(block.path) }
                             )
+                            androidx.compose.material3.HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                             AiSolutionSection(
                                 "答案",
                                 solutionSections.finalAnswer,
@@ -1296,6 +1301,7 @@ private fun AiSolveScreenBody(
                                 solveContentBlocks.filter { it.role == ContentBlockRole.EXPLANATION },
                                 onDelete = { block -> viewModel.removeAiSolveContentBlock(block.path) }
                             )
+                            androidx.compose.material3.HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                         }
                     }
                     Text("长按题目、答案或解析文字可选择部分复制", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -1330,9 +1336,6 @@ private fun AiSolveScreenBody(
                                 latestChat.imagePaths.forEach { path -> ImagePreview(path) }
                                 Text("AI 解答", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
                                 AiConversationReply(latestChat.reply)
-                            }
-                            if (latestChat != null && !followUpLoading) {
-                                TijiTextButton(onClick = { copyAiText(followUpReplyForDisplay(latestChat.reply)) }) { Text("复制回复") }
                             }
                             if (aiChatStatusMessage.isNotBlank()) {
                                 val chatFailed = aiChatStatusMessage.startsWith("AI 对话失败：")

@@ -127,14 +127,8 @@ internal fun AiChatHistoryScreen(
     messages: List<AiChatMessage>,
     onBack: () -> Unit
 ) {
-    val context = LocalContext.current
     var expandedIds by remember { mutableStateOf(emptySet<Long>()) }
     val orderedMessages = remember(messages) { messages.asReversed() }
-
-    fun copyReply(reply: String) {
-        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-        clipboard?.setPrimaryClip(ClipData.newPlainText("AI 回复", followUpReplyForDisplay(reply)))
-    }
 
     TijiScreen(
         topBar = {
@@ -193,7 +187,6 @@ internal fun AiChatHistoryScreen(
                                 chat.imagePaths.forEach { path -> ImagePreview(path) }
                                 Text("AI 解答", fontWeight = FontWeight.Bold)
                                 AiConversationReply(chat.reply)
-                                TijiTextButton(onClick = { copyReply(chat.reply) }) { Text("复制回复") }
                             }
                         }
                         }

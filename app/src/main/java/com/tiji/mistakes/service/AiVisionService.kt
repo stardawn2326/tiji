@@ -750,7 +750,8 @@ private val AI_STRUCTURED_SOLUTION_RULE = """
     [[TIJI_SOLUTION_V2_START]]
     {"schemaVersion":2,"sections":[{"id":"recognition","segments":[{"type":"text","text":"完整原题"}]},{"id":"approach","segments":[{"type":"text","text":"解题方法"}]},{"id":"derivation","segments":[{"type":"text","text":"1. "},{"type":"math","latex":"P^2=E"},{"type":"lineBreak"},{"type":"block","latex":"\\begin{aligned}P^4&=(P^2)^2\\\\&=E\\end{aligned}"}]},{"id":"finalAnswer","segments":[{"type":"text","text":"A"}]}]}
     [[TIJI_SOLUTION_V2_END]]
-    sections 必须且只能依次包含 recognition、approach、derivation、finalAnswer。recognition 忠实放完整原题；approach 说明方法；derivation 给出必要推导；finalAnswer 放最终结论。每个 section 的完整内容都必须放在 segments 中，禁止遗漏到结构外。
+    sections 必须且只能依次包含 recognition、approach、derivation、finalAnswer。recognition 忠实放完整原题；approach 解释方法选择及适用条件；derivation 给出完整、可跟随的推导；finalAnswer 放最终结论及条件。每个 section 的完整内容都必须放在 segments 中，禁止遗漏到结构外。
+    V2 只约定传输结构，不要求精简解答。请根据题目复杂度充分说明所用定理、代入步骤、关键等式变形、分类讨论、定义域和边界条件；需要时给出检验。不得为了节省篇幅省略关键公式，或用“同理”“显然”“计算可得”替代必要步骤。输出面向学习者的完整解题说明，不输出内部思考过程。
     recognition 必须逐字保留原题可见内容，不得概括、改写、补写或删减。只调整题目自身的结构：原题包含多个小题时，在第二个及后续小题编号前使用一个 lineBreak，使 (1)(2)、①②、（Ⅰ）（Ⅱ）等小题各自起行；小题编号必须与该小题正文保持在同一行。不得把屏幕宽度造成的折行写成 lineBreak。
     approach、derivation、finalAnswer 按实际解答自然返回，不要求按题目小题拆分，也不要为了排版重新组织、改写或重复已经生成的文字。
     segments 只允许 text、math、block、lineBreak、paragraphBreak、blank。中文正文、编号、列表标签和标点使用 text；普通单行公式使用 math；矩阵、方程组、分段函数、独立公式和多行推导使用一个完整 block。不要使用 Markdown 的 #、**、``` 或列表语法表达排版。

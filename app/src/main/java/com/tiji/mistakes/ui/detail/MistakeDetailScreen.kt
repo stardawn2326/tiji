@@ -581,7 +581,7 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                 }
                 if (originalQuestionImages.isNotEmpty()) item {
                     TijiPaperCard {
-                        TijiSectionHeader("题目图片", if (originalQuestionImages.size > 1) "${originalQuestionImages.size} 张，按保存顺序排列" else "原题图片")
+                        TijiSectionHeader("题目图片")
                         originalQuestionImages.forEachIndexed { index, path ->
                             if (originalQuestionImages.size > 1) Text("第 ${index + 1} 张", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             ImagePreview(path, onDelete = { removeDetailImage(PhotoRole.QUESTION, path) })
@@ -616,17 +616,14 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                 }
                 if (!photoOnly && explanation.isNotBlank()) item {
                     TijiPaperCard {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text("解析", style = MaterialTheme.typography.titleLarge)
-                            }
+                        TijiSectionHeader("解析", action = {
                             TijiTextButton(
                                 onClick = { explanationExpanded = !explanationExpanded },
                                 modifier = Modifier.testTag("detail_explanation_toggle")
                             ) {
                                 Text(if (explanationExpanded) "收起" else "查看")
                             }
-                        }
+                        })
                         if (explanationExpanded) {
                             MathText(explanation, normalizeTerminalPeriod = true, compactVerticalSpacing = true)
                             ContentBlockImages(detailContentBlocks.filter { it.role == ContentBlockRole.EXPLANATION }, onDelete = ::removeDetailContentBlock)
