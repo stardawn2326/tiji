@@ -53,7 +53,7 @@ internal fun VisualAssistConfigScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val secureStore = remember { SecureKeyStore(context) }
-    val aiService = remember { AiVisionService() }
+    val aiService = remember { AiVisionService(appContext = context) }
     val visualPresets = remember { AiProviderPreset.entries.toList() }
     fun visionModels(value: AiProviderPreset): List<String> = value.modelOptions
     val initialPreset = AiProviderPreset.detect(

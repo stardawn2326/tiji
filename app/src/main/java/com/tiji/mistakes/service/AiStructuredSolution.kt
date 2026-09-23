@@ -92,7 +92,12 @@ object AiStructuredSolutionCodec {
 
     private fun extractPayload(raw: String): String? {
         val start = raw.indexOf(TIJI_SOLUTION_V2_START)
-        if (start < 0) return null
+        if (start < 0) {
+            // Some compatible providers omit the transport envelope or wrap
+            // the same JSON in a Markdown fence. Schema validation stays in parse().
+            val bare = raw.trim().removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
+            return bare.takeIf { it.startsWith("{") && it.endsWith("}") }
+        }
         val payloadStart = start + TIJI_SOLUTION_V2_START.length
         val end = raw.indexOf(TIJI_SOLUTION_V2_END, payloadStart)
         if (end <= payloadStart) return null
@@ -136,6 +141,10 @@ object AiStructuredSolutionCodec {
         "blank", "fill", "underline" -> "blank"
         else -> "text"
     }
+}
+
+internal fun requireReadableAiSolution(raw: String) {
+    require(stripAiProtocolForDisplay(raw).isNotBlank()) { "AI 未返回可展示的解题结果" }
 }
 
 /** Hide transport envelopes for both frozen V2 results and legacy history rows. */

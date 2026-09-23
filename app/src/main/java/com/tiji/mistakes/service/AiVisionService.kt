@@ -1,5 +1,7 @@
 package com.tiji.mistakes.service
 
+import kotlinx.coroutines.flow.first
+
 import android.util.Base64
 import android.util.Log
 import kotlinx.coroutines.CancellationException
@@ -984,8 +986,24 @@ internal fun buildRecognitionCorrectionInstruction(recognitionCorrection: String
     }.orEmpty()
 
 class AiVisionService internal constructor(
-    private val transport: AiProviderTransport = HttpUrlConnectionAiProviderTransport()
+    private val transport: AiProviderTransport = HttpUrlConnectionAiProviderTransport(),
+    private val appContext: android.content.Context? = null
 ) {
+
+    var thinkingModeOverride: String? = null
+
+    private suspend fun configureThinking(endpoint: String, body: JSONObject): JSONObject {
+        val mode = thinkingModeOverride ?: appContext?.let { context ->
+            val preferences = com.tiji.mistakes.data.AppPreferences(context)
+            val profiles = preferences.aiProfiles.first()
+            val active = preferences.activeAiProfileId.first()
+            fun matches(profile: com.tiji.mistakes.data.AiProfile) =
+                profile.model == body.optString("model") &&
+                    endpoint.trimEnd('/').removeSuffix("/chat/completions") == profile.endpoint.trimEnd('/').removeSuffix("/chat/completions")
+            (profiles.firstOrNull { it.id == active && matches(it) } ?: profiles.firstOrNull(::matches))?.thinkingMode
+        } ?: "auto"
+        return applyThinkingMode(body, endpoint, mode)
+    }
 
     fun cancelActiveRequest() {
         transport.cancel()
@@ -1903,7 +1921,7 @@ $retryInstruction
         val answerFilter = AnswerContentFilter()
         var receivedReasoning = false
         var finishReason = ""
-        transport.stream(endpoint, apiKey, body) { line ->
+        transport.stream(endpoint, apiKey, configureThinking(endpoint, body)) { line ->
             currentCoroutineContext().ensureActive()
             if (line.startsWith("data:")) {
                 val data = line.removePrefix("data:").trim()
@@ -1978,8 +1996,8 @@ $retryInstruction
         }
     }
 
-    private fun request(endpoint: String, apiKey: String, body: JSONObject): String =
-        transport.request(endpoint, apiKey, body)
+    private suspend fun request(endpoint: String, apiKey: String, body: JSONObject): String =
+        transport.request(endpoint, apiKey, configureThinking(endpoint, body))
 
     private fun extractContent(response: String): String {
         if (response.isBlank()) {

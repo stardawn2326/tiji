@@ -22,7 +22,8 @@ data class AiProfile(
     val id: String,
     val name: String,
     val endpoint: String,
-    val model: String
+    val model: String,
+    val thinkingMode: String = "auto"
 )
 
 /** A vision-only helper bound to one text-model profile. The API key is kept in the
@@ -448,14 +449,14 @@ class AppPreferences(private val context: Context) {
             (0 until array.length()).mapNotNull { index ->
                 val item = array.optJSONObject(index) ?: return@mapNotNull null
                 val id = item.optString("id").trim().ifBlank { return@mapNotNull null }
-                AiProfile(id, item.optString("name").ifBlank { "未命名配置" }, item.optString("endpoint"), item.optString("model"))
+                AiProfile(id, item.optString("name").ifBlank { "未命名配置" }, item.optString("endpoint"), item.optString("model"), item.optString("thinkingMode", "auto"))
             }.ifEmpty { listOf(AiProfile(DEFAULT_PROFILE_ID, "默认 AI", endpoint, model)) }
         }.getOrElse { listOf(AiProfile(DEFAULT_PROFILE_ID, "默认 AI", endpoint, model)) }
     }
 
     private fun encodeProfiles(value: List<AiProfile>): String = JSONArray().apply {
         value.forEach { profile ->
-            put(JSONObject().put("id", profile.id).put("name", profile.name).put("endpoint", profile.endpoint).put("model", profile.model))
+            put(JSONObject().put("id", profile.id).put("name", profile.name).put("endpoint", profile.endpoint).put("model", profile.model).put("thinkingMode", profile.thinkingMode))
         }
     }.toString()
 

@@ -48,9 +48,7 @@ import kotlinx.coroutines.withContext
 internal fun ImagePreview(
     path: String,
     onDelete: (() -> Unit)? = null,
-    isGraphicCrop: Boolean = false,
-    overlayActionLabel: String? = null,
-    onOverlayAction: (() -> Unit)? = null
+    isGraphicCrop: Boolean = false
 ) {
     var expanded by remember(path) { mutableStateOf(false) }
     val reloadVersion = imageReloadVersions[path] ?: 0
@@ -105,13 +103,6 @@ internal fun ImagePreview(
             onError = { loadFailed = true }
         )
     }
-        if (!overlayActionLabel.isNullOrBlank() && onOverlayAction != null) {
-            com.tiji.mistakes.ui.design.TijiTextButton(
-                onClick = onOverlayAction,
-                modifier = Modifier.align(Alignment.End),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp)
-            ) { Text(overlayActionLabel) }
-        }
     }
     }
     if (expanded) {

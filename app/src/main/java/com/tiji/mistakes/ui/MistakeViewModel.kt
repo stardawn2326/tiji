@@ -625,6 +625,13 @@ class MistakeViewModel(
         runCatching { AiSolveService.cancel(getApplication()) }
     }
 
+    fun resetAiSolveSession() {
+        if (_aiMistakeSave.value.running) return
+        stopAiFollowUp()
+        clearAiChat()
+        clearAiSolve()
+    }
+
     fun clearAiSolve() {
         aiSolveObserverJob?.cancel()
         AiSolveService.clearAndStop(getApplication())

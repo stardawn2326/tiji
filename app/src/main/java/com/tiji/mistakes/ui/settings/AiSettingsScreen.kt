@@ -72,7 +72,7 @@ internal fun AiSettingsScreen(
     val scope = rememberCoroutineScope()
     val secureStore = remember { SecureKeyStore(context) }
     val ocrModelState by ocrModelManager.combinedState.collectAsStateWithLifecycle()
-    val aiService = remember { AiVisionService() }
+    val aiService = remember { AiVisionService(appContext = context) }
     var selectedProfileId by remember(activeAiProfileId) { mutableStateOf(activeAiProfileId) }
     val selectedProfile = aiProfiles.firstOrNull { it.id == selectedProfileId }
     var profileName by remember(selectedProfileId, aiProfiles) {
@@ -87,6 +87,10 @@ internal fun AiSettingsScreen(
     var model by remember(selectedProfileId, selectedProfile?.model) {
         mutableStateOf(selectedProfile?.model ?: aiModel)
     }
+    var thinkingMode by remember(selectedProfileId, selectedProfile?.thinkingMode) {
+        mutableStateOf(selectedProfile?.thinkingMode ?: "auto")
+    }
+    aiService.thinkingModeOverride = thinkingMode
     var apiKey by remember(selectedProfileId) { mutableStateOf(secureStore.read(selectedProfileId)) }
     val selectedVisualProfile = aiVisualProfiles.firstOrNull { it.id == aiVisualBindings[selectedProfileId] }
     var connectionMessage by remember { mutableStateOf("") }
@@ -199,6 +203,14 @@ internal fun AiSettingsScreen(
                             }
                         }
                     }
+                    Text("思考模式", style = MaterialTheme.typography.labelLarge)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("auto" to "默认", "on" to "开启", "off" to "关闭").forEach { (value, label) ->
+                            TijiChip(selected = thinkingMode == value, onClick = { thinkingMode = value },
+                                modifier = Modifier.testTag("ai_thinking_$value"), label = { Text(label) })
+                        }
+                    }
+                    Text("仅返回答案和解析，不展示思考内容。", style = MaterialTheme.typography.bodySmall)
                     com.tiji.mistakes.ui.design.TijiSecretField(
                         value = apiKey,
                         onValueChange = { apiKey = it },
@@ -227,7 +239,8 @@ internal fun AiSettingsScreen(
                                         selectedProfileId,
                                         profileName.ifBlank { "未命名配置" },
                                         endpoint.trim(),
-                                        model.trim()
+                                        model.trim(),
+                                        thinkingMode = thinkingMode
                                     )
                                     val nextProfiles = if (aiProfiles.any { it.id == selectedProfileId }) {
                                         aiProfiles.map { existing -> if (existing.id == selectedProfileId) profile else existing }

@@ -667,7 +667,7 @@ private fun ocrValidationNoiseIssues(value: String): List<String> {
 
 class AiRecognitionService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val aiService = AiVisionService()
+    private val aiService = AiVisionService(appContext = this)
     private lateinit var ocrModelManager: OcrModelManager
     private lateinit var stateStore: AiRecognitionStateStore
     private var recognitionJob: Job? = null

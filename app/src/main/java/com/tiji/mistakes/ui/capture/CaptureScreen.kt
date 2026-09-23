@@ -1062,7 +1062,6 @@ internal fun NewCaptureScreen(
                                                  onClick = { movePhotoQuestionImage(index, index + 1) }
                                              ) { Text("下移") }
                                              Spacer(Modifier.weight(1f))
-                                             TijiTextButton(onClick = { load(path, PhotoRole.QUESTION) }) { Text("重新处理") }
                                          }
                                     }
                                 }
@@ -1090,7 +1089,7 @@ internal fun NewCaptureScreen(
                                     onClick = { requestCamera(role) }, minHeight = 88.dp, compact = true
                                 )
                             } else {
-                                ImagePreview(path, overlayActionLabel = "重新处理", onOverlayAction = { load(path, role) })
+                                ImagePreview(path)
                             }
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 TijiSecondaryButton(onClick = { requestCamera(role) }) { Text("拍照") }
@@ -1134,11 +1133,7 @@ internal fun NewCaptureScreen(
                             aiRecognitionImages.forEachIndexed { index, path ->
                                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                     Text("第 ${index + 1} 张", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    ImagePreview(path, onDelete = { removeAiRecognitionImage(path) }, overlayActionLabel = "重新处理", onOverlayAction = {
-                                        selectedRole = PhotoRole.QUESTION
-                                        aiRecognitionEditingOriginalPath = path
-                                        editingPath = path
-                                    })
+                                    ImagePreview(path, onDelete = { removeAiRecognitionImage(path) })
                                 }
                             }
                         }

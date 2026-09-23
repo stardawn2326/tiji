@@ -63,6 +63,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
@@ -146,6 +147,56 @@ internal fun AiSolveScreen(
     onAiInputMode: (AiInputMode) -> Unit,
     onReliabilityMode: (AiSolveReliabilityMode) -> Unit,
     solveVisitToken: Int
+) {
+    var resetGeneration by rememberSaveable { mutableIntStateOf(0) }
+    androidx.compose.runtime.key(resetGeneration) {
+        AiSolveScreenBody(
+            viewModel = viewModel,
+            allMistakes = allMistakes,
+            aiEndpoint = aiEndpoint,
+            aiModel = aiModel,
+            aiProfiles = aiProfiles,
+            activeAiProfileId = activeAiProfileId,
+            visualAssistProfile = visualAssistProfile,
+            initialAiInputMode = initialAiInputMode,
+            initialReliabilityMode = initialReliabilityMode,
+            aiUploadConsent = aiUploadConsent,
+            aiExcludeSourceImageByDefault = aiExcludeSourceImageByDefault,
+            onActiveAiProfile = onActiveAiProfile,
+            onOpenSettings = onOpenSettings,
+            onOpenSolveHistory = onOpenSolveHistory,
+            onOpenMistake = onOpenMistake,
+            onAiUploadConsent = onAiUploadConsent,
+            onAiInputMode = onAiInputMode,
+            onReliabilityMode = onReliabilityMode,
+            solveVisitToken = solveVisitToken,
+            onPageReset = { resetGeneration++ }
+        )
+    }
+}
+
+@Composable
+private fun AiSolveScreenBody(
+    viewModel: MistakeViewModel,
+    allMistakes: List<MistakeEntity>,
+    aiEndpoint: String,
+    aiModel: String,
+    aiProfiles: List<AiProfile>,
+    activeAiProfileId: String,
+    visualAssistProfile: AiVisualProfile?,
+    initialAiInputMode: String,
+    initialReliabilityMode: String,
+    aiUploadConsent: Boolean,
+    aiExcludeSourceImageByDefault: Boolean,
+    onActiveAiProfile: (String) -> Unit,
+    onOpenSettings: () -> Unit,
+    onOpenSolveHistory: () -> Unit,
+    onOpenMistake: (Long) -> Unit,
+    onAiUploadConsent: (Boolean) -> Unit,
+    onAiInputMode: (AiInputMode) -> Unit,
+    onReliabilityMode: (AiSolveReliabilityMode) -> Unit,
+    solveVisitToken: Int,
+    onPageReset: () -> Unit
 ) {
     var showSolveInputs by rememberSaveable { mutableStateOf(false) }
     var showSolveConfiguration by rememberSaveable { mutableStateOf(false) }
@@ -1004,12 +1055,18 @@ internal fun AiSolveScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp),
             modifier = Modifier.padding(padding).fillMaxSize()
         ) {
-            if (hasSolution) item {
+            item {
                 TijiPaperCard {
-                    TijiSectionHeader(
-                        "本次解题",
-                        action = { TijiTextButton(onClick = { showSolveInputs = !showSolveInputs }) { Text(if (showSolveInputs) "收起" else "查看原题") } }
-                    )
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("本次解题", style = MaterialTheme.typography.titleLarge)
+                        TijiTextButton(enabled = !aiMistakeSaveState.running, modifier = Modifier.testTag("ai_solve_clear"), onClick = {
+                            val draftPaths = imagePaths + pendingImagePaths + followUpImagePaths + followUpPendingImagePaths + listOfNotNull(editingOriginalPath, followUpEditingPath)
+                            viewModel.resetAiSolveSession()
+                            viewModel.deleteImagesIfUnreferenced(draftPaths)
+                            onPageReset()
+                        }) { Text("清空") }
+                        TijiTextButton(onClick = { showSolveInputs = !showSolveInputs }) { Text(if (showSolveInputs) "收起" else "查看原题") }
+                    }
                 }
             }
             if (!hasSolution || showSolveInputs) item {
@@ -1086,11 +1143,6 @@ internal fun AiSolveScreen(
                                     message = "已删除第 ${index + 1} 张图片"
                                 })
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    TijiTextButton(onClick = {
-                                        editingOriginalPath = path
-                                        imagePath = path
-                                        imageEditing = true
-                                    }) { Text("重新处理") }
                                     TijiTextButton(enabled = index > 0, onClick = {
                                         imagePaths = imagePaths.toMutableList().apply { add(index - 1, removeAt(index)) }
                                         imageHistory = imagePaths

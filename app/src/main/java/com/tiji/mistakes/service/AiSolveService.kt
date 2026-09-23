@@ -38,7 +38,7 @@ internal fun combineLocalOcrDocuments(documents: List<LocalOcrDocument>): LocalO
 
 class AiSolveService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val aiService = AiVisionService()
+    private val aiService = AiVisionService(appContext = this)
     private val solutionVerifier = AiSolutionVerifier(aiService)
     private val solutionRepairer = AiSolutionRepairer(aiService)
     private lateinit var ocrModelManager: OcrModelManager
@@ -248,12 +248,9 @@ class AiSolveService : Service() {
                 // hide a response the provider already returned.
                 streamedAnswer = complete
                 Log.i(TAG, "solve_response_complete request=$requestId elapsedMs=${SystemClock.elapsedRealtime() - pipelineStartedAt} chars=${complete.length}")
-                // A new solve is only publishable when the provider returned
-                // the frozen V2 protocol. Keeping a legacy/four-section answer
-                // here would make downstream parsing invent or lose fields.
-                if (!isUsableAiSolution(complete)) {
-                    throw IllegalStateException("AI 未返回合法 TIJI_SOLUTION_V2 解答")
-                }
+                // V2 enables structured presentation; it is not permission to
+                // retain an answer. Preserve readable provider responses too.
+                requireReadableAiSolution(complete)
 
                 var verification = if (reliabilityMode == AiSolveReliabilityMode.FAST) {
                     AiVerificationResult.unavailable("快速模式未执行独立一致性检查")
@@ -393,7 +390,7 @@ class AiSolveService : Service() {
                                 ?: repairedDirectQuestion
                                 ?: parsedQuestion?.question?.takeIf(String::isNotBlank)
                                 ?: modelQuestion.takeIf(String::isNotBlank)
-                                ?: throw IllegalStateException("AI 未返回完整的题目识别，请重新解题")
+                                ?: sourceQuestion.orEmpty()
                         }
                     }
                 } else {
