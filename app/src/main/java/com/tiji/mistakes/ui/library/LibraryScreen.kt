@@ -470,7 +470,7 @@ internal fun LibraryScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             LibraryFilterChip(
-                                label = selectedSubject ?: "全部", selected = selectedSubject != null, onClick = {},
+                                label = selectedSubject ?: "科目", selected = selectedSubject != null, onClick = {},
                                 options = subjectTabs.map { value ->
                                     LibraryFilterOption(value, "library_subject_${if (value == "全部") "all" else value}", value == (selectedSubject ?: "全部")) {
                                         knowledgeFilter = null

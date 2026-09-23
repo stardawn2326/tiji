@@ -1,5 +1,16 @@
 package com.tiji.mistakes.service
 
+// A reference is prose, even when its labels happen to form an increasing sequence.
+private val inlineReferencePrefix = Regex(
+    """(?i)(?:图|表|公式|式|方程|条件|结论|步骤|选项|小题|第|fig(?:ure)?\.?|eq(?:uation)?\.?)[\s：:]*(?:[（(][^()（）\n]{1,12}[）)]\s*(?:[、，,和及与或至到~～—–-]\s*)?)*$"""
+)
+
+internal fun isInlineLayoutReference(value: String, markerStart: Int): Boolean {
+    val prefix = value.substring(0, markerStart).trimEnd()
+    return inlineReferencePrefix.containsMatchIn(prefix) ||
+        prefix.lastOrNull()?.let { it in 'a'..'z' || it in 'A'..'Z' || it == '_' } == true
+}
+
 private enum class QuestionMarkerKind {
     LETTER,
     ROMAN,
@@ -144,6 +155,7 @@ internal fun splitQuestionOptionsForLayout(value: String): String {
         )
     }
     val markers = (optionMarkers + unicodeRomanMarkers + asciiRomanMarkers + numericMarkers)
+        .filterNot { it.parenthesized && isInlineLayoutReference(protected, it.start) }
         .sortedBy { it.start }
         .toList()
     if (markers.size < 2) return value
