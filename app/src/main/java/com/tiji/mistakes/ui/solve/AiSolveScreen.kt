@@ -1106,6 +1106,7 @@ private fun AiSolveScreenBody(
                             Text("打开 AI 配置")
                         }
                     }
+                    androidx.compose.material3.HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     if (imagePaths.isEmpty()) {
                         TijiDropZone(
                             title = "拍照或选择图片",
