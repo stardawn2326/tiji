@@ -102,17 +102,12 @@ class AiFollowUpService : Service() {
                 followUpImagePaths = followUpImagePaths,
                 onDelta = { delta ->
                     streamedChars += delta.length
-                    val current = stateStore.read()
-                    if (current.requestId == requestId && current.running) {
-                        stateStore.write(
-                            current.copy(
-                                progress = (0.30f + (streamedChars / RESPONSE_ESTIMATE_CHARS.toFloat()).coerceIn(0f, 1f) * 0.65f)
-                                    .coerceAtMost(0.95f),
-                                streamedText = current.streamedText + delta,
-                                error = null
-                            )
-                        )
-                    }
+                    stateStore.appendStream(
+                        requestId = requestId,
+                        delta = delta,
+                        progress = (0.30f + (streamedChars / RESPONSE_ESTIMATE_CHARS.toFloat()).coerceIn(0f, 1f) * 0.65f)
+                            .coerceAtMost(0.95f)
+                    )
                 }
             ).getOrThrow() } }
             result.exceptionOrNull()?.let { if (it is CancellationException && it !is TimeoutCancellationException) throw it }

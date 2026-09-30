@@ -84,7 +84,8 @@ internal fun recoverInterruptedAiChat(
         .copy(sessionId = currentSessionId)
 } else state
 
-class AiChatStateStore(context: Context) {
+class AiChatStateStore internal constructor(context: Context, fileOps: DurableFileOps) {
+    constructor(context: Context) : this(context, PlatformDurableFileOps)
     private val storeLock = StoreFileLocks.forStore(context, FILE_NAME)
     private val preferences = context.getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE)
 
@@ -94,7 +95,25 @@ class AiChatStateStore(context: Context) {
     }
 
     internal fun observe() = TaskStateUpdates.observe(FILE_NAME, ::read)
-    private val durableTextStore = DurableTextStore(context, FILE_NAME)
+    private val durableTextStore = DurableTextStore(context, FILE_NAME, fileOps)
+
+    /** Commit only the changing stream slot. Request guards share the full-state write lock. */
+    internal fun appendStream(requestId: Long, delta: String, progress: Float): Boolean = synchronized(storeLock) {
+        if (preferences.getLong(KEY_REQUEST_ID, 0L) != requestId || !preferences.getBoolean(KEY_RUNNING, false)) {
+            return@synchronized false
+        }
+        if (delta.isEmpty()) return@synchronized true
+        val previous = durableTextStore.read(SLOT_STREAMED_TEXT)
+            ?: preferences.getString(KEY_STREAMED_TEXT, "").orEmpty()
+        durableTextStore.write(SLOT_STREAMED_TEXT, previous + delta)
+        preferences.edit()
+            .putFloat(KEY_PROGRESS, progress.coerceIn(0f, 1f))
+            .remove(KEY_STREAMED_TEXT)
+            .remove(KEY_ERROR)
+            .apply()
+        TaskStateUpdates.changed(FILE_NAME)
+        true
+    }
 
     fun read(): PersistedAiChatState = synchronized(storeLock) { PersistedAiChatState(
         requestId = preferences.getLong(KEY_REQUEST_ID, 0L),

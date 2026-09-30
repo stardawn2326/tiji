@@ -7,7 +7,6 @@ import android.util.Log
 import java.io.File
 import java.io.FileOutputStream
 import java.security.MessageDigest
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -25,7 +24,7 @@ internal object MathSnapshotDiskCache {
     private val writerScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val fileMutex = Mutex()
     private val cacheLock = Any()
-    private val ownerGenerations = ConcurrentHashMap<MathSnapshotOwner, AtomicLong>()
+    private val ownerGenerations = MathSnapshotGenerations()
     private val resetGeneration = AtomicLong()
     private var legacyPruned = false // guarded by fileMutex
 
@@ -36,8 +35,8 @@ internal object MathSnapshotDiskCache {
         return owner?.prefix?.plus(digest) ?: digest
     }
 
-    fun generationFor(owner: MathSnapshotOwner): Long =
-        ownerGenerations.computeIfAbsent(owner) { AtomicLong() }.get()
+    fun generationFor(owner: MathSnapshotOwner?): Long =
+        ownerGenerations.generationFor(owner)
 
     /** Reject a preview captured before its mistake was reviewed, deleted, or reset. */
     fun cacheIfCurrent(
@@ -108,7 +107,7 @@ internal object MathSnapshotDiskCache {
         if (distinctOwners.isEmpty()) return
         synchronized(cacheLock) {
             distinctOwners.forEach { owner ->
-                ownerGenerations.computeIfAbsent(owner) { AtomicLong() }.incrementAndGet()
+                ownerGenerations.invalidate(owner)
             }
             MathSnapshotMemoryCache.invalidate(distinctOwners)
         }
@@ -126,7 +125,7 @@ internal object MathSnapshotDiskCache {
     suspend fun clearAll(context: Context) {
         synchronized(cacheLock) {
             resetGeneration.incrementAndGet()
-            ownerGenerations.values.forEach { it.incrementAndGet() }
+            ownerGenerations.clear()
             MathSnapshotMemoryCache.clear()
         }
         withContext(Dispatchers.IO) {
@@ -170,7 +169,7 @@ internal object MathSnapshotDiskCache {
 
     private fun directory(context: Context): File = File(context.noBackupFilesDir, DIRECTORY_NAME)
 
-    private fun generation(owner: MathSnapshotOwner?): Long = owner?.let { ownerGenerations[it]?.get() } ?: 0L
+    private fun generation(owner: MathSnapshotOwner?): Long = ownerGenerations.generationFor(owner)
 
     private fun isCurrent(owner: MathSnapshotOwner?, ownerGeneration: Long, resetAtStart: Long): Boolean =
         resetGeneration.get() == resetAtStart && generation(owner) == ownerGeneration

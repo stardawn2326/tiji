@@ -288,9 +288,11 @@ class MistakeViewModel(
             LearningCalendar.startOfRecentDays(now, 30).toEpochMilli()
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-    /** Full review history for calendar and progress consumers; Room is the fact source. */
-    val allReviewRecords: StateFlow<List<ReviewRecordEntity>> = repository.observeAllReviewRecords()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    /** Full history is observed only by the calendar; release its retained map after leaving. */
+    val calendarReviewStatuses = repository.observeAllReviewRecords()
+        .map { com.tiji.mistakes.domain.ReviewAnalytics.statusesByDate(it) }
+        .flowOn(Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000, replayExpirationMillis = 0), emptyMap())
     val knowledgePoints = repository.observeKnowledgePoints()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val knowledgePointLinks = repository.observeKnowledgePointLinks()
@@ -302,7 +304,13 @@ class MistakeViewModel(
     ) { items, points, links ->
         MistakeProgressCalculator.calculate(items, points, links)
     }
+        .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MistakeProgressSummary())
+    internal val studyOverview = StudyOverviewCoordinator(
+        allMistakes, dueMistakes, recentReviewRecords, preferences.reviewPlanningSettings, reviewNow
+    )
+        .state
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), StudyOverviewState(now = reviewNow.value))
     val aiSolve: StateFlow<AiSolveState> = _aiSolve.asStateFlow()
     val aiSolveHistory: StateFlow<List<AiSolveHistoryRecord>> = _aiSolveHistory.asStateFlow()
     val aiChat: StateFlow<AiChatState> = _aiChat.asStateFlow()

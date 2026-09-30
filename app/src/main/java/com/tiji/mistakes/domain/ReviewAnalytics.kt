@@ -15,6 +15,34 @@ data class ReviewAnalyticsSummary(
 )
 
 object ReviewAnalytics {
+    fun statusesForDate(
+        records: List<ReviewRecordEntity>,
+        now: Long,
+        zoneId: ZoneId = ZoneId.systemDefault()
+    ): Map<Long, String> {
+        val date = LearningCalendar.localDate(now, zoneId)
+        return latestStatuses(records.filter { LearningCalendar.localDate(it.reviewedAt, zoneId) == date })
+    }
+
+    fun statusesByDate(
+        records: List<ReviewRecordEntity>,
+        zoneId: ZoneId = ZoneId.systemDefault()
+    ): Map<String, Map<Long, String>> = records
+        .groupBy { LearningCalendar.localDate(it.reviewedAt, zoneId).toString() }
+        .mapValues { (_, rows) -> latestStatuses(rows) }
+
+    private fun latestStatuses(records: List<ReviewRecordEntity>): Map<Long, String> {
+        val latest = mutableMapOf<Long, ReviewRecordEntity>()
+        records.forEach { record ->
+            val previous = latest[record.mistakeId]
+            if (previous == null || record.reviewedAt > previous.reviewedAt ||
+                (record.reviewedAt == previous.reviewedAt && record.id > previous.id)) {
+                latest[record.mistakeId] = record
+            }
+        }
+        return latest.mapValues { it.value.grade }
+    }
+
     fun summarize(
         records: List<ReviewRecordEntity>,
         now: Long = System.currentTimeMillis(),

@@ -9,6 +9,21 @@ import org.junit.Test
 
 class ReviewAnalyticsTest {
     @Test
+    fun calendarAndTodayUseTheLatestGradeAndRespectTheLocalDate() {
+        val zone = java.time.ZoneId.of("Asia/Shanghai")
+        val midnight = java.time.Instant.parse("2026-09-30T16:00:00Z").toEpochMilli()
+        val older = record(midnight - 2_000, ReviewGrade.FORGOT, 0, 0).copy(id = 1)
+        val newer = record(midnight - 1_000, ReviewGrade.GOOD, 0, 1).copy(id = 2)
+        val nextDay = record(midnight + 1_000, ReviewGrade.EASY, 1, 2).copy(id = 3)
+        val records = listOf(newer, nextDay, older)
+        val calendar = ReviewAnalytics.statusesByDate(records, zone)
+        assertEquals(mapOf(1L to "GOOD"), calendar["2026-09-30"])
+        assertEquals(mapOf(1L to "EASY"), calendar["2026-10-01"])
+        assertEquals(calendar["2026-09-30"], ReviewAnalytics.statusesForDate(records, midnight - 1, zone))
+        assertEquals(calendar["2026-10-01"], ReviewAnalytics.statusesForDate(records, midnight, zone))
+    }
+
+    @Test
     fun summarizesRecentGradesAndMasteryDelta() {
         val now = System.currentTimeMillis()
         val records = listOf(
