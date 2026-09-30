@@ -12,7 +12,9 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -150,7 +152,11 @@ class FocusedReviewRecreationTest {
     fun repeatedGradeTapsRecordAtMostOneReviewPerQuestion() {
         openFocusedReview()
         showAnswerAndScrollTo(ReviewGrade.GOOD)
-        repeat(3) { composeRule.onNodeWithTag("review_grade_good").performClick() }
+        // Invoke the same UI action before recomposition. A fresh button lookup after each
+        // click can race automatic advancement to the next question.
+        composeRule.onNodeWithTag("review_grade_good").performSemanticsAction(SemanticsActions.OnClick) { action ->
+            repeat(3) { action() }
+        }
         assertAtMostOneRecord()
         waitForQuestion(secondTitle)
         showAnswerAndScrollTo(ReviewGrade.HARD)

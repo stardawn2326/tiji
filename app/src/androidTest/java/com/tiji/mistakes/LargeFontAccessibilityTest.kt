@@ -1,6 +1,8 @@
 package com.tiji.mistakes
 
+import android.content.res.Configuration
 import android.os.ParcelFileDescriptor
+import androidx.lifecycle.Lifecycle
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
@@ -20,8 +22,7 @@ class LargeFontAccessibilityTest {
     @Before
     fun enableLargeFont() {
         shell("settings put system font_scale 1.3")
-        composeRule.activityRule.scenario.recreate()
-        composeRule.waitForIdle()
+        waitForConfiguration(1.3f)
     }
 
     @After
@@ -41,17 +42,34 @@ class LargeFontAccessibilityTest {
     fun navigationKeepsLabelsAndClickSemanticsInDarkModeAtLargestFont() {
         shell("settings put system font_scale 1.5")
         shell("cmd uimode night yes")
-        composeRule.activityRule.scenario.recreate()
-        composeRule.waitForIdle()
+        waitForConfiguration(1.5f, Configuration.UI_MODE_NIGHT_YES)
 
         listOf("home", "library", "solve", "review", "settings").forEach { route ->
             composeRule.onNodeWithTag("nav_$route").assertExists().performClick()
         }
     }
 
+    private fun waitForConfiguration(fontScale: Float, nightMode: Int? = null) {
+        // System configuration changes already recreate the activity. An immediate explicit
+        // recreate races that transition and can try to recreate an already destroyed instance.
+        composeRule.waitUntil(timeoutMillis = 10_000) {
+            runCatching {
+                var ready = false
+                composeRule.activityRule.scenario.onActivity { activity ->
+                    val configuration = activity.resources.configuration
+                    ready = activity.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) &&
+                        kotlin.math.abs(configuration.fontScale - fontScale) < 0.01f &&
+                        (nightMode == null || configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == nightMode)
+                }
+                ready
+            }.getOrDefault(false)
+        }
+        composeRule.waitForIdle()
+    }
+
     private fun shell(command: String) {
         val descriptor: ParcelFileDescriptor = InstrumentationRegistry.getInstrumentation()
             .uiAutomation.executeShellCommand(command)
-        descriptor.close()
+        ParcelFileDescriptor.AutoCloseInputStream(descriptor).use { it.readBytes() }
     }
 }

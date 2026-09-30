@@ -53,7 +53,6 @@ import com.tiji.mistakes.ui.settings.VisualAssistConfigScreen
 import com.tiji.mistakes.ui.solve.AiChatHistoryScreen
 import com.tiji.mistakes.ui.solve.AiSolveHistoryScreen
 import com.tiji.mistakes.ui.solve.AiSolveScreen
-import com.tiji.mistakes.ui.common.reviewDateKey
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -83,11 +82,6 @@ internal fun TijiNavGraph(
             clearKeystoreAliases = { SecureKeyStore(context).clearAll() }
         )
     )
-    val reviewRecordsByDate = remember(state.reviewRecords) {
-        state.reviewRecords
-            .groupBy { reviewDateKey(it.reviewedAt) }
-            .mapValues { (_, records) -> records.associate { it.mistakeId to it.grade } }
-    }
     val knowledgeProgress = remember(state.progressSummary) {
         state.progressSummary.bySubject.flatMap { it.knowledgePoints }
     }
@@ -212,7 +206,7 @@ internal fun TijiNavGraph(
                         exportOriginalImagesOnly = !state.aiExcludeSourceImageByDefault,
                         reviewPlanEnabled = state.reviewPlanEnabled,
                         randomReview = state.randomReview,
-                        reviewStatuses = reviewRecordsByDate[state.todayDate].orEmpty(),
+                        reviewStatuses = state.todayReviewStatuses,
                         savedPlanIds = state.reviewPlanSnapshots[state.todayDate],
                         checkedInToday = state.todayDate in state.reviewCheckIns,
                         onSavePlanSnapshot = { date, ids -> scope.launch { preferences.ensureReviewPlanSnapshot(date, ids) } },
@@ -559,6 +553,7 @@ internal fun TijiNavGraph(
                     }
                 }
                 composable(TijiRoutes.REVIEW_CALENDAR) {
+                    val reviewRecordsByDate by viewModel.calendarReviewStatuses.collectAsStateWithLifecycle()
                     ReviewCalendarScreen(
                         mistakes = state.mistakes,
                         reviewRecords = reviewRecordsByDate,

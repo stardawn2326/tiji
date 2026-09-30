@@ -136,7 +136,7 @@ internal fun MathText(
     val preserveRawSource = preserveReturnedLayout || preserveSourceExactly
     val viewportWidth = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp
     val densityDpi = context.resources.displayMetrics.densityDpi
-    val snapshotGeneration = snapshotOwner?.let { MathSnapshotDiskCache.generationFor(it) } ?: 0L
+    val snapshotGeneration = MathSnapshotDiskCache.generationFor(snapshotOwner)
     val html = remember(
         viewportWidth,
         densityDpi,

@@ -44,9 +44,6 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import com.tiji.mistakes.data.AiProfile
 import com.tiji.mistakes.data.AppPreferences
-import com.tiji.mistakes.domain.DailyStudyPlanner
-import com.tiji.mistakes.domain.DailyStudyPlannerInput
-import com.tiji.mistakes.domain.ReviewAnalytics
 import com.tiji.mistakes.domain.time.LearningCalendar
 import com.tiji.mistakes.service.OcrModelManager
 import com.tiji.mistakes.ui.navigation.BottomDestination
@@ -86,10 +83,12 @@ fun TijiApp() {
     }
     val aiUploadConsent by preferences.aiUploadConsent.collectAsStateWithLifecycle(false)
     val aiExcludeSourceImageByDefault by preferences.aiExcludeSourceImageByDefault.collectAsStateWithLifecycle(true)
-    val dailyReviewLimit by preferences.dailyReviewLimit.collectAsStateWithLifecycle(20)
-    val reviewSubjects by preferences.reviewSubjects.collectAsStateWithLifecycle("")
-    val reviewPlanEnabled by preferences.reviewPlanEnabled.collectAsStateWithLifecycle(false)
-    val randomReview by preferences.randomReview.collectAsStateWithLifecycle(false)
+    val studyOverview by viewModel.studyOverview.collectAsStateWithLifecycle()
+    val reviewPlanningSettings = studyOverview.settings
+    val dailyReviewLimit = reviewPlanningSettings.dailyLimit
+    val reviewSubjects = reviewPlanningSettings.subjects
+    val reviewPlanEnabled = reviewPlanningSettings.enabled
+    val randomReview = reviewPlanningSettings.random
     val reviewCheckIns by preferences.reviewCheckIns.collectAsStateWithLifecycle(emptySet())
     val reviewPlanSnapshots by preferences.reviewPlanSnapshots.collectAsStateWithLifecycle(emptyMap())
     val mistakes by viewModel.mistakes.collectAsStateWithLifecycle()
@@ -97,44 +96,16 @@ fun TijiApp() {
     val mistakeItems by viewModel.mistakeItems.collectAsStateWithLifecycle()
     val allMistakeItems by viewModel.allMistakeItems.collectAsStateWithLifecycle()
     val progressSummary by viewModel.progressSummary.collectAsStateWithLifecycle()
-    val reviewNow by viewModel.reviewNow.collectAsStateWithLifecycle(System.currentTimeMillis())
+    val reviewNow = studyOverview.now
     val todayDate = remember(reviewNow) { LearningCalendar.localDate(reviewNow).toString() }
-    val todayWeekday = remember(reviewNow) { LearningCalendar.localDate(reviewNow).dayOfWeek.value }
     var librarySubject by rememberSaveable { mutableStateOf<String?>(null) }
     val dueMistakes by viewModel.dueMistakes.collectAsStateWithLifecycle()
     val dueCount by viewModel.dueCount.collectAsStateWithLifecycle()
-    val recentReviewRecords by viewModel.recentReviewRecords.collectAsStateWithLifecycle()
-    val reviewRecords by viewModel.allReviewRecords.collectAsStateWithLifecycle()
+    val todayReviewStatuses = studyOverview.todayReviewStatuses
     val knowledgePoints by viewModel.knowledgePoints.collectAsStateWithLifecycle()
     val knowledgePointLinks by viewModel.knowledgePointLinks.collectAsStateWithLifecycle()
-    val reviewAnalytics = remember(recentReviewRecords) { ReviewAnalytics.summarize(recentReviewRecords) }
-    val dailyStudyPlan = remember(
-        allMistakes,
-        dueMistakes,
-        recentReviewRecords,
-        dailyReviewLimit,
-        randomReview,
-        reviewSubjects,
-        reviewPlanEnabled,
-        reviewNow,
-        todayWeekday
-    ) {
-        if (!reviewPlanEnabled) {
-            com.tiji.mistakes.domain.DailyStudyPlan()
-        } else {
-            DailyStudyPlanner.plan(
-                DailyStudyPlannerInput(
-                    activeMistakes = allMistakes,
-                    dueMistakes = dueMistakes,
-                    recentRecords = recentReviewRecords,
-                    dailyLimit = dailyReviewLimit,
-                    randomReview = randomReview,
-                    subjectPreferences = DailyStudyPlanner.parseSubjectPreferences(reviewSubjects, todayWeekday),
-                    now = reviewNow
-                )
-            )
-        }
-    }
+    val reviewAnalytics = studyOverview.reviewAnalytics
+    val dailyStudyPlan = studyOverview.dailyStudyPlan
     val navController = rememberNavController()
     val scope = rememberCoroutineScope()
     val ocrModelManager = remember { OcrModelManager.getInstance(context) }
@@ -201,7 +172,7 @@ fun TijiApp() {
         reviewAnalytics = reviewAnalytics,
         dailyStudyPlan = dailyStudyPlan,
         reviewPlanSnapshots = reviewPlanSnapshots,
-        reviewRecords = reviewRecords,
+        todayReviewStatuses = todayReviewStatuses,
         reviewCheckIns = reviewCheckIns,
         reviewPlanEnabled = reviewPlanEnabled,
         dailyReviewLimit = dailyReviewLimit,

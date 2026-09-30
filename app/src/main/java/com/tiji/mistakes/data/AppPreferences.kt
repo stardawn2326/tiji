@@ -12,11 +12,19 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 private val Context.tijiDataStore by preferencesDataStore("tiji_preferences")
+
+data class ReviewPlanningSettings(
+    val enabled: Boolean = false,
+    val dailyLimit: Int = 20,
+    val random: Boolean = false,
+    val subjects: String = ""
+)
 
 data class AiProfile(
     val id: String,
@@ -94,6 +102,15 @@ class AppPreferences(private val context: Context) {
     val reviewSubjects: Flow<String> = context.tijiDataStore.data.map { it[reviewSubjectsKey] ?: "" }
     val reviewSubjectCatalog: Flow<List<String>> = context.tijiDataStore.data.map { decodeSubjectCatalog(it[reviewSubjectCatalogKey]) }
     val reviewPlanEnabled: Flow<Boolean> = context.tijiDataStore.data.map { it[reviewPlanEnabledKey] ?: false }
+    /** One coherent planning snapshot; AI/theme preference edits do not rebuild the queue. */
+    val reviewPlanningSettings: Flow<ReviewPlanningSettings> = context.tijiDataStore.data.map {
+        ReviewPlanningSettings(
+            enabled = it[reviewPlanEnabledKey] ?: false,
+            dailyLimit = (it[dailyReviewLimitKey] ?: 20).coerceIn(1, 100),
+            random = it[randomReviewKey] ?: false,
+            subjects = it[reviewSubjectsKey] ?: ""
+        )
+    }.distinctUntilChanged()
     val randomReview: Flow<Boolean> = context.tijiDataStore.data.map { it[randomReviewKey] ?: false }
     val reviewOriginalImages: Flow<Boolean> = context.tijiDataStore.data.map { it[reviewOriginalImagesKey] ?: false }
     val reviewCheckIns: Flow<Set<String>> = context.tijiDataStore.data.map { decodeStringSet(it[reviewCheckInsKey]) }
