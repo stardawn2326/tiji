@@ -5,7 +5,6 @@ import android.content.pm.PackageManager
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -17,7 +16,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.tiji.mistakes.service.ImageProcessor
 import com.tiji.mistakes.service.ImageStorage
@@ -29,7 +27,14 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
-internal fun AddQuestionImagesButton(onAdded: (List<String>) -> Unit) {
+internal fun AddQuestionImagesButton(onAdded: (List<String>) -> Unit) =
+    AddQuestionImagesButton(onAdded, onProcessImages = null)
+
+@Composable
+internal fun AddQuestionImagesButton(
+    onAdded: (List<String>) -> Unit,
+    onProcessImages: ((List<String>) -> Unit)?
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var showSourceDialog by rememberSaveable { mutableStateOf(false) }
@@ -56,10 +61,10 @@ internal fun AddQuestionImagesButton(onAdded: (List<String>) -> Unit) {
                     val copied = runCatching {
                         ImageStorage.copyToPrivate(context, uri, "question_attachment")
                     }.getOrNull() ?: return@mapNotNull null
-                    cleanAttachment(copied)
+                    if (onProcessImages != null) copied else cleanAttachment(copied)
                 }
             }
-            if (paths.isNotEmpty()) onAdded(paths)
+            if (paths.isNotEmpty()) (onProcessImages ?: onAdded)(paths)
             if (paths.size != uris.size) Toast.makeText(context, "部分图片读取失败，请重新选择", Toast.LENGTH_SHORT).show()
             importing = false
         }
@@ -71,9 +76,9 @@ internal fun AddQuestionImagesButton(onAdded: (List<String>) -> Unit) {
             importing = true
             val cleaned = withContext(Dispatchers.IO) {
                 val copied = ImageStorage.copyFileToPrivate(context, source, "question_attachment")
-                copied?.let { cleanAttachment(it) }
+                copied?.let { if (onProcessImages != null) it else cleanAttachment(it) }
             }
-            if (cleaned != null) onAdded(listOf(cleaned))
+            if (cleaned != null) (onProcessImages ?: onAdded)(listOf(cleaned))
             else Toast.makeText(context, "照片读取失败，请重新拍摄", Toast.LENGTH_SHORT).show()
             importing = false
         } else if (!success && source != null) {

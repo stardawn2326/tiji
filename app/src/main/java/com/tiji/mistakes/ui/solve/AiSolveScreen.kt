@@ -225,7 +225,6 @@ private fun AiSolveScreenBody(
     var title by remember { mutableStateOf("") }
     var question by remember { mutableStateOf("") }
     var answer by remember { mutableStateOf("") }
-    var explanation by remember { mutableStateOf("") }
     var note by remember { mutableStateOf("") }
     var subject by remember { mutableStateOf("") }
     var questionType by remember { mutableStateOf("") }
@@ -233,7 +232,6 @@ private fun AiSolveScreenBody(
     var difficulty by remember { mutableIntStateOf(0) }
     var message by remember { mutableStateOf("") }
     var savedMessage by remember { mutableStateOf("") }
-    var savedNoticeVersion by remember { mutableStateOf(0) }
     var showPrivacyDialog by remember { mutableStateOf(false) }
     var showFollowUpDialog by remember { mutableStateOf(false) }
     var showDuplicateDialog by rememberSaveable { mutableStateOf(false) }
@@ -246,6 +244,8 @@ private fun AiSolveScreenBody(
     var userAnswerDraft by rememberSaveable { mutableStateOf("") }
     var errorReason by rememberSaveable { mutableStateOf("") }
     var recognitionEditDraft by rememberSaveable { mutableStateOf("") }
+    var questionAttachmentQueue by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
+    var attachmentProcessing by remember { mutableStateOf(false) }
     var saveToReviewPlan by rememberSaveable { mutableStateOf(true) }
     var aiSolutionExpanded by rememberSaveable { mutableStateOf(true) }
     var latestChatExpanded by rememberSaveable { mutableStateOf(false) }
@@ -282,6 +282,15 @@ private fun AiSolveScreenBody(
     }
     val completeSolution = aiSolveState.completeText.orEmpty()
     val solutionSections = remember(completeSolution) { parseAiSolutionSections(completeSolution) }
+    // Display and Save share the same snapshot, including unabridged repeated sections.
+    val displayedQuestion = if (solutionSections.structured && solutionSections.schemaVersion >= 2) {
+        solutionSections.recognition
+    } else question.ifBlank { solutionSections.recognition }
+    val displayedAnswer = if (solutionSections.structured) solutionSections.finalAnswer else answer
+    val displayedExplanation = if (solutionSections.structured) {
+        listOf(solutionSections.approach, solutionSections.derivation)
+            .filter(String::isNotBlank).joinToString("\n\n")
+    } else visibleAiSolution(completeSolution)
     val duplicateCandidates = remember(question, imagePaths, allMistakes) {
         MistakeDuplicateService.findCandidates(question, imagePaths, allMistakes)
     }
@@ -421,15 +430,6 @@ private fun AiSolveScreenBody(
         val visibleSolution = visibleAiSolution(complete)
         answer = structured?.section("finalAnswer")?.displaySource()?.takeIf(String::isNotBlank)
             ?: sections.finalAnswer.ifBlank { visibleSolution }
-        explanation = listOf(
-            structured?.section("approach")?.displaySource(),
-            structured?.section("derivation")?.displaySource(),
-            sections.approach,
-            sections.derivation
-        )
-            .mapNotNull { it?.takeIf(String::isNotBlank) }
-            .distinct()
-            .joinToString("\n\n")
         // Classification and editable metadata are supplied explicitly by the
         // save sheet/classifier. The solve protocol only carries the four V2
         // content sections.
@@ -454,7 +454,6 @@ private fun AiSolveScreenBody(
             title = ""
             question = ""
             answer = ""
-            explanation = ""
             note = ""
             subject = ""
             questionType = ""
@@ -482,7 +481,7 @@ private fun AiSolveScreenBody(
         }
     }
 
-    LaunchedEffect(savedMessage, savedNoticeVersion, aiMistakeSaveState.mistakeId, aiMistakeSaveState.running) {
+    LaunchedEffect(savedMessage, aiMistakeSaveState.mistakeId, aiMistakeSaveState.running) {
         if (savedMessage.isNotBlank() && aiMistakeSaveState.mistakeId != null && !aiMistakeSaveState.running) {
             kotlinx.coroutines.delay(3_000)
             savedMessage = ""
@@ -716,9 +715,10 @@ private fun AiSolveScreenBody(
             AiSolvedMistakeDraftInput(
                 rawSolution = completeSolution,
                 title = title,
-                question = question,
-                answer = answer,
-                explanation = explanation,
+                question = displayedQuestion,
+                answer = displayedAnswer,
+                explanation = displayedExplanation,
+                preferDisplayedContent = true,
                 note = note,
                 userAnswer = userAnswerDraft,
                 errorReason = errorReason,
@@ -776,6 +776,41 @@ private fun AiSolveScreenBody(
         else message = "相机权限未授予，无法拍照"
     }
 
+    if (questionAttachmentQueue.isNotEmpty()) {
+        val attachment = questionAttachmentQueue.first()
+        androidx.compose.runtime.key(attachment) {
+            StandaloneImageEditor(
+                attachment,
+                "题目图片",
+                onCancel = { questionAttachmentQueue = ArrayList(questionAttachmentQueue.drop(1)) },
+                onDiscard = viewModel::deleteImagesIfUnreferenced,
+                externalProcessing = attachmentProcessing,
+                onConfirm = { processed ->
+                    if (!attachmentProcessing) scope.launch {
+                        attachmentProcessing = true
+                        try {
+                            val cleaned = withContext(Dispatchers.IO) {
+                                ImageProcessor.cleanGraphicCrop(context, processed)
+                            }
+                            cleaned.onSuccess { path ->
+                                viewModel.addAiSolveQuestionImages(listOf(path))
+                                if (path != processed) viewModel.deleteImagesIfUnreferenced(listOf(processed))
+                                questionAttachmentQueue = ArrayList(questionAttachmentQueue.drop(1))
+                            }.onFailure {
+                                message = "图片处理失败，请重新添加"
+                                viewModel.deleteImagesIfUnreferenced(listOf(processed))
+                                questionAttachmentQueue = ArrayList(questionAttachmentQueue.drop(1))
+                            }
+                        } finally {
+                            attachmentProcessing = false
+                        }
+                    }
+                }
+            )
+        }
+        return
+    }
+
     if (imageEditing && imagePath != null) {
         val editingPath = imagePath!!
         StandaloneImageEditor(
@@ -814,40 +849,20 @@ private fun AiSolveScreenBody(
     }
 
     if (showRecognitionEditor) {
-        TijiDialog(
-            onDismissRequest = { showRecognitionEditor = false },
-            title = { Text("编辑识别题目") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        "只修改题目识别文字。确认后会生成新的解题运行，不会让旧解答继续对应新题目。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    com.tiji.mistakes.ui.design.TijiMultilineField(
-                        value = recognitionEditDraft,
-                        onValueChange = { recognitionEditDraft = it },
-                        label = { Text("修正后的完整题目") },
-                        minLines = 5,
-                        modifier = Modifier.fillMaxWidth()
-                    )
+        AiQuestionEditDialog(
+            draft = recognitionEditDraft,
+            onDraft = { recognitionEditDraft = it },
+            onDismiss = { showRecognitionEditor = false },
+            enabled = !isLoading,
+            onConfirm = {
+                val corrected = recognitionEditDraft.trim()
+                if (corrected.isBlank()) {
+                    message = "修正后的题目不能为空"
+                } else {
+                    showRecognitionEditor = false
+                    runSolve(recognitionCorrection = corrected)
                 }
-            },
-            confirmButton = {
-                TijiButton(
-                    onClick = {
-                        val corrected = recognitionEditDraft.trim()
-                        if (corrected.isBlank()) {
-                            message = "修正后的题目不能为空"
-                        } else {
-                            showRecognitionEditor = false
-                            runSolve(recognitionCorrection = corrected)
-                        }
-                    },
-                    enabled = !isLoading && recognitionEditDraft.isNotBlank()
-                ) { Text("按修正题目重新解题") }
-            },
-            dismissButton = { TijiTextButton(onClick = { showRecognitionEditor = false }) { Text("取消") } }
+            }
         )
     }
 
@@ -1065,14 +1080,11 @@ private fun AiSolveScreenBody(
                             modifier = Modifier.weight(1f).heightIn(min = 50.dp)
                         ) { Text("继续追问") }
                         TijiButton(onClick = {
-                            if (savedCurrent) {
-                                savedMessage = "已保存到错题库"
-                                savedNoticeVersion++
-                            } else saveSolvedMistake()
+                            saveSolvedMistake(force = savedCurrent)
                         }, shape = TijiShapes.M,
                             enabled = !aiMistakeSaveState.running,
                             modifier = Modifier.weight(1.4f).heightIn(min = 50.dp)) {
-                            Text(if (savedCurrent) "已保存到错题库" else if (aiMistakeSaveState.running) "正在保存…" else "保存为错题")
+                            Text(if (aiMistakeSaveState.running) "正在保存…" else "保存为错题")
                         }
             }
         }
@@ -1277,11 +1289,7 @@ private fun AiSolveScreenBody(
                         } else if (solutionSections.structured) {
                             AiSolutionSection(
                                 "题目",
-                                if (solutionSections.schemaVersion >= 2) {
-                                    solutionSections.recognition
-                                } else {
-                                    question.ifBlank { solutionSections.recognition }
-                                },
+                                displayedQuestion,
                                 preserveSourceExactly = solutionSections.schemaVersion >= 2
                             )
                             ContentBlockImages(
@@ -1292,20 +1300,21 @@ private fun AiSolveScreenBody(
                             TijiTextButton(
                                 enabled = !isLoading,
                                 onClick = {
-                                    recognitionEditDraft = question
+                                    recognitionEditDraft = displayedQuestion
                                     showRecognitionEditor = true
                                 },
                                 modifier = Modifier.heightIn(min = 48.dp)
+                                .testTag("ai_solve_edit_question")
                             ) { Text("编辑题目") }
-                            com.tiji.mistakes.ui.editor.AddQuestionImagesButton(viewModel::addAiSolveQuestionImages)
+                            com.tiji.mistakes.ui.editor.AddQuestionImagesButton(
+                                onAdded = viewModel::addAiSolveQuestionImages,
+                                onProcessImages = { paths -> questionAttachmentQueue = ArrayList(paths) }
+                            )
                             }
                             androidx.compose.material3.HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                            val explanation = listOf(solutionSections.approach, solutionSections.derivation)
-                                .filter(String::isNotBlank)
-                                .joinToString("\n\n")
                             AiSolutionSection(
                                 "解析",
-                                explanation,
+                                displayedExplanation,
                                 preserveSourceExactly = solutionSections.schemaVersion >= 2
                             )
                             ContentBlockImages(
@@ -1315,11 +1324,11 @@ private fun AiSolveScreenBody(
                             androidx.compose.material3.HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                             AiSolutionSection(
                                 "答案",
-                                solutionSections.finalAnswer,
+                                displayedAnswer,
                                 preserveSourceExactly = solutionSections.schemaVersion >= 2
                             )
                         } else {
-                            AiSolutionSection("解析", visibleAiSolution(completeSolution))
+                            AiSolutionSection("解析", displayedExplanation)
                             ContentBlockImages(
                                 solveContentBlocks.filter { it.role == ContentBlockRole.QUESTION },
                                 onDelete = { block -> viewModel.removeAiSolveContentBlock(block.path) }

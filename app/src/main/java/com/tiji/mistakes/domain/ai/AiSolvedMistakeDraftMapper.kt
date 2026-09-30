@@ -26,17 +26,19 @@ data class AiSolvedMistakeDraftInput(
     val subject: String = "",
     val questionType: String = "",
     val difficulty: Int = 0,
-    val now: Long = System.currentTimeMillis()
+    val now: Long = System.currentTimeMillis(),
+    /** Explicit page snapshot takes precedence over the original model payload. */
+    val preferDisplayedContent: Boolean = false
 )
 
 object AiSolvedMistakeDraftMapper {
     fun map(input: AiSolvedMistakeDraftInput): MistakeEntity {
-        val structured = AiStructuredSolutionCodec.parse(input.rawSolution)
-        val question = structured?.section("recognition")?.displaySource()?.takeIf(String::isNotBlank)
+        val structured = if (input.preferDisplayedContent) null else AiStructuredSolutionCodec.parse(input.rawSolution)
+        val question = if (input.preferDisplayedContent) input.question else structured?.section("recognition")?.displaySource()?.takeIf(String::isNotBlank)
             ?: input.question
-        val answer = structured?.section("finalAnswer")?.displaySource()?.takeIf(String::isNotBlank)
+        val answer = if (input.preferDisplayedContent) input.answer else structured?.section("finalAnswer")?.displaySource()?.takeIf(String::isNotBlank)
             ?: input.answer
-        val explanation = listOf(
+        val explanation = if (input.preferDisplayedContent) input.explanation else listOf(
             structured?.section("approach")?.displaySource(),
             structured?.section("derivation")?.displaySource()
         ).mapNotNull { it?.takeIf(String::isNotBlank) }.joinToString("\n\n")
