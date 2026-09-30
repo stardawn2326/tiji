@@ -1,10 +1,13 @@
 package com.tiji.mistakes.ui.math
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.webkit.RenderProcessGoneDetail
 import androidx.compose.runtime.staticCompositionLocalOf
+
+internal data class MathTextSnapshot(val bitmap: Bitmap, val heightDp: Float)
 
 /** Main-thread, composition-scoped pool: survives tab changes, never an Activity. */
 internal class MathWebViewPool(private val capacity: Int = 6) {
@@ -13,10 +16,18 @@ internal class MathWebViewPool(private val capacity: Int = 6) {
     private var closed = false
     private val ready = mutableSetOf<WebView>()
     private val heights = mutableMapOf<WebView, Float>()
-
+    private val contentHeights = object : LinkedHashMap<String, Float>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Float>?): Boolean = size > 64
+    }
     fun rendered(view: WebView) { ready.add(view) }
-    fun measured(view: WebView, height: Float) { heights[view] = height }
+    fun measured(view: WebView, height: Float) {
+        heights[view] = height
+        (view.tag as? String)?.let { contentHeights[it] = height }
+    }
     fun height(view: WebView): Float? = heights[view]
+    fun heightFor(content: String): Float? = contentHeights[content]
+    fun snapshotFor(key: String): MathTextSnapshot? = MathSnapshotMemoryCache.get(key)
+    fun cacheSnapshot(key: String, snapshot: MathTextSnapshot) = MathSnapshotMemoryCache.put(key, snapshot)
     fun loading(view: WebView) { ready.remove(view); heights.remove(view) }
 
 
@@ -56,7 +67,10 @@ internal class MathWebViewPool(private val capacity: Int = 6) {
         broken.clear()
         ready.clear()
         heights.clear()
+        contentHeights.clear()
+        MathSnapshotMemoryCache.clear()
     }
+
 }
 
 internal val LocalMathWebViewPool = staticCompositionLocalOf<MathWebViewPool?> { null }

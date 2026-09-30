@@ -2,6 +2,7 @@
 
 package com.tiji.mistakes.ui.review
 
+import com.tiji.mistakes.ui.common.rememberPrimaryListState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import android.util.Log
@@ -11,17 +12,19 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -66,7 +69,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.tiji.mistakes.data.MistakeEntity
 import com.tiji.mistakes.domain.DailyStudyPlan
-import com.tiji.mistakes.domain.FutureReviewPlanDay
 import com.tiji.mistakes.domain.ReviewSessionUiState
 import com.tiji.mistakes.service.HtmlPdfExportService
 import com.tiji.mistakes.service.PdfExportOptions
@@ -82,28 +84,34 @@ import com.tiji.mistakes.ui.common.reviewStatusLabel
 import com.tiji.mistakes.ui.design.TijiSectionHeader
 import com.tiji.mistakes.ui.design.TijiTag
 import com.tiji.mistakes.ui.design.TijiMistakeCard
+import com.tiji.mistakes.ui.design.TijiStatusBadge
 import com.tiji.mistakes.ui.math.MathText
+import com.tiji.mistakes.ui.math.MathSnapshotOwner
 import com.tiji.mistakes.ui.MistakeViewModel
 import com.tiji.mistakes.ui.math.normalizeAsciiPunctuation
 import com.tiji.mistakes.ui.normalizedSubject
 import com.tiji.mistakes.ui.design.TijiPaperCard
+import com.tiji.mistakes.ui.common.difficultyLabel
+import com.tiji.mistakes.domain.MistakeListItem
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 
 @Composable
 internal fun ReviewScreen(
     allMistakes: List<MistakeEntity>,
+    allMistakeItems: List<MistakeListItem>,
     dailyStudyPlan: DailyStudyPlan,
-    futureReviewPlan: List<FutureReviewPlanDay> = emptyList(),
     now: Long,
     todayDate: String,
     activeSession: ReviewSessionUiState?,
     viewModel: MistakeViewModel,
     exportOriginalImagesOnly: Boolean,
     reviewPlanEnabled: Boolean,
+    randomReview: Boolean,
     reviewStatuses: Map<Long, String>,
     savedPlanIds: List<Long>?,
     checkedInToday: Boolean,
@@ -111,19 +119,20 @@ internal fun ReviewScreen(
     onCheckIn: () -> Unit,
     onOpenCalendar: () -> Unit,
     onOpenSettings: () -> Unit,
-    onStartSession: (List<Long>) -> Unit,
+    onStartSession: (List<Long>, Long) -> Unit,
     onResumeSession: (ReviewSessionUiState) -> Unit,
-    onOpenMistake: (Long) -> Unit = {},
-    resetScrollToken: Int
+    resetScrollToken: Int,
+    retainedListState: androidx.compose.foundation.lazy.LazyListState? = null
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val allById = remember(allMistakes) { allMistakes.associateBy { it.id } }
+    val allItemsById = remember(allMistakeItems) { allMistakeItems.associateBy { it.mistake.id } }
     val activeTodaySession = activeSession?.takeIf {
         it.plan.source == com.tiji.mistakes.domain.ReviewSessionSource.TODAY_PLAN &&
             it.status != com.tiji.mistakes.domain.ReviewSessionStatus.FINISHED
     }
-    val planned = remember(reviewPlanEnabled, dailyStudyPlan, savedPlanIds, allById, activeTodaySession) {
+    val planned = remember(reviewPlanEnabled, dailyStudyPlan, savedPlanIds, allById, activeTodaySession, randomReview, now) {
         if (!reviewPlanEnabled) return@remember emptyList()
         // A session owns its immutable queue. The Review Center itself always presents the
         // freshly calculated deterministic plan, while the legacy snapshot remains a fallback
@@ -131,7 +140,8 @@ internal fun ReviewScreen(
             activeTodaySession?.reviewIds.orEmpty().mapNotNull(allById::get).ifEmpty {
                 dailyStudyPlan.orderedIds.mapNotNull(allById::get).ifEmpty {
                     savedPlanIds.orEmpty().mapNotNull(allById::get).filter { mistake ->
-                        mistake.inReviewPlan && !mistake.archived && mistake.deletedAt == null && mistake.nextReviewAt <= now
+                        mistake.inReviewPlan && !mistake.archived && mistake.deletedAt == null &&
+                            (randomReview || mistake.nextReviewAt <= now)
                     }
                 }
             }
@@ -146,10 +156,19 @@ internal fun ReviewScreen(
     val sameTodaySession = activeTodaySession?.takeIf {
         it.plan.reviewIds == planned.map { mistake -> mistake.id }
     }
-    val reviewListState = rememberLazyListState()
-    LaunchedEffect(resetScrollToken) {
-        if (resetScrollToken > 0) reviewListState.scrollToItem(0)
+    val pending = planned.filterNot { it.id in reviewStatuses }
+    fun openPlannedQuestion(id: Long) {
+        val session = sameTodaySession
+        if (session == null) {
+            onStartSession(planned.map { it.id }, id)
+            return
+        }
+        val index = session.reviewIds.indexOf(id)
+        if (index < 0) return
+        viewModel.moveReviewSession(session.sessionKey, index - session.currentIndex)
+        onResumeSession(session)
     }
+    val reviewListState = rememberPrimaryListState(resetScrollToken, retainedListState)
     var pendingExportIds by rememberSaveable { mutableStateOf(longArrayOf()) }
     var previewPath by rememberSaveable {
         mutableStateOf(PendingPdfExportStore.reviewPreviewPath.takeIf { File(it).isFile }.orEmpty())
@@ -205,7 +224,7 @@ internal fun ReviewScreen(
         }
     }
     fun openPdfOptions() {
-        if (planned.isEmpty()) {
+        if (pending.isEmpty()) {
             Toast.makeText(context, "今天没有可打印的复习题", Toast.LENGTH_SHORT).show()
             return
         }
@@ -304,9 +323,44 @@ internal fun ReviewScreen(
             modifier = Modifier.padding(padding).fillMaxSize().testTag("review_center")
         ) {
         item {
-            ReviewProgressCard(completed = completedToday, total = planned.size, randomMode = false, modifier = Modifier.testTag("review_today_plan"))
+            ReviewProgressCard(
+                completed = completedToday,
+                total = planned.size,
+                randomMode = randomReview,
+                modifier = Modifier.testTag("review_today_plan")
+            )
         }
-        if (planned.isEmpty()) {
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                TijiSecondaryButton(
+                    onClick = ::openPdfOptions,
+                    enabled = planned.isNotEmpty(),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("review_print_today"),
+                    contentPadding = PaddingValues(horizontal = 8.dp)
+                ) {
+                    Icon(Icons.Outlined.Print, contentDescription = null)
+                    Spacer(Modifier.size(6.dp))
+                    Text("打印今日复习")
+                }
+                TijiButton(
+                    onClick = onCheckIn,
+                    enabled = canCheckIn && !checkedInToday,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp)
+                ) {
+                    Icon(Icons.Outlined.CheckCircle, contentDescription = null)
+                    Spacer(Modifier.size(6.dp))
+                    Text(
+                        when {
+                            checkedInToday -> "今日已打卡"
+                            canCheckIn -> "完成今日打卡"
+                            else -> "完成全部题目后解锁打卡"
+                        }
+                    )
+                }
+            }
+        }
+        if (pending.isEmpty()) {
             item {
                 TijiPaperCard {
                     Column(
@@ -341,28 +395,19 @@ internal fun ReviewScreen(
         } else {
             item {
                 Text(
-                    "系统会按到期和复习记录安排顺序",
+                    if (randomReview) "从复习计划内的题目随机抽取" else "系统会按到期和复习记录安排顺序",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.fillMaxWidth()
                 )
             }
             item {
-                val first = planned.first()
+                val first = pending.first()
                 TijiPaperCard {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        TijiTag(normalizedSubject(first.subject))
-                        Spacer(Modifier.weight(1f))
-                        Text("第 1 / ${planned.size} 题", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                            Text(first.title.ifBlank { "未命名错题" }, style = MaterialTheme.typography.titleLarge)
+                    ReviewItemMetadata(allItemsById[first.id] ?: MistakeListItem(first))
+                    Text(first.title.ifBlank { "未命名错题" }, style = MaterialTheme.typography.titleLarge)
                     MathText(
                         first.questionText.ifBlank { "（图片题，请打开查看题目图片）" },
-                        maxLines = 5,
                         compact = true,
                         interactive = false,
                         naturalQuestionWrap = true,
@@ -371,8 +416,7 @@ internal fun ReviewScreen(
                     )
                     TijiButton(
                         onClick = {
-                            if (sameTodaySession != null) onResumeSession(sameTodaySession)
-                            else onStartSession(planned.map { it.id })
+                            openPlannedQuestion(first.id)
                         },
                         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag(
                             if (sameTodaySession != null) "review_continue_session" else "review_start_session"
@@ -380,108 +424,75 @@ internal fun ReviewScreen(
                     ) { Text(if (sameTodaySession != null) "继续今日复习" else "开始复习") }
                 }
             }
-            if (planned.size > 1) {
+            if (pending.size > 1) {
                 item {
                     TijiSectionHeader("接下来")
                 }
-                items(planned.drop(1), key = { it.id }) { mistake ->
-                    TijiPaperCard(contentPadding = 12.dp) {
-                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                            TijiTag(normalizedSubject(mistake.subject))
-                            Spacer(Modifier.weight(1f))
+                itemsIndexed(pending.drop(1), key = { _, mistake -> mistake.id }) { index, mistake ->
+                    val snapshotOwner = remember(mistake.id) { MathSnapshotOwner.reviewUpcoming(mistake.id) }
+                    var formulasReady by remember(mistake.id, mistake.updatedAt, mistake.reviewCount) {
+                        mutableStateOf(false)
+                    }
+                    val listScrolling = reviewListState.isScrollInProgress
+                    LaunchedEffect(mistake.id, mistake.updatedAt, mistake.reviewCount, listScrolling) {
+                        if (!listScrolling && !formulasReady) {
+                            delay(300L + (index % 4) * 90L)
+                            formulasReady = true
                         }
+                    }
+                    Box {
+                    TijiPaperCard(contentPadding = 12.dp) {
+                        ReviewItemMetadata(allItemsById[mistake.id] ?: MistakeListItem(mistake))
                         Text(
                             mistake.title.ifBlank { "未命名错题" },
                             style = MaterialTheme.typography.titleMedium,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis
                         )
+                        MathText(
+                            mistake.questionText.ifBlank { "（图片题，请打开查看题目图片）" },
+                            renderFormulas = formulasReady,
+                            compact = true,
+                            interactive = false,
+                            naturalQuestionWrap = true,
+                            compactQuestionLayout = true,
+                            compactVerticalSpacing = true,
+                            snapshotPreview = true,
+                            snapshotOwner = snapshotOwner,
+                            snapshotRevision = mistake.reviewCount.toString()
+                        )
                     }
-                }
-            }
-            item {
-                TijiSecondaryButton(
-                    onClick = ::openPdfOptions,
-                    enabled = planned.isNotEmpty(),
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("review_print_today"),
-                    contentPadding = PaddingValues(horizontal = 12.dp)
-                ) {
-                    Icon(Icons.Outlined.Print, contentDescription = null)
-                    Spacer(Modifier.size(6.dp))
-                    Text("打印今日复习")
-                }
-            }
-            item {
-                TijiButton(
-                    onClick = onCheckIn,
-                    enabled = canCheckIn && !checkedInToday,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(Icons.Outlined.CheckCircle, null)
-                    Spacer(Modifier.size(6.dp))
-                    Text(
-                        when {
-                            checkedInToday -> "今日已打卡"
-                            canCheckIn -> "完成今日打卡"
-                            else -> "完成全部题目后解锁打卡"
-                        }
-                    )
-                }
-            }
-        }
-        if (reviewPlanEnabled) {
-            item {
-                TijiSectionHeader("接下来三天", "预计按当前复习规则进入正式复习")
-            }
-            futureReviewPlan.forEach { day ->
-                val dayItems = day.mistakeIds.mapNotNull(allById::get)
-                item(key = "future-${day.date}") {
-                    TijiPaperCard(modifier = Modifier.testTag("review_future_day_${day.date}")) {
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                when (day.date.toEpochDay() - java.time.LocalDate.parse(todayDate).toEpochDay()) {
-                                    1L -> "明天"
-                                    2L -> "后天"
-                                    else -> "大后天"
-                                },
-                                style = MaterialTheme.typography.titleMedium
-                            )
-                            Spacer(Modifier.weight(1f))
-                            Text("${dayItems.size} 题", color = MaterialTheme.colorScheme.primary)
-                        }
-                        if (dayItems.isEmpty()) {
-                            Text("暂无预计复习题", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        } else {
-                            dayItems.forEach { mistake ->
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable { onOpenMistake(mistake.id) }
-                                        .padding(top = 10.dp),
-                                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                        TijiTag(normalizedSubject(mistake.subject))
-                                        Spacer(Modifier.weight(1f))
-                                        Text("${day.date.monthValue}/${day.date.dayOfMonth}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                    Text(
-                                        mistake.title.ifBlank { "未命名错题" },
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    val summary = mistake.questionText.lineSequence().take(2).joinToString(" ").trim()
-                                    if (summary.isNotBlank()) {
-                                        Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                    }
-                                }
-                            }
-                        }
+                    Box(Modifier.matchParentSize().clip(TijiShapes.M)
+                        .clickable(onClickLabel = "复习此题") { openPlannedQuestion(mistake.id) }
+                        .testTag("review_upcoming_${mistake.id}"))
                     }
                 }
             }
         }
         }
+    }
+}
+
+@Composable
+private fun ReviewItemMetadata(item: MistakeListItem) {
+    val mistake = item.mistake
+    ReviewQuestionMetadata(
+        subject = normalizedSubject(mistake.subject),
+        questionType = mistake.questionType.ifBlank { "未分类" },
+        difficulty = difficultyLabel(mistake.difficulty),
+        status = item.statusLabel
+    )
+}
+
+@Composable
+internal fun ReviewQuestionMetadata(subject: String, questionType: String, difficulty: String, status: String) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        TijiTag(subject, modifier = Modifier.widthIn(max = 104.dp))
+        Spacer(Modifier.size(6.dp))
+        TijiTag(questionType, modifier = Modifier.widthIn(max = 108.dp))
+        Spacer(Modifier.size(8.dp))
+        TijiTag(difficulty, containerColor = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSurface)
+        Spacer(Modifier.weight(1f))
+        TijiStatusBadge(status)
     }
 }

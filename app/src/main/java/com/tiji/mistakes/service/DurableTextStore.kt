@@ -63,10 +63,10 @@ internal class DurableTextStore(
     name: String,
     private val fileOps: DurableFileOps = PlatformDurableFileOps
 ) {
+    private val storeLock = StoreFileLocks.forStore(context, name)
     private val directory = File(context.applicationContext.filesDir, "durable-state/$name")
 
-    @Synchronized
-    fun read(slot: String): String? = runCatching {
+    fun read(slot: String): String? = synchronized(storeLock) { runCatching {
         val target = File(directory, "$slot.txt")
         val backup = File(directory, "$slot.bak")
         when {
@@ -80,44 +80,46 @@ internal class DurableTextStore(
             }
             else -> null
         }
-    }.getOrNull()
+    }.getOrNull() }
 
-    @Synchronized
     fun write(slot: String, value: String) {
-        fileOps.mkdirs(directory)
-        val target = File(directory, "$slot.txt")
-        val temporary = File(directory, "$slot.tmp")
-        val backup = File(directory, "$slot.bak")
-        val bytes = value.toByteArray(Charsets.UTF_8)
-        try {
-            // The temporary body is fully written and synced before the old
-            // target is moved, so a failed write cannot expose a partial body.
-            fileOps.writeTemp(temporary, bytes)
-            fileOps.sync(temporary)
+        return synchronized<Unit>(storeLock) {
+            fileOps.mkdirs(directory)
+            val target = File(directory, "$slot.txt")
+            val temporary = File(directory, "$slot.tmp")
+            val backup = File(directory, "$slot.bak")
+            val bytes = value.toByteArray(Charsets.UTF_8)
+            try {
+                // The temporary body is fully written and synced before the old
+                // target is moved, so a failed write cannot expose a partial body.
+                fileOps.writeTemp(temporary, bytes)
+                fileOps.sync(temporary)
 
-            if (fileOps.exists(target)) {
+                if (fileOps.exists(target)) {
+                    fileOps.delete(backup)
+                    moveOrCopy(target, backup, overwrite = true)
+                }
+
+                moveOrCopy(temporary, target, overwrite = false)
+                // Cleanup failure does not invalidate the newly committed target;
+                // a later write/read can remove a stale backup safely.
                 fileOps.delete(backup)
-                moveOrCopy(target, backup, overwrite = true)
+            } catch (error: Throwable) {
+                // A stale tmp is never committed state. Keep the backup when it
+                // cannot be restored so the next read/write can retry recovery.
+                runCatching { fileOps.delete(temporary) }
+                if (!fileOps.exists(target) && fileOps.exists(backup)) {
+                    runCatching { restoreBackup(target, backup) }
+                }
+                throw error
             }
-
-            moveOrCopy(temporary, target, overwrite = false)
-            // Cleanup failure does not invalidate the newly committed target;
-            // a later write/read can remove a stale backup safely.
-            fileOps.delete(backup)
-        } catch (error: Throwable) {
-            // A stale tmp is never committed state. Keep the backup when it
-            // cannot be restored so the next read/write can retry recovery.
-            runCatching { fileOps.delete(temporary) }
-            if (!fileOps.exists(target) && fileOps.exists(backup)) {
-                runCatching { restoreBackup(target, backup) }
-            }
-            throw error
         }
     }
 
-    @Synchronized
     fun clear() {
-        fileOps.deleteRecursively(directory)
+        return synchronized<Unit>(storeLock) {
+            fileOps.deleteRecursively(directory)
+        }
     }
 
     private fun moveOrCopy(source: File, target: File, overwrite: Boolean) {

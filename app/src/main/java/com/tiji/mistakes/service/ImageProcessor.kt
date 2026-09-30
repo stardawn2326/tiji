@@ -22,6 +22,9 @@ data class ImageAdjustment(
     val contrast: Int = 0
 )
 
+internal data class PdfImageTextMetrics(val widthPx: Int, val heightPx: Int, val textHeightPx: Float?)
+internal data class PreparedPdfImage(val pngBytes: ByteArray, val textMetrics: PdfImageTextMetrics)
+
 object ImageProcessor {
     fun orientedDimensions(path: String): Pair<Int, Int> {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -162,7 +165,7 @@ object ImageProcessor {
         if (File(cropPath).name.startsWith("processed_graphic_clean_")) return@runCatching cropPath
         val output = decodeBlackAndWhite(cropPath) ?: error("无法读取裁剪图")
         val directory = File(context.filesDir, "images").apply { mkdirs() }
-        val target = File(directory, "processed_graphic_clean_${System.currentTimeMillis()}.png")
+        val target = File.createTempFile("processed_graphic_clean_", ".png", directory)
         FileOutputStream(target).use { output.compress(Bitmap.CompressFormat.PNG, 100, it) }
         output.recycle()
         target.absolutePath
@@ -204,14 +207,48 @@ object ImageProcessor {
         }
     }
 
-    internal fun documentCleanPng(path: String): ByteArray? = decodeDocumentClean(path)?.let { bitmap ->
+    internal fun documentCleanForPdf(path: String, measureText: Boolean = true): PreparedPdfImage? = decodeDocumentClean(path)?.let { bitmap ->
         try {
+            val metrics = if (measureText) pdfTextMetrics(bitmap)
+                else PdfImageTextMetrics(bitmap.width, bitmap.height, null)
             ByteArrayOutputStream().use { stream ->
                 bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
-                stream.toByteArray()
+                PreparedPdfImage(stream.toByteArray(), metrics)
             }
         } finally {
             bitmap.recycle()
+        }
+    }
+
+    internal fun documentCleanPng(path: String): ByteArray? = documentCleanForPdf(path, measureText = false)?.pngBytes
+
+    /** Samples already-oriented pixels; missing or uncertain text keeps the normal page-fit size. */
+    internal fun pdfTextMetrics(path: String): PdfImageTextMetrics? =
+        decodeForGraphicAnalysis(path)?.let { bitmap ->
+            try { pdfTextMetrics(bitmap) } finally { bitmap.recycle() }
+        }
+
+    private fun pdfTextMetrics(bitmap: Bitmap): PdfImageTextMetrics {
+        val maxSampleEdge = 1_200
+        val longestEdge = max(bitmap.width, bitmap.height)
+        val scale = min(1f, maxSampleEdge.toFloat() / longestEdge)
+        val sampleWidth = (bitmap.width * scale).toInt().coerceAtLeast(1)
+        val sampleHeight = (bitmap.height * scale).toInt().coerceAtLeast(1)
+        val sample = if (scale < 1f) Bitmap.createScaledBitmap(bitmap, sampleWidth, sampleHeight, true) else bitmap
+        return try {
+            val pixels = IntArray(sampleWidth * sampleHeight)
+            sample.getPixels(pixels, 0, sampleWidth, 0, 0, sampleWidth, sampleHeight)
+            val luminance = ByteArray(pixels.size) { index ->
+                val pixel = pixels[index]
+                val value = if (Color.alpha(pixel) < 128) 255 else luminance(
+                    Color.red(pixel), Color.green(pixel), Color.blue(pixel)
+                )
+                value.toByte()
+            }
+            val measured = PdfImageTextSizing.estimateTextHeightPx(sampleWidth, sampleHeight, luminance)
+            PdfImageTextMetrics(bitmap.width, bitmap.height, measured?.times(bitmap.width.toFloat() / sampleWidth))
+        } finally {
+            if (sample !== bitmap) sample.recycle()
         }
     }
 

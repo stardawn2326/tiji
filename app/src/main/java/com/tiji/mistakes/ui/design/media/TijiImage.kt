@@ -22,7 +22,7 @@ internal fun TijiImage(model: Any?, contentDescription: String?, modifier: Modif
             onLoading = { loading = true; failed = false },
             onSuccess = { loading = false; failed = false },
             onError = { loading = false; failed = true; onError?.invoke(it) })
-        if (loading) CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+        if (loading) com.tiji.mistakes.ui.design.TijiLoadingSpinner(Modifier.size(24.dp), strokeWidth = 2.dp)
         if (failed) Text("图片加载失败", color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(8.dp))
     }

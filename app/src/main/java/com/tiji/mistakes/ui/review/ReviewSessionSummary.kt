@@ -124,7 +124,7 @@ internal fun ReviewSessionSummaryLoadingScreen(onBack: () -> Unit) {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            CircularProgressIndicator()
+            com.tiji.mistakes.ui.design.TijiLoadingSpinner()
             Text("正在恢复本轮记录…", modifier = Modifier.padding(top = 12.dp))
         }
     }
@@ -196,17 +196,10 @@ internal fun ReviewSessionSummaryScreen(
                         modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        SessionMetric("完成", stats.completed, Modifier.weight(1f), "review_session_completed")
                         SessionMetric("忘记", stats.forgot, Modifier.weight(1f), "review_session_forgot")
                         SessionMetric(reviewGradeUiLabel(ReviewGrade.HARD), stats.hard, Modifier.weight(1f), "review_session_hard")
                         SessionMetric(reviewGradeUiLabel(ReviewGrade.GOOD), stats.good, Modifier.weight(1f), "review_session_good")
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
                         SessionMetric(reviewGradeUiLabel(ReviewGrade.EASY), stats.easy, Modifier.weight(1f), "review_session_easy")
-                        Spacer(Modifier.weight(3f))
                     }
                 }
             }

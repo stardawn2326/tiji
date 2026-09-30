@@ -2,6 +2,7 @@ package com.tiji.mistakes.ui
 
 import android.app.Application
 import android.content.Context
+import android.util.Log
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.SavedStateHandle
@@ -64,11 +65,15 @@ import java.util.UUID
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.Dispatchers
 import com.tiji.mistakes.ui.library.LibraryIndex
+import com.tiji.mistakes.ui.math.MathSnapshotDiskCache
+import com.tiji.mistakes.ui.math.MathSnapshotOwner
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.Flow
@@ -235,7 +240,7 @@ class MistakeViewModel(
     private var aiSolveObserverJob: Job? = null
     private var aiSolveRequestId = _aiSolve.value.requestId
     private val aiChatStore = AiChatStateStore(application)
-    private val _aiChat = MutableStateFlow(aiChatStore.read().toUiState())
+    private val _aiChat = MutableStateFlow(aiChatStore.restoreForCurrentProcess().toUiState())
     private var aiChatObserverJob: Job? = null
     private var aiChatRequestId = _aiChat.value.requestId
     private var activeAiSolveHistoryId: String? = null
@@ -324,7 +329,7 @@ class MistakeViewModel(
             ?: AiMistakeSaveState(taskId = "", requestId = 0L, phase = AiMistakeSavePhase.IDLE)
         observeAiMistakeSave()
         if (restoredAiSolve.status == AiSolveStatus.COMPLETED) {
-            _aiSolveHistory.value = aiSolveHistoryStore.appendIfAbsent(restoredAiSolve, _aiChat.value.messages)
+            _aiSolveHistory.value = appendSolveHistorySafely(restoredAiSolve)
             activeAiSolveHistoryId = _aiSolveHistory.value.firstOrNull {
                 it.solveRunId == restoredAiSolve.solveRunId ||
                     (it.solveRunId.isBlank() && it.requestId == restoredAiSolve.requestId)
@@ -336,18 +341,15 @@ class MistakeViewModel(
     }
 
     /**
-     * Classification is owned by AiMistakeClassificationService. Polling the durable store
+     * Classification is owned by AiMistakeClassificationService. Observing the durable store
      * keeps the visible status in sync even when the solve screen was left while the request
      * was running, or when the process was recreated after the service completed.
      */
     private fun observeAiMistakeSave() {
         aiMistakeSaveObserverJob?.cancel()
         aiMistakeSaveObserverJob = viewModelScope.launch {
-            while (isActive) {
-                aiMistakeSaveStore.latestForUi()?.let { latest ->
-                    if (latest != _aiMistakeSave.value) _aiMistakeSave.value = latest
-                }
-                delay(250)
+            aiMistakeSaveStore.observe().collect { latest ->
+                if (latest != null) _aiMistakeSave.value = latest
             }
         }
     }
@@ -658,6 +660,36 @@ class MistakeViewModel(
         deleteImagesIfUnreferenced(listOf(path))
     }
 
+    fun addAiSolveQuestionImages(paths: List<String>) {
+        if (paths.isEmpty()) return
+        val current = _aiSolve.value
+        val blocks = QuestionContentBlockCodec.decode(current.contentBlocks)
+        val combined = QuestionContentBlockCodec.appendQuestionImages(
+            blocks, paths.distinct().filter { path -> blocks.none { it.path == path } }
+        )
+        val additions = combined.drop(blocks.size)
+        val encoded = QuestionContentBlockCodec.encode(combined)
+        val updated = current.copy(contentBlocks = encoded, updatedAt = System.currentTimeMillis())
+        aiSolveStore.write(updated.toPersisted())
+        _aiSolve.value = updated
+        updateActiveHistory { record -> record.copy(contentBlocks = encoded) }
+        val savedId = _aiMistakeSave.value.takeIf { it.requestId == current.requestId }?.mistakeId
+        if (savedId != null) viewModelScope.launch {
+            try {
+            repository.find(savedId)?.let { saved ->
+                val savedBlocks = QuestionContentBlockCodec.decode(saved.contentBlocks)
+                repository.save(saved.copy(contentBlocks = QuestionContentBlockCodec.encode(
+                    savedBlocks + additions.filter { added -> savedBlocks.none { it.path == added.path } }
+                )), preserveReviewPlan = true)
+            }
+            } catch (error: kotlinx.coroutines.CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                android.widget.Toast.makeText(getApplication(), "图片已保留在解题记录，同步到错题失败", android.widget.Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
     /** Removes the current source image and all derived blocks sourced from it. */
     fun removeAiSolveImage(path: String) {
         if (path.isBlank()) return
@@ -722,14 +754,30 @@ class MistakeViewModel(
         _aiChat.value = restoredChat.toUiState()
     }
 
+    private fun appendSolveHistorySafely(state: PersistedAiSolveState): List<AiSolveHistoryRecord> =
+        runCatching { aiSolveHistoryStore.appendIfAbsent(state, _aiChat.value.messages) }
+            .getOrElse { error ->
+                reportHistoryWriteFailure(error)
+                _aiSolveHistory.value
+            }
+
+    private fun reportHistoryWriteFailure(error: Throwable) {
+        if (error is CancellationException) throw error
+        Log.e("TijiAiHistory", "history_write_failed", error)
+        val visible = _aiSolve.value.copy(historyWriteError = "解题内容已保留，但历史记录保存失败")
+        _aiSolve.value = visible
+        runCatching { aiSolveStore.write(visible.toPersisted()) }
+    }
+
     private fun updateActiveHistory(transform: (AiSolveHistoryRecord) -> AiSolveHistoryRecord) {
         val id = activeAiSolveHistoryId ?: return
-        val current = aiSolveHistoryStore.read().firstOrNull { it.id == id } ?: return
-        val updated = transform(current)
-        if (updated == current) return
-        if (aiSolveHistoryStore.update(updated)) {
-            _aiSolveHistory.value = aiSolveHistoryStore.read()
-        }
+        runCatching {
+            val current = aiSolveHistoryStore.read().firstOrNull { it.id == id } ?: return
+            val updated = transform(current)
+            if (updated != current && aiSolveHistoryStore.update(updated)) {
+                _aiSolveHistory.value = aiSolveHistoryStore.read()
+            }
+        }.onFailure(::reportHistoryWriteFailure)
     }
 
     fun deleteAiSolveHistory(id: String) {
@@ -836,24 +884,23 @@ class MistakeViewModel(
     private fun observeAiSolve(requestId: Long) {
         aiSolveObserverJob?.cancel()
         aiSolveObserverJob = viewModelScope.launch {
-            while (isActive) {
-                val next = aiSolveStore.read()
+            aiSolveStore.observe().first { next ->
                 if (next.requestId == requestId) {
                     val uiState = next.toUiState()
                     _aiSolve.value = uiState
                     if (!uiState.running) {
                         if (uiState.status == AiSolveStatus.COMPLETED) {
-                            _aiSolveHistory.value = aiSolveHistoryStore.appendIfAbsent(next, _aiChat.value.messages)
+                            _aiSolveHistory.value = appendSolveHistorySafely(next)
                             activeAiSolveHistoryId = _aiSolveHistory.value.firstOrNull {
                                 it.solveRunId == next.solveRunId ||
                                     (it.solveRunId.isBlank() && it.requestId == next.requestId)
                             }?.id
                             updateActiveHistory { record -> record.copy(chatMessages = _aiChat.value.messages) }
                         }
-                        break
+                        return@first true
                     }
                 }
-                delay(250L)
+                false
             }
         }
     }
@@ -949,8 +996,7 @@ class MistakeViewModel(
     private fun observeAiChat(requestId: Long) {
         aiChatObserverJob?.cancel()
         aiChatObserverJob = viewModelScope.launch {
-            while (isActive) {
-                val next = aiChatStore.read()
+            aiChatStore.observe().first { next ->
                 if (next.requestId == requestId) {
                     val uiState = next.toUiState()
                     _aiChat.value = uiState
@@ -962,10 +1008,10 @@ class MistakeViewModel(
                             aiChatStore.write(cleaned.toPersisted())
                             _aiChat.value = cleaned
                         }
-                        break
+                        return@first true
                     }
                 }
-                delay(250L)
+                false
             }
         }
     }
@@ -1285,13 +1331,46 @@ class MistakeViewModel(
             .onFailure(onError)
     }
 
-    fun delete(id: Long) = viewModelScope.launch { repository.softDelete(id) }
-    fun delete(ids: Collection<Long>) = viewModelScope.launch { repository.softDelete(ids.toList()) }
+    private suspend fun invalidateMathPreviews(owners: Collection<MathSnapshotOwner>) {
+        try {
+            MathSnapshotDiskCache.invalidateOwners(getApplication(), owners)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Log.w("TijiMathRender", "snapshot_invalidation_failed", error)
+        }
+    }
+
+    private suspend fun clearAllMathPreviews() {
+        try {
+            MathSnapshotDiskCache.clearAll(getApplication())
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Log.w("TijiMathRender", "snapshot_clear_failed", error)
+        }
+    }
+
+    fun delete(id: Long) = viewModelScope.launch {
+        repository.softDelete(id)
+        invalidateMathPreviews(listOf(MathSnapshotOwner.library(id), MathSnapshotOwner.reviewUpcoming(id)))
+    }
+    fun delete(ids: Collection<Long>) = viewModelScope.launch {
+        val targetIds = ids.distinct()
+        repository.softDelete(targetIds)
+        invalidateMathPreviews(targetIds.flatMap { id ->
+            listOf(MathSnapshotOwner.library(id), MathSnapshotOwner.reviewUpcoming(id))
+        })
+    }
     fun restore(id: Long) = viewModelScope.launch { repository.restore(id) }
     fun restore(ids: Collection<Long>) = viewModelScope.launch { repository.restore(ids.toList()) }
     fun purgeDeleted(id: Long) = purgeDeleted(listOf(id))
     fun purgeDeleted(ids: Collection<Long>) = viewModelScope.launch {
-        val paths = repository.purgeDeleted(ids.toList())
+        val targetIds = ids.distinct()
+        val paths = repository.purgeDeleted(targetIds)
+        invalidateMathPreviews(targetIds.flatMap { id ->
+            listOf(MathSnapshotOwner.library(id), MathSnapshotOwner.reviewUpcoming(id))
+        })
         ImageStorage.deletePrivateFiles(getApplication(), paths)
     }
     fun setReviewPlan(id: Long, enabled: Boolean, onUpdated: () -> Unit = {}) = viewModelScope.launch {
@@ -1355,6 +1434,7 @@ class MistakeViewModel(
             mode = mode,
             imagePaths = imagePaths.distinct(),
             totalCount = imagePaths.distinct().size,
+            startedAt = System.currentTimeMillis(),
             updatedAt = System.currentTimeMillis()
         )
         aiRecognitionStore.write(state)
@@ -1382,13 +1462,12 @@ class MistakeViewModel(
     private fun observeAiRecognition(requestId: Long) {
         aiRecognitionObserverJob?.cancel()
         aiRecognitionObserverJob = viewModelScope.launch {
-            while (isActive) {
-                val next = aiRecognitionStore.read()
+            aiRecognitionStore.observe().first { next ->
                 if (next.requestId == requestId) {
                     _aiRecognition.value = next
-                    if (!next.running) break
+                    if (!next.running) return@first true
                 }
-                delay(250L)
+                false
             }
         }
     }
@@ -1446,6 +1525,7 @@ class MistakeViewModel(
             "学习数据清除契约未启用"
         }
         repository.resetAllData()
+        clearAllMathPreviews()
         refreshReviewClock()
         aiSolveObserverJob?.cancel()
         AiSolveService.clearAndStop(getApplication())
@@ -1480,6 +1560,7 @@ class MistakeViewModel(
         val job = viewModelScope.launch {
             runCatching { repository.recordReview(mistake.id, grade) }
                 .onSuccess { record ->
+                    invalidateMathPreviews(listOf(MathSnapshotOwner.reviewUpcoming(mistake.id)))
                     if (sessionKey != null) markReviewSessionRecorded(sessionKey, record)
                     refreshReviewClock()
                     onRecorded?.invoke(record)

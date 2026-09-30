@@ -25,9 +25,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.MoreVert
-import androidx.compose.material.icons.outlined.Print
 import com.tiji.mistakes.ui.design.TijiButton
 import com.tiji.mistakes.ui.design.TijiDialog
 import com.tiji.mistakes.ui.design.TijiMenu
@@ -97,7 +95,9 @@ import com.tiji.mistakes.ui.design.TijiDimens
 import com.tiji.mistakes.ui.design.TijiStatusBadge
 import com.tiji.mistakes.ui.design.TijiPaperCard
 import java.io.File
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long) -> Unit, onBack: () -> Unit) {
@@ -155,19 +155,19 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
             }
         }
     }
-    var title by remember(current.id) { mutableStateOf(current.title) }
-    var question by remember(current.id) { mutableStateOf(current.questionText) }
-    var userAnswer by remember(current.id) { mutableStateOf(current.userAnswer) }
-    var answer by remember(current.id) { mutableStateOf(current.answerText) }
-    var explanation by remember(current.id) { mutableStateOf(current.explanation) }
-    var note by remember(current.id) { mutableStateOf(current.note) }
-    var errorReason by remember(current.id) { mutableStateOf(current.errorReason) }
-    var subject by remember(current.id) { mutableStateOf(current.subject) }
-    var questionType by remember(current.id) { mutableStateOf(current.questionType) }
-    var tags by remember(current.id) { mutableStateOf(current.tags) }
-    var difficulty by remember(current.id) { mutableIntStateOf(current.difficulty) }
+    var title by rememberSaveable(current.id) { mutableStateOf(current.title) }
+    var question by rememberSaveable(current.id) { mutableStateOf(current.questionText) }
+    var userAnswer by rememberSaveable(current.id) { mutableStateOf(current.userAnswer) }
+    var answer by rememberSaveable(current.id) { mutableStateOf(current.answerText) }
+    var explanation by rememberSaveable(current.id) { mutableStateOf(current.explanation) }
+    var note by rememberSaveable(current.id) { mutableStateOf(current.note) }
+    var errorReason by rememberSaveable(current.id) { mutableStateOf(current.errorReason) }
+    var subject by rememberSaveable(current.id) { mutableStateOf(current.subject) }
+    var questionType by rememberSaveable(current.id) { mutableStateOf(current.questionType) }
+    var tags by rememberSaveable(current.id) { mutableStateOf(current.tags) }
+    var difficulty by rememberSaveable(current.id) { mutableIntStateOf(current.difficulty) }
     var inReviewPlan by remember(current.id) { mutableStateOf(current.inReviewPlan) }
-    var editing by remember(current.id) { mutableStateOf(false) }
+    var editing by rememberSaveable(current.id) { mutableStateOf(false) }
     var showReviewCheckIn by remember(current.id) { mutableStateOf(false) }
     var showEasyConfirm by remember(current.id) { mutableStateOf(false) }
     var pendingEasyGrade by remember(current.id) { mutableStateOf<ReviewGrade?>(null) }
@@ -175,9 +175,10 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
     var explanationExpanded by remember(current.id) { mutableStateOf(false) }
     var detailMenuExpanded by remember(current.id) { mutableStateOf(false) }
     var saveMessage by remember(current.id) { mutableStateOf("") }
-    var questionImage by remember(current.id) { mutableStateOf(current.imagePath) }
-    var answerImage by remember(current.id) { mutableStateOf(current.answerImagePath) }
-    var explanationImage by remember(current.id) { mutableStateOf(current.explanationImagePath) }
+    var detailSaving by remember(current.id) { mutableStateOf(false) }
+    var questionImage by rememberSaveable(current.id) { mutableStateOf(current.imagePath) }
+    var answerImage by rememberSaveable(current.id) { mutableStateOf(current.answerImagePath) }
+    var explanationImage by rememberSaveable(current.id) { mutableStateOf(current.explanationImagePath) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var showPdfOptions by rememberSaveable { mutableStateOf(false) }
@@ -346,15 +347,25 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
             }
         )
     }
-    var originalQuestionImages by remember(current.id) {
+    var originalQuestionImages by rememberSaveable(current.id) {
         mutableStateOf(
             runCatching {
                 val array = org.json.JSONArray(current.sourceImagePaths.ifBlank { "[]" })
                 (0 until array.length()).mapNotNull { array.optString(it).takeIf(String::isNotBlank) }
-            }.getOrDefault(emptyList()).ifEmpty { listOfNotNull(current.imagePath) }
+            }.getOrDefault(emptyList()).ifEmpty { listOfNotNull(current.imagePath) }.distinct()
         )
     }
-    var detailContentBlocks by remember(current.id) {
+    var pendingRemovedImagePaths by rememberSaveable(current.id,
+        stateSaver = androidx.compose.runtime.saveable.Saver<Set<String>, List<String>>(
+            save = { it.toList() }, restore = { it.toSet() }
+        )
+    ) { mutableStateOf<Set<String>>(emptySet()) }
+    var detailContentBlocks by rememberSaveable(current.id,
+        stateSaver = androidx.compose.runtime.saveable.Saver<List<com.tiji.mistakes.service.QuestionContentBlock>, String>(
+            save = { QuestionContentBlockCodec.encode(it) },
+            restore = { QuestionContentBlockCodec.decode(it) }
+        )
+    ) {
         mutableStateOf(
             QuestionContentBlockCodec.sanitize(
                 context,
@@ -368,22 +379,32 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
             viewModel.deleteImagesIfUnreferenced(removedPaths)
         })
     }
+    fun addQuestionImages(paths: List<String>) {
+        detailContentBlocks = QuestionContentBlockCodec.appendQuestionImages(detailContentBlocks, paths)
+    }
+    fun addOriginalQuestionImages(paths: List<String>) {
+        if (paths.isEmpty()) return
+        originalQuestionImages = (originalQuestionImages + paths).distinct()
+        if (questionImage.isNullOrBlank()) questionImage = originalQuestionImages.firstOrNull()
+        saveMessage = "已添加 ${paths.size} 张题目图片，请保存修改"
+    }
     fun removeDetailContentBlock(block: com.tiji.mistakes.service.QuestionContentBlock) {
         val remaining = detailContentBlocks
             .filterNot { it.path == block.path }
         detailContentBlocks = remaining
+        val removedPaths = listOfNotNull(block.path, block.sourcePath)
+        if (editing) {
+            pendingRemovedImagePaths = pendingRemovedImagePaths + removedPaths
+            return
+        }
         persistDetailImageUpdate(
             mistake?.copy(contentBlocks = QuestionContentBlockCodec.encode(remaining))
                 ?: return,
-            removedPaths = listOfNotNull(block.path, block.sourcePath)
+            removedPaths = removedPaths
         )
     }
     fun removeDetailImage(role: PhotoRole, path: String) {
-        val sourcePaths = runCatching {
-            val array = org.json.JSONArray(current.sourceImagePaths.ifBlank { "[]" })
-            (0 until array.length()).mapNotNull { array.optString(it).takeIf(String::isNotBlank) }
-        }.getOrDefault(emptyList())
-        val remainingSourcePaths = sourcePaths.filterNot { it == path }
+        val remainingSourcePaths = originalQuestionImages.filterNot { it == path }
         val remainingBlocks = detailContentBlocks
             .filterNot { it.path == path || it.sourcePath == path }
         val removedImagePaths = buildList {
@@ -399,9 +420,9 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
         val updated = when (role) {
             PhotoRole.QUESTION -> {
                 val nextQuestion = remainingSourcePaths.firstOrNull()
-                questionImage = nextQuestion
+                questionImage = if (questionImage == path) nextQuestion else questionImage
                 mistake?.copy(
-                    imagePath = if (current.imagePath == path) nextQuestion else current.imagePath,
+                    imagePath = questionImage,
                     sourceImagePaths = org.json.JSONArray(remainingSourcePaths).toString(),
                     contentBlocks = QuestionContentBlockCodec.encode(remainingBlocks)
                 ) ?: return
@@ -417,61 +438,129 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                     ?: return
             }
         }
-        persistDetailImageUpdate(updated, removedImagePaths)
-    }
-    var editingImagePath by remember(current.id) { mutableStateOf<String?>(null) }
-    var editingImageRole by remember(current.id) { mutableStateOf<PhotoRole?>(null) }
-    var cameraFile by remember(current.id) { mutableStateOf(ImageStorage.cameraFile(context)) }
-    val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        val role = editingImageRole
-        if (uri != null && role != null) {
-            val copied = ImageStorage.copyToPrivate(context, uri, role.prefix)
-            if (copied != null) editingImagePath = copied else saveMessage = "图片读取失败，请重新选择"
+        if (editing) {
+            pendingRemovedImagePaths = pendingRemovedImagePaths + removedImagePaths
+        } else {
+            persistDetailImageUpdate(updated, removedImagePaths)
         }
     }
+    var editingImagePath by rememberSaveable(current.id) { mutableStateOf<String?>(null) }
+    var editingImageRole by rememberSaveable(current.id) { mutableStateOf<PhotoRole?>(null) }
+    var editingOriginalImagePath by rememberSaveable(current.id) { mutableStateOf<String?>(null) }
+    var pendingMediaRoleName by rememberSaveable(current.id) { mutableStateOf<String?>(null) }
+    var cameraFilePath by rememberSaveable(current.id) {
+        mutableStateOf(ImageStorage.cameraFile(context).absolutePath)
+    }
+    val questionGalleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
+        pendingMediaRoleName = null
+        editingImageRole = null
+        if (uris.isNotEmpty()) scope.launch {
+            val copied = withContext(Dispatchers.IO) {
+                uris.mapNotNull { uri -> ImageStorage.copyToPrivate(context, uri, PhotoRole.QUESTION.prefix) }
+            }
+            addOriginalQuestionImages(copied)
+            if (copied.size != uris.size) saveMessage = "部分题目图片读取失败，请重新选择"
+        }
+    }
+    val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        val role = PhotoRole.entries.firstOrNull { it.name == pendingMediaRoleName }
+        pendingMediaRoleName = null
+        if (uri != null && role != null) {
+            scope.launch {
+                val copied = withContext(Dispatchers.IO) { ImageStorage.copyToPrivate(context, uri, role.prefix) }
+                if (copied != null) {
+                    editingImageRole = role
+                    editingImagePath = copied
+                } else saveMessage = "图片读取失败，请重新选择"
+            }
+        } else editingImageRole = null
+    }
     val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
-        val role = editingImageRole
+        val role = PhotoRole.entries.firstOrNull { it.name == pendingMediaRoleName }
+        pendingMediaRoleName = null
         if (success && role != null) {
-            val copied = ImageStorage.copyFileToPrivate(context, cameraFile, role.prefix)
-            if (copied != null) editingImagePath = copied else saveMessage = "照片保存失败，请重试"
+            scope.launch {
+                val copied = withContext(Dispatchers.IO) {
+                    ImageStorage.copyFileToPrivate(context, File(cameraFilePath), role.prefix)
+                }
+                if (copied == null) saveMessage = "照片保存失败，请重试"
+                else if (role == PhotoRole.QUESTION) addOriginalQuestionImages(listOf(copied))
+                else {
+                    editingImageRole = role
+                    editingImagePath = copied
+                }
+            }
         } else if (!success) {
+            editingImageRole = null
             saveMessage = "拍照未完成，请重试"
         }
     }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        val role = editingImageRole
+        val role = PhotoRole.entries.firstOrNull { it.name == pendingMediaRoleName }
         if (granted && role != null) {
-            cameraUri(context, cameraFile).onSuccess { cameraLauncher.launch(it) }
+            cameraUri(context, File(cameraFilePath)).mapCatching { cameraLauncher.launch(it) }
                 .onFailure { saveMessage = "无法打开相机：${it.message ?: "请检查应用权限"}" }
-        } else saveMessage = "相机权限未授予，无法拍照"
+        } else {
+            pendingMediaRoleName = null
+            editingImageRole = null
+            saveMessage = "相机权限未授予，无法拍照"
+        }
     }
     fun chooseGallery(role: PhotoRole) {
+        pendingMediaRoleName = role.name
         editingImageRole = role
-        galleryLauncher.launch("image/*")
+        editingOriginalImagePath = null
+        if (role == PhotoRole.QUESTION) questionGalleryLauncher.launch("image/*")
+        else galleryLauncher.launch("image/*")
     }
     fun chooseCamera(role: PhotoRole) {
+        pendingMediaRoleName = role.name
         editingImageRole = role
-        cameraFile = ImageStorage.cameraFile(context)
+        editingOriginalImagePath = null
+        cameraFilePath = ImageStorage.cameraFile(context).absolutePath
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-            cameraUri(context, cameraFile).onSuccess { cameraLauncher.launch(it) }
+            cameraUri(context, File(cameraFilePath)).mapCatching { cameraLauncher.launch(it) }
                 .onFailure { saveMessage = "无法打开相机：${it.message ?: "请检查应用权限"}" }
         } else permissionLauncher.launch(Manifest.permission.CAMERA)
     }
-    val photoOnly = (questionImage != null || answerImage != null || explanationImage != null) && question.isBlank() && answer.isBlank() && explanation.isBlank()
-    val photoEntry = photoOnly || listOf(questionImage, answerImage, explanationImage).any(::isPhotoEntryImagePath)
+    // Keep the editor type stable while the user adds or removes images in this edit session.
+    val photoOnly = (current.imagePath != null || current.answerImagePath != null || current.explanationImagePath != null) &&
+        current.questionText.isBlank() && current.answerText.isBlank() && current.explanation.isBlank()
+    val photoEntry = photoOnly || listOf(current.imagePath, current.answerImagePath, current.explanationImagePath).any(::isPhotoEntryImagePath)
     if (editingImagePath != null && editingImageRole != null) {
         StandaloneImageEditor(editingImagePath!!, editingImageRole!!.label, onCancel = {
             editingImagePath = null
             editingImageRole = null
+            editingOriginalImagePath = null
         }, onConfirm = { processed ->
             when (editingImageRole) {
-                PhotoRole.QUESTION -> questionImage = processed
-                PhotoRole.ANSWER -> answerImage = processed
-                PhotoRole.EXPLANATION -> explanationImage = processed
+                PhotoRole.QUESTION -> {
+                    val original = editingOriginalImagePath
+                    if (original == null) {
+                        addOriginalQuestionImages(listOf(processed))
+                    } else {
+                        originalQuestionImages = originalQuestionImages.map { if (it == original) processed else it }.distinct()
+                        if (processed !in originalQuestionImages) originalQuestionImages = originalQuestionImages + processed
+                        if (questionImage == original) questionImage = processed
+                        detailContentBlocks = detailContentBlocks.map { block ->
+                            if (block.sourcePath == original) block.copy(sourcePath = processed) else block
+                        }
+                        if (processed != original) pendingRemovedImagePaths = pendingRemovedImagePaths + original
+                    }
+                }
+                PhotoRole.ANSWER -> {
+                    answerImage?.takeIf { it != processed }?.let { pendingRemovedImagePaths = pendingRemovedImagePaths + it }
+                    answerImage = processed
+                }
+                PhotoRole.EXPLANATION -> {
+                    explanationImage?.takeIf { it != processed }?.let { pendingRemovedImagePaths = pendingRemovedImagePaths + it }
+                    explanationImage = processed
+                }
                 null -> Unit
             }
             editingImagePath = null
             editingImageRole = null
+            editingOriginalImagePath = null
         })
         return
     }
@@ -485,12 +574,45 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                 com.tiji.mistakes.ui.design.TijiBottomActionBar {
                         TijiButton(
                             onClick = {
-                                viewModel.save(current.copy(title = normalizeAsciiPunctuation(title), questionText = normalizeAsciiPunctuation(question), userAnswer = normalizeAsciiPunctuation(userAnswer), answerText = normalizeAsciiPunctuation(answer), explanation = normalizeAsciiPunctuation(explanation), note = normalizeAsciiPunctuation(note), errorReason = normalizeAsciiPunctuation(errorReason), subject = normalizeAsciiPunctuation(subject), questionType = normalizeAsciiPunctuation(questionType), tags = normalizeAsciiPunctuation(tags), difficulty = difficulty, includeSourceImageInPdf = current.includeSourceImageInPdf, imagePath = questionImage, sourceImagePaths = org.json.JSONArray(originalQuestionImages).toString(), contentBlocks = QuestionContentBlockCodec.encode(detailContentBlocks), answerImagePath = answerImage, explanationImagePath = explanationImage))
-                                editing = false
-                                saveMessage = "已保存修改"
+                                if (detailSaving) return@TijiButton
+                                detailSaving = true
+                                val updated = current.copy(
+                                    title = normalizeAsciiPunctuation(title),
+                                    questionText = normalizeAsciiPunctuation(question),
+                                    userAnswer = normalizeAsciiPunctuation(userAnswer),
+                                    answerText = normalizeAsciiPunctuation(answer),
+                                    explanation = normalizeAsciiPunctuation(explanation),
+                                    note = normalizeAsciiPunctuation(note),
+                                    errorReason = normalizeAsciiPunctuation(errorReason),
+                                    subject = normalizeAsciiPunctuation(subject),
+                                    questionType = normalizeAsciiPunctuation(questionType),
+                                    tags = normalizeAsciiPunctuation(tags),
+                                    difficulty = difficulty,
+                                    imagePath = questionImage,
+                                    sourceImagePaths = org.json.JSONArray(originalQuestionImages).toString(),
+                                    contentBlocks = QuestionContentBlockCodec.encode(detailContentBlocks),
+                                    answerImagePath = answerImage,
+                                    explanationImagePath = explanationImage
+                                )
+                                viewModel.save(
+                                    updated,
+                                    onSaved = {
+                                        mistake = updated
+                                        viewModel.deleteImagesIfUnreferenced(pendingRemovedImagePaths)
+                                        pendingRemovedImagePaths = emptySet()
+                                        detailSaving = false
+                                        editing = false
+                                        saveMessage = "已保存修改"
+                                    },
+                                    onFailure = { error ->
+                                        detailSaving = false
+                                        saveMessage = "保存失败：${error.message ?: "请重试"}"
+                                    }
+                                )
                             },
+                            enabled = !detailSaving,
                             modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("detail_edit_save_bar")
-                        ) { Text("保存修改") }
+                        ) { Text(if (detailSaving) "正在保存…" else "保存修改") }
                 }
             }
         },
@@ -521,7 +643,6 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                         )
                         TijiMenuItem(
                             text = { Text("打印此题") },
-                            leadingIcon = { Icon(Icons.Outlined.Print, contentDescription = null) },
                             onClick = {
                                 detailMenuExpanded = false
                                 showPdfOptions = true
@@ -529,7 +650,6 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                         )
                         TijiMenuItem(
                             text = { Text("删除错题") },
-                            leadingIcon = { Icon(Icons.Outlined.Delete, contentDescription = null) },
                             onClick = { detailMenuExpanded = false; onDelete(id); onBack() }
                         )
                     }
@@ -563,7 +683,7 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                                 }
                                 Text(
                                     title.ifBlank { if (photoOnly) "照片错题" else "未命名错题" },
-                                    style = MaterialTheme.typography.titleMedium,
+                                    style = MaterialTheme.typography.titleLarge,
                                     maxLines = 3,
                                     overflow = TextOverflow.Ellipsis
                                 )
@@ -595,6 +715,11 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                         ContentBlockImages(detailContentBlocks.filter { it.role == ContentBlockRole.QUESTION }, onDelete = ::removeDetailContentBlock)
                     }
                 }
+                if (photoOnly && detailContentBlocks.any { it.role == ContentBlockRole.QUESTION }) item {
+                    TijiPaperCard {
+                        ContentBlockImages(detailContentBlocks.filter { it.role == ContentBlockRole.QUESTION }, onDelete = ::removeDetailContentBlock)
+                    }
+                }
                 if (userAnswer.isNotBlank()) item {
                     TijiPaperCard {
                         TijiSectionHeader("我的答案")
@@ -607,9 +732,11 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                         if (answer.isBlank()) {
                             Text("暂未补充答案", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         } else {
-                            com.tiji.mistakes.ui.math.numberedAnswerParts(answer).forEach { part ->
-                                MathText(part, preserveSourceExactly = true, compactVerticalSpacing = true)
-                            }
+                            MathText(
+                                com.tiji.mistakes.ui.math.numberedAnswerText(answer),
+                                preserveSourceExactly = true,
+                                compactVerticalSpacing = true
+                            )
                         }
                         ContentBlockImages(detailContentBlocks.filter { it.role == ContentBlockRole.ANSWER }, onDelete = ::removeDetailContentBlock)
                     }
@@ -652,9 +779,9 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                     if (photoEntry) {
                         PhotoEditFields(
                             questionImage = questionImage,
+                            questionImagePaths = originalQuestionImages,
                             answerImage = answerImage,
                             explanationImage = explanationImage,
-                            onEditImage = { role, path -> editingImageRole = role; editingImagePath = path },
                             onDeleteImage = ::removeDetailImage,
                             onGallery = ::chooseGallery,
                             onCamera = ::chooseCamera,
@@ -680,7 +807,10 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                             onQuestion = { question = it },
                             onAnswer = { answer = it },
                             onExplanation = { explanation = it },
-                            showTextFields = !photoOnly
+                            showTextFields = !photoOnly,
+                            questionBlocks = detailContentBlocks.filter { it.role == ContentBlockRole.QUESTION },
+                            onDeleteBlock = ::removeDetailContentBlock,
+                            showUserAnswer = false
                         )
                     } else {
                         MistakeFields(
@@ -707,6 +837,9 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                             questionType = questionType,
                             onQuestionType = { questionType = it },
                             showRenderedPreview = true,
+                            showEditorPreviews = false,
+                            showUserAnswer = false,
+                            onAddQuestionImages = ::addQuestionImages,
                             contentBlocks = detailContentBlocks,
                             onDeleteBlock = ::removeDetailContentBlock
                         )

@@ -4,28 +4,54 @@ import android.os.Parcel
 import androidx.test.platform.app.InstrumentationRegistry
 import com.tiji.mistakes.service.AiFollowUpRequestStore
 import com.tiji.mistakes.service.AiFollowUpService
+import com.tiji.mistakes.service.AiVisionService
+import com.tiji.mistakes.service.aiThinkingModeOptions
 import com.tiji.mistakes.service.applyThinkingMode
+import com.tiji.mistakes.service.normalizeAiThinkingMode
+import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
 
 class AiRequestOptionsTest {
-    @Test fun providerDefaultLeavesRequestUntouched() {
-        val body = JSONObject().put("model", "custom-model").put("stream", true)
-        assertEquals(body.toString(), applyThinkingMode(body, "https://api.deepseek.com", "auto").toString())
+    @Test fun thinkingModeHasThreeStableOptionsAndDefaultDoesNotChangeRequest() {
+        assertEquals(listOf("auto", "on", "off"), aiThinkingModeOptions.map { it.value })
+        assertEquals("auto", normalizeAiThinkingMode("native:high"))
+        val original = JSONObject().put("model", "arbitrary-model").put("stream", true)
+        assertSame(original, applyThinkingMode(original, "auto", "https://api.deepseek.com"))
+        assertFalse(original.has("thinking"))
     }
 
-    @Test fun explicitThinkingChoiceUsesProviderProtocolWithoutChangingModel() {
-        val body = JSONObject().put("model", "user-chosen-model")
-        for (mode in listOf("on", "off")) {
-            val enabled = mode == "on"
-            val deepSeek = applyThinkingMode(body, "https://api.deepseek.com/chat/completions", mode)
-            assertEquals(if (enabled) "enabled" else "disabled", deepSeek.getJSONObject("thinking").getString("type"))
-            assertEquals("user-chosen-model", deepSeek.getString("model"))
-            assertEquals(enabled, applyThinkingMode(body, "https://dashscope.aliyuncs.com/compatible-mode/v1", mode).getBoolean("enable_thinking"))
-            assertEquals(if (enabled) "medium" else "none", applyThinkingMode(body, "https://api.openai.com/v1/chat/completions", mode).getString("reasoning_effort"))
+    @Test fun explicitThinkingModeUsesEndpointRequestFormat() {
+        val body = JSONObject().put("model", "any-model")
+        assertEquals("enabled", applyThinkingMode(body, "on", "https://api.deepseek.com")
+            .getJSONObject("thinking").getString("type"))
+        assertEquals("disabled", applyThinkingMode(body, "off", "https://api.deepseek.com")
+            .getJSONObject("thinking").getString("type"))
+        assertTrue(applyThinkingMode(body, "on", "https://example.aliyuncs.com/compatible-mode/v1")
+            .getBoolean("enable_thinking"))
+        assertFalse(applyThinkingMode(body, "off", "https://example.aliyuncs.com/compatible-mode/v1")
+            .getBoolean("enable_thinking"))
+        assertEquals("none", applyThinkingMode(body, "off", "https://example.invalid/v1")
+            .getString("reasoning_effort"))
+        assertFalse(body.has("reasoning_effort"))
+    }
+
+    @Test fun followUpServiceSendsSelectedThinkingMode() = kotlinx.coroutines.runBlocking {
+        var captured: JSONObject? = null
+        val transport = object : com.tiji.mistakes.service.AiProviderTransport {
+            override fun cancel() {}
+            override fun request(endpoint: String, apiKey: String, body: JSONObject): String = error("Expected streaming")
+            override suspend fun stream(endpoint: String, apiKey: String, body: JSONObject, onLine: suspend (String) -> Unit) {
+                captured = body
+                onLine("data: " + JSONObject().put("choices", JSONArray().put(JSONObject().put("delta", JSONObject().put("content", "计算结果是 2。")))))
+                onLine("data: [DONE]")
+            }
         }
-        assertFalse(body.has("thinking"))
+        val service = AiVisionService(transport).apply { thinkingModeOverride = "off" }
+        val reply = service.answerFollowUp("https://api.deepseek.com", "deepseek-v4-flash", "fixture-key", "1+1", "说明结果").getOrThrow()
+        assertTrue(reply.isNotBlank())
+        assertEquals("disabled", requireNotNull(captured).getJSONObject("thinking").getString("type"))
     }
 
     @Test fun longFollowUpKeepsBinderPayloadSmallAndConsumesDraftExactlyOnce() {

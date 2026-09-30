@@ -39,7 +39,6 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import com.tiji.mistakes.ui.design.TijiShapes
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AddAPhoto
@@ -117,6 +116,7 @@ import com.tiji.mistakes.ui.editor.MistakeSaveMetadata
 import com.tiji.mistakes.ui.editor.MistakeSaveSheet
 import com.tiji.mistakes.ui.image.ImagePreview
 import com.tiji.mistakes.ui.math.MathText
+import com.tiji.mistakes.ui.math.numberedAnswerText
 import com.tiji.mistakes.ui.editor.MistakeFields
 import com.tiji.mistakes.ui.MistakeViewModel
 import com.tiji.mistakes.domain.MistakeDraft
@@ -139,8 +139,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 
-internal enum class EntryMode(val label: String) { PHOTO("拍照录题"), AI("AI 识题"), MANUAL("手动录入") }
+internal enum class EntryMode(val label: String) { PHOTO("照片录题"), AI("AI录题"), MANUAL("文字录题") }
 
 /** Compose binding that keeps every persisted capture field behind the domain reducer. */
 internal class CaptureDraftBindings(private val savedDraft: MutableState<MistakeDraft>) {
@@ -361,7 +362,11 @@ internal fun NewCaptureScreen(
     var selectedRole by rememberSaveable { mutableStateOf(PhotoRole.QUESTION) }
     var photoEditingOriginalPath by rememberSaveable { mutableStateOf<String?>(null) }
     var editingPath by rememberSaveable { mutableStateOf<String?>(null) }
-    var cameraFile by remember { mutableStateOf(ImageStorage.cameraFile(context)) }
+    // The camera may reclaim our process while it is in the foreground. Keep
+    // the exact output path so the activity-result callback can read the photo
+    // after Compose restores this destination.
+    var pendingCameraPath by rememberSaveable { mutableStateOf<String?>(null) }
+    val cameraCopyScope = rememberCoroutineScope()
     var captureMessage by rememberSaveable { mutableStateOf("") }
     var aiFilled by rememberSaveable { mutableStateOf(false) }
     var showAiConsentDialog by remember { mutableStateOf(false) }
@@ -549,22 +554,39 @@ internal fun NewCaptureScreen(
             ?.let { load(it, selectedRole) }
     }
     val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
-        if (success) {
-            val copied = ImageStorage.copyFileToPrivate(context, cameraFile, selectedRole.prefix)
-            if (selectedRole == PhotoRole.QUESTION && mode == EntryMode.PHOTO) {
-                copied?.let { photoQuestionImages = (photoQuestionImages + it).distinct() }
-                captureMessage = "已添加题目图片"
-            } else {
-                load(copied, selectedRole)
-            }
-        } else {
+        val sourcePath = pendingCameraPath
+        pendingCameraPath = null
+        if (!success) {
             captureMessage = "拍照未完成，请重试"
+        } else if (sourcePath.isNullOrBlank()) {
+            captureMessage = "照片未能恢复，请重新拍照"
+        } else {
+            val role = selectedRole
+            cameraCopyScope.launch {
+                val copied = withContext(Dispatchers.IO) {
+                    ImageStorage.copyFileToPrivate(context, File(sourcePath), role.prefix)
+                }
+                if (copied == null) {
+                    captureMessage = "照片保存失败，请重新拍照"
+                } else if (role == PhotoRole.QUESTION && mode == EntryMode.PHOTO) {
+                    photoQuestionImages = (photoQuestionImages + copied).distinct()
+                    captureMessage = "已添加题目图片"
+                } else {
+                    load(copied, role)
+                }
+            }
         }
     }
     fun openCamera(role: PhotoRole) {
-        selectedRole = role; cameraFile = ImageStorage.cameraFile(context)
-        cameraUri(context, cameraFile).onSuccess { cameraLauncher.launch(it) }
-            .onFailure { captureMessage = "无法打开相机：${it.message ?: "请检查应用权限"}" }
+        selectedRole = role
+        val file = ImageStorage.cameraFile(context)
+        pendingCameraPath = file.absolutePath
+        cameraUri(context, file)
+            .mapCatching { cameraLauncher.launch(it) }
+            .onFailure {
+                pendingCameraPath = null
+                captureMessage = "无法打开相机：${it.message ?: "请检查应用权限"}"
+            }
     }
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) openCamera(selectedRole) else captureMessage = "相机权限未授予，无法拍照"
@@ -616,7 +638,7 @@ internal fun NewCaptureScreen(
             sourceImagePaths = sourceImages,
             answerImagePath = answerImage,
             explanationImagePath = explanationImage,
-            contentBlocks = if (mode == EntryMode.AI) contentBlocksJson else ""
+            contentBlocks = if (mode != EntryMode.PHOTO) contentBlocksJson else ""
         )
         val draft = MistakeDraft.from(
             metadata = draftMetadata,
@@ -774,6 +796,20 @@ internal fun NewCaptureScreen(
         )
     }
 
+    fun addEditedQuestionImages(paths: List<String>) {
+        val blocks = QuestionContentBlockCodec.decode(contentBlocksJson)
+        contentBlocksJson = QuestionContentBlockCodec.encode(
+            QuestionContentBlockCodec.appendQuestionImages(blocks, paths)
+        )
+    }
+
+    fun enterRecognitionEditor() {
+        modeName = EntryMode.AI.name
+        modeChosenByUser = true
+        if (aiRecognitionImages.isEmpty()) aiRecognitionImages = aiRecognitionState.imagePaths
+        aiFilled = true
+    }
+
     pendingRecognition?.let { result ->
         // Recognition confirmation and the saved detail page must use the same
         // source cleanup rules. Previously only commentary was removed here, so
@@ -797,7 +833,8 @@ internal fun NewCaptureScreen(
             title = { Text("确认 AI 识别结果") },
             text = {
                 Column(
-                    Modifier.verticalScroll(rememberScrollState()),
+                    // TijiDialog owns vertical scrolling. A second unbounded
+                    // scroll container crashes as soon as recognition completes.
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     MathText(result.title.ifBlank { "未识别标题" }, emphasized = true, preserveReturnedLayout = true)
@@ -822,7 +859,7 @@ internal fun NewCaptureScreen(
                                         question = cleanedQuestion
                                         answer = cleanedAnswer
                                         explanation = cleanedExplanation
-                                        aiFilled = true
+                                        enterRecognitionEditor()
                                         pendingRecognition = null
                                         viewModel.clearAiRecognition()
                                         captureMessage = "识别结果已填入编辑区，请修正标记位置后保存"
@@ -853,7 +890,11 @@ internal fun NewCaptureScreen(
                     )
                     if (cleanedAnswer.isNotBlank()) {
                         Text("答案", fontWeight = FontWeight.Bold)
-                        MathText(cleanedAnswer, preserveReturnedLayout = true)
+                        MathText(
+                            numberedAnswerText(cleanedAnswer),
+                            preserveReturnedLayout = true,
+                            compactVerticalSpacing = true
+                        )
                     }
                     if (cleanedExplanation.isNotBlank()) {
                         Text("解析", fontWeight = FontWeight.Bold)
@@ -877,7 +918,7 @@ internal fun NewCaptureScreen(
                             block.toContentBlock(index)
                         }
                     )
-                    aiFilled = true
+                    enterRecognitionEditor()
                     pendingRecognition = null
                     viewModel.clearAiRecognition()
                     captureMessage = if (result.recognitionWarning.isBlank()) {
@@ -957,6 +998,17 @@ internal fun NewCaptureScreen(
     TijiScreen(
         bottomBar = {
             com.tiji.mistakes.ui.design.TijiBottomActionBar {
+                if (mode == EntryMode.AI && (aiRecognitionState.running || !aiFilled)) {
+                    TijiButton(
+                        enabled = aiRecognitionState.running || aiRecognitionImages.isNotEmpty(),
+                        onClick = {
+                            if (aiRecognitionState.running) viewModel.stopAiRecognition()
+                            else if (aiUploadConsent) recognizeQuestionWithAi()
+                            else showAiConsentDialog = true
+                        },
+                        modifier = Modifier.fillMaxWidth().testTag("capture_ai_action")
+                    ) { Text(if (aiRecognitionState.running) "停止识别" else "开始识别") }
+                } else {
                     TijiButton(
                         enabled = !saving && !aiRecognitionState.running && (mode == EntryMode.MANUAL && question.isNotBlank() ||
                             (mode == EntryMode.PHOTO && photoQuestionImages.isNotEmpty()) ||
@@ -967,6 +1019,7 @@ internal fun NewCaptureScreen(
                         shape = TijiShapes.M,
                         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                     ) { Text(if (aiRecognitionState.running) "正在识别…" else if (saving) "正在保存…" else "保存错题") }
+                }
             }
         },
         topBar = {
@@ -1084,16 +1137,43 @@ internal fun NewCaptureScreen(
                             val path = if (role == PhotoRole.ANSWER) answerImage else explanationImage
                             if (path == null) {
                                 TijiDropZone(
-                                    title = "拍摄${if (role == PhotoRole.ANSWER) "答案" else "解析"}",
-                                    subtitle = "也可从相册选择", icon = Icons.Outlined.CameraAlt,
-                                    onClick = { requestCamera(role) }, minHeight = 88.dp, compact = true
+                                    title = "拍照或选择图片",
+                                    subtitle = "支持拍照或从相册选择",
+                                    icon = Icons.Outlined.AddAPhoto,
+                                    onClick = { requestCamera(role) },
+                                    minHeight = 112.dp,
+                                    compact = true,
+                                    actions = {
+                                        TijiSecondaryButton(
+                                            onClick = { selectedRole = role; singleGalleryLauncher.launch("image/*") },
+                                            modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                                            contentPadding = PaddingValues(horizontal = 8.dp)
+                                        ) {
+                                            Icon(Icons.Outlined.Image, contentDescription = null)
+                                            Spacer(Modifier.size(5.dp))
+                                            Text("相册")
+                                        }
+                                        TijiButton(
+                                            onClick = { requestCamera(role) },
+                                            modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                                            contentPadding = PaddingValues(horizontal = 8.dp)
+                                        ) {
+                                            Icon(Icons.Outlined.CameraAlt, contentDescription = null)
+                                            Spacer(Modifier.size(5.dp))
+                                            Text("拍照")
+                                        }
+                                    }
                                 )
                             } else {
                                 ImagePreview(path)
-                            }
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                TijiSecondaryButton(onClick = { requestCamera(role) }) { Text("拍照") }
-                                TijiSecondaryButton(onClick = { selectedRole = role; singleGalleryLauncher.launch("image/*") }) { Text("相册") }
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                    TijiSecondaryButton(onClick = { selectedRole = role; singleGalleryLauncher.launch("image/*") }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 8.dp)) {
+                                        Icon(Icons.Outlined.Image, contentDescription = null); Spacer(Modifier.size(5.dp)); Text("相册")
+                                    }
+                                    TijiButton(onClick = { requestCamera(role) }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 8.dp)) {
+                                        Icon(Icons.Outlined.CameraAlt, contentDescription = null); Spacer(Modifier.size(5.dp)); Text("拍照")
+                                    }
+                                }
                             }
                         }
                     }
@@ -1101,26 +1181,34 @@ internal fun NewCaptureScreen(
             } else if (mode == EntryMode.AI) {
                 item {
                     TijiPaperCard {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                            TijiSurface(color = MaterialTheme.colorScheme.primaryContainer, shape = TijiShapes.M) {
-                                Icon(Icons.Outlined.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(10.dp).size(23.dp))
-                            }
-                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text("AI 识题", style = MaterialTheme.typography.titleMedium)
-                            }
-                        }
-                        TijiTextButton(onClick = { showCaptureConfiguration = !showCaptureConfiguration }) {
-                            Text(if (showCaptureConfiguration) "收起设置" else "设置：${aiProfiles.firstOrNull { it.id == activeAiProfileId }?.name ?: aiModel}")
+                        Text("AI 识题", style = MaterialTheme.typography.titleMedium)
+                        androidx.compose.material3.HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        TijiTextButton(
+                            onClick = { showCaptureConfiguration = !showCaptureConfiguration },
+                            modifier = Modifier.fillMaxWidth(),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
+                        ) {
+                            Text(
+                                if (showCaptureConfiguration) "收起模型设置" else "使用模型+识别方式",
+                                modifier = Modifier.fillMaxWidth(),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Start
+                            )
                         }
                         if (showCaptureConfiguration) {
-                            Text("当前 AI 配置", style = MaterialTheme.typography.labelLarge)
+                            Text("使用模型", style = MaterialTheme.typography.labelLarge)
                             LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 items(aiProfiles, key = { it.id }) { profile ->
                                     TijiChip(selected = profile.id == activeAiProfileId, onClick = { onActiveAiProfile(profile.id) }, label = { Text(profile.name) })
                                 }
                             }
-                            AiInputModeSelector(selected = aiInputMode, onSelected = { aiInputModeName = it.name; onAiInputMode(it) }, title = "识别方式")
+                            Text("模型：${aiModel.ifBlank { "未配置" }}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            TijiTextButton(onClick = onOpenSettings, modifier = Modifier.heightIn(min = 48.dp)) {
+                                Text("打开 AI 配置")
+                            }
+                            Text("识别方式", style = MaterialTheme.typography.labelLarge)
+                            AiInputModeSelector(selected = aiInputMode, onSelected = { aiInputModeName = it.name; onAiInputMode(it) }, title = "")
                         }
+                        androidx.compose.material3.HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                         if (aiRecognitionImages.isEmpty()) {
                             TijiDropZone(
                                 title = "拍照或选择图片",
@@ -1141,8 +1229,8 @@ internal fun NewCaptureScreen(
                             TijiSecondaryButton(onClick = { selectedRole = PhotoRole.QUESTION; galleryLauncher.launch("image/*") }, modifier = Modifier.weight(1f)) { Icon(Icons.Outlined.Image, contentDescription = null); Spacer(Modifier.size(5.dp)); Text("相册") }
                             TijiSecondaryButton(onClick = { requestCamera(PhotoRole.QUESTION) }, modifier = Modifier.weight(1f)) { Icon(Icons.Outlined.CameraAlt, contentDescription = null); Spacer(Modifier.size(5.dp)); Text("拍照") }
                         }
-                        TijiButton(onClick = { if (aiUploadConsent) recognizeQuestionWithAi() else showAiConsentDialog = true }, enabled = aiRecognitionImages.isNotEmpty() && !aiRecognitionState.running, modifier = Modifier.fillMaxWidth()) {
-                            Icon(Icons.Outlined.AutoAwesome, contentDescription = null); Spacer(Modifier.size(6.dp)); Text("AI 识别并填入")
+                        if (aiFilled && !aiRecognitionState.running) TijiTextButton(onClick = { if (aiUploadConsent) recognizeQuestionWithAi() else showAiConsentDialog = true }, enabled = aiRecognitionImages.isNotEmpty()) {
+                            Text("重新识别")
                         }
                         if (visualAssistBindingMissing) {
                             TijiTag("此模型尚未配置视觉辅助", containerColor = MaterialTheme.colorScheme.primaryContainer)
@@ -1155,10 +1243,9 @@ internal fun NewCaptureScreen(
                         val statusText = if (aiRecognitionState.running) "AI 正在后台识别 ${aiRecognitionState.completedCount}/${aiRecognitionState.totalCount} 张图片" else captureMessage
                         TijiPaperCard {
                             Text("识别状态", style = MaterialTheme.typography.titleSmall)
-                            if (aiRecognitionState.running) TijiProgress(progress = { recognitionProgress }, modifier = Modifier.fillMaxWidth())
+                            if (aiRecognitionState.running) TijiProgress(progress = { recognitionProgress }, modifier = Modifier.fillMaxWidth(), startedAt = aiRecognitionState.startedAt)
                             Text(statusText, style = MaterialTheme.typography.bodySmall, color = if (statusText.startsWith("AI 识别失败")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
-                            if (aiRecognitionState.running) TijiSecondaryButton(onClick = viewModel::stopAiRecognition, modifier = Modifier.fillMaxWidth()) { Text("停止识别") }
-                            else if (statusText.startsWith("AI 识别失败")) TijiTextButton(onClick = onOpenSettings) { Text("打开设置") }
+                            if (!aiRecognitionState.running && statusText.startsWith("AI 识别失败")) TijiTextButton(onClick = onOpenSettings) { Text("打开设置") }
                         }
                     }
                 }
@@ -1192,6 +1279,7 @@ internal fun NewCaptureScreen(
                                 onQuestionType = { questionType = it },
                                 showRenderedPreview = true,
                                 contentBlocks = aiContentBlocks,
+                                onAddQuestionImages = ::addEditedQuestionImages,
                                 onDeleteBlock = { block ->
                                     viewModel.removeAiRecognitionContentBlock(block.path)
                                     viewModel.deleteImagesIfUnreferenced(listOfNotNull(block.path, block.sourcePath))
@@ -1230,6 +1318,12 @@ internal fun NewCaptureScreen(
                             onDifficulty = { difficulty = it },
                             questionType = questionType,
                             onQuestionType = { questionType = it },
+                            contentBlocks = QuestionContentBlockCodec.decode(contentBlocksJson),
+                            onAddQuestionImages = ::addEditedQuestionImages,
+                            onDeleteBlock = { block ->
+                                contentBlocksJson = removeContentBlockPath(contentBlocksJson, block.path)
+                                viewModel.deleteImagesIfUnreferenced(listOfNotNull(block.path, block.sourcePath))
+                            },
                             showOptionalFields = false,
                             showClassification = false
                         )

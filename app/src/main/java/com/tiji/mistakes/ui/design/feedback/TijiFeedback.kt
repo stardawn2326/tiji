@@ -28,13 +28,41 @@ internal fun TijiSnackbar(hostState: SnackbarHostState, modifier: Modifier = Mod
 internal fun TijiProgress(modifier: Modifier = Modifier,
     color: Color = MaterialTheme.colorScheme.primary,
     trackColor: Color = MaterialTheme.colorScheme.primaryContainer) {
-    LinearProgressIndicator(modifier, color, trackColor)
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        LinearProgressIndicator(Modifier.fillMaxWidth(), color, trackColor)
+        TijiElapsedTime()
+    }
 }
 @Composable
 internal fun TijiProgress(progress: () -> Float, modifier: Modifier = Modifier,
     color: Color = MaterialTheme.colorScheme.primary,
-    trackColor: Color = MaterialTheme.colorScheme.primaryContainer) {
-    LinearProgressIndicator(progress, modifier, color, trackColor)
+    trackColor: Color = MaterialTheme.colorScheme.primaryContainer,
+    showElapsed: Boolean = true, startedAt: Long = 0L) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        LinearProgressIndicator(progress, Modifier.fillMaxWidth(), color, trackColor)
+        if (showElapsed) TijiElapsedTime(startedAt)
+    }
+}
+
+/** Use persisted task time when available; local loaders count their visible wait. */
+@Composable
+internal fun TijiElapsedTime(startedAt: Long = 0L) {
+    val origin = androidx.compose.runtime.saveable.rememberSaveable(startedAt) {
+        startedAt.takeIf { it > 0L } ?: System.currentTimeMillis()
+    }
+    var seconds by remember(origin) { mutableLongStateOf(((System.currentTimeMillis() - origin) / 1000).coerceAtLeast(0)) }
+    LaunchedEffect(origin) {
+        while (true) {
+            seconds = ((System.currentTimeMillis() - origin) / 1000).coerceAtLeast(0)
+            kotlinx.coroutines.delay(1000)
+        }
+    }
+    Text("已用时 $seconds 秒", style = MaterialTheme.typography.bodySmall)
+}
+
+@Composable
+internal fun TijiLoadingSpinner(modifier: Modifier = Modifier, strokeWidth: Dp = 2.dp) {
+    CircularProgressIndicator(modifier, strokeWidth = strokeWidth)
 }
 @Composable
 internal fun TijiEmptyState(title: String, message: String, modifier: Modifier = Modifier,

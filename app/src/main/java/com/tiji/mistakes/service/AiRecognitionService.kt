@@ -86,13 +86,16 @@ data class AiRecognitionState(
     val progress: Float = 0f,
     val result: AiRecognitionResult? = null,
     val error: String? = null,
-    val updatedAt: Long = 0L
+    val updatedAt: Long = 0L,
+    val startedAt: Long = 0L
 ) {
     val running: Boolean get() = status == AiRecognitionStatus.RUNNING
 }
 
 class AiRecognitionStateStore(context: Context) {
     private val preferences = context.getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE)
+
+    internal fun observe() = TaskStateUpdates.observe(FILE_NAME, ::read)
 
     fun read(): AiRecognitionState {
         val status = preferences.getString(KEY_STATUS, null)
@@ -110,7 +113,8 @@ class AiRecognitionStateStore(context: Context) {
             progress = preferences.getFloat(KEY_PROGRESS, 0f).coerceIn(0f, 1f),
             result = decodeResult(preferences.getString(KEY_RESULT, null)),
             error = preferences.getString(KEY_ERROR, null),
-            updatedAt = preferences.getLong(KEY_UPDATED_AT, 0L)
+            updatedAt = preferences.getLong(KEY_UPDATED_AT, 0L),
+            startedAt = preferences.getLong("started_at", 0L)
         )
     }
 
@@ -126,11 +130,14 @@ class AiRecognitionStateStore(context: Context) {
             .putString(KEY_RESULT, state.result?.let(::encodeResult)?.toString())
             .putString(KEY_ERROR, state.error)
             .putLong(KEY_UPDATED_AT, state.updatedAt)
+            .putLong("started_at", state.startedAt)
             .apply()
+        TaskStateUpdates.changed(FILE_NAME)
     }
 
     fun clear() {
         preferences.edit().clear().apply()
+        TaskStateUpdates.changed(FILE_NAME)
     }
 
     private fun decodePaths(raw: String?): List<String> = runCatching {
@@ -706,6 +713,8 @@ class AiRecognitionService : Service() {
                 mode = mode,
                 imagePaths = imagePaths,
                 totalCount = imagePaths.size,
+                startedAt = stateStore.read().takeIf { it.requestId == requestId }?.startedAt
+                    ?.takeIf { it > 0L } ?: System.currentTimeMillis(),
                 updatedAt = System.currentTimeMillis()
             )
             stateStore.write(initial)

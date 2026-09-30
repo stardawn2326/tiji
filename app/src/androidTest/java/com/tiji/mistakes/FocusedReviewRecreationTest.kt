@@ -117,7 +117,8 @@ class FocusedReviewRecreationTest {
 
         recreateActivity()
         waitForQuestion(secondTitle)
-        composeRule.onAllNodesWithText("2 / 2").assertCountEquals(2)
+        composeRule.onNodeWithText("2 / 2 题").assertExists()
+        composeRule.onNodeWithText("2 / 2").assertExists()
         gradeCurrentQuestion(ReviewGrade.HARD)
         openSummary()
 
@@ -245,7 +246,7 @@ class FocusedReviewRecreationTest {
     }
 
     private fun assertSummary(completed: Int, good: Int, hard: Int = 0) {
-        composeRule.onNodeWithTag("review_session_completed").assertTextEquals(completed.toString())
+        composeRule.onNodeWithTag("review_session_completed").assertDoesNotExist()
         composeRule.onNodeWithTag("review_session_forgot").assertTextEquals("0")
         composeRule.onNodeWithTag("review_session_hard").assertTextEquals(hard.toString())
         composeRule.onNodeWithTag("review_session_good").assertTextEquals(good.toString())

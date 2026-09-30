@@ -117,6 +117,7 @@ internal fun ReviewProgressCard(
             TijiTag(if (randomMode) "全随机" else "到期优先")
         }
         TijiProgress(
+                            showElapsed = false,
             progress = { progress },
             color = MaterialTheme.colorScheme.primary,
             trackColor = MaterialTheme.colorScheme.surfaceVariant,

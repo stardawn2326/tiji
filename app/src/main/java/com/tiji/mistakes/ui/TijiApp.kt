@@ -4,6 +4,7 @@ package com.tiji.mistakes.ui
 
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.padding
@@ -30,6 +31,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
@@ -45,13 +47,13 @@ import com.tiji.mistakes.data.AppPreferences
 import com.tiji.mistakes.domain.DailyStudyPlanner
 import com.tiji.mistakes.domain.DailyStudyPlannerInput
 import com.tiji.mistakes.domain.ReviewAnalytics
-import com.tiji.mistakes.domain.FutureReviewPlan
 import com.tiji.mistakes.domain.time.LearningCalendar
 import com.tiji.mistakes.service.OcrModelManager
 import com.tiji.mistakes.ui.navigation.BottomDestination
 import com.tiji.mistakes.ui.navigation.TijiNavGraph
 import com.tiji.mistakes.ui.navigation.TijiNavGraphState
 import com.tiji.mistakes.ui.navigation.TijiRoutes
+import kotlinx.coroutines.launch
 
 @Composable
 fun TijiApp() {
@@ -106,18 +108,12 @@ fun TijiApp() {
     val knowledgePoints by viewModel.knowledgePoints.collectAsStateWithLifecycle()
     val knowledgePointLinks by viewModel.knowledgePointLinks.collectAsStateWithLifecycle()
     val reviewAnalytics = remember(recentReviewRecords) { ReviewAnalytics.summarize(recentReviewRecords) }
-    val latestReviewRecordByMistake = remember(recentReviewRecords) {
-        recentReviewRecords
-            .groupBy { it.mistakeId }
-            .mapValues { (_, records) ->
-                records.maxWithOrNull(compareBy({ it.reviewedAt }, { it.id }))
-            }
-    }
     val dailyStudyPlan = remember(
         allMistakes,
         dueMistakes,
         recentReviewRecords,
         dailyReviewLimit,
+        randomReview,
         reviewSubjects,
         reviewPlanEnabled,
         reviewNow,
@@ -132,30 +128,12 @@ fun TijiApp() {
                     dueMistakes = dueMistakes,
                     recentRecords = recentReviewRecords,
                     dailyLimit = dailyReviewLimit,
+                    randomReview = randomReview,
                     subjectPreferences = DailyStudyPlanner.parseSubjectPreferences(reviewSubjects, todayWeekday),
                     now = reviewNow
                 )
             )
         }
-    }
-    val futureReviewPlan = remember(
-        allMistakes,
-        reviewNow,
-        dailyReviewLimit,
-        reviewSubjects,
-        reviewPlanEnabled,
-        dailyStudyPlan,
-        latestReviewRecordByMistake
-    ) {
-        FutureReviewPlan.calculate(
-            activeMistakes = allMistakes,
-            now = reviewNow,
-            days = 3,
-            dailyLimit = dailyReviewLimit,
-            reviewSubjectsRaw = reviewSubjects,
-            todayPlannedIds = if (reviewPlanEnabled) dailyStudyPlan.orderedIds.toSet() else emptySet(),
-            latestRecords = latestReviewRecordByMistake
-        )
     }
     val navController = rememberNavController()
     val scope = rememberCoroutineScope()
@@ -168,12 +146,34 @@ fun TijiApp() {
     var reviewVisitToken by remember { mutableIntStateOf(0) }
     var settingsVisitToken by remember { mutableIntStateOf(0) }
     var knowledgeVisitToken by remember { mutableIntStateOf(0) }
-    LaunchedEffect(route) {
-        if (route == TijiRoutes.SOLVE) solveVisitToken += 1
-        if (route == TijiRoutes.LIBRARY) libraryVisitToken += 1
-        if (route == TijiRoutes.REVIEW) reviewVisitToken += 1
-        if (route == TijiRoutes.SETTINGS) settingsVisitToken += 1
-        if (route == TijiRoutes.KNOWLEDGE) knowledgeVisitToken += 1
+    val homeListState = rememberLazyListState()
+    val libraryListState = rememberLazyListState()
+    val solveListState = rememberLazyListState()
+    val reviewListState = rememberLazyListState()
+    val settingsListState = rememberLazyListState()
+    val knowledgeListState = rememberLazyListState()
+    var libraryReturnPending by rememberSaveable { mutableStateOf(false) }
+    var libraryReturnIndex by rememberSaveable { mutableIntStateOf(0) }
+    var libraryReturnOffset by rememberSaveable { mutableIntStateOf(0) }
+    LaunchedEffect(route, libraryReturnPending) {
+        if (route == TijiRoutes.LIBRARY && libraryReturnPending) {
+            // Wait until the parent LazyColumn has been reattached and measured.
+            withFrameNanos { }
+            withFrameNanos { }
+            if (navController.currentBackStackEntry?.destination?.route != TijiRoutes.LIBRARY) {
+                return@LaunchedEffect
+            }
+            val itemCount = libraryListState.layoutInfo.totalItemsCount
+            if (itemCount > 0) {
+                libraryListState.scrollToItem(
+                    libraryReturnIndex.coerceAtMost(itemCount - 1),
+                    libraryReturnOffset
+                )
+            } else {
+                libraryListState.scrollToItem(0)
+            }
+            libraryReturnPending = false
+        }
     }
     val snackbarHostState = remember { SnackbarHostState() }
     val destinations = remember {
@@ -200,7 +200,6 @@ fun TijiApp() {
         knowledgePointLinks = knowledgePointLinks,
         reviewAnalytics = reviewAnalytics,
         dailyStudyPlan = dailyStudyPlan,
-        futureReviewPlan = futureReviewPlan,
         reviewPlanSnapshots = reviewPlanSnapshots,
         reviewRecords = reviewRecords,
         reviewCheckIns = reviewCheckIns,
@@ -226,7 +225,13 @@ fun TijiApp() {
         solveVisitToken = solveVisitToken,
         reviewVisitToken = reviewVisitToken,
         settingsVisitToken = settingsVisitToken,
-        knowledgeVisitToken = knowledgeVisitToken
+        knowledgeVisitToken = knowledgeVisitToken,
+        homeListState = homeListState,
+        libraryListState = libraryListState,
+        solveListState = solveListState,
+        reviewListState = reviewListState,
+        settingsListState = settingsListState,
+        knowledgeListState = knowledgeListState
     )
 
     TijiTheme(mode = ThemeMode.fromKey(themeModeKey), palette = ThemePalette.fromKey(themePaletteKey)) {
@@ -247,13 +252,31 @@ fun TijiApp() {
                                     (destination.route == TijiRoutes.SETTINGS && route == TijiRoutes.SETTINGS),
                                 onClick = {
                                     when (destination.route) {
-                                        TijiRoutes.HOME -> homeVisitToken += 1
-                                        TijiRoutes.LIBRARY -> libraryVisitToken += 1
-                                        TijiRoutes.SOLVE -> solveVisitToken += 1
-                                        TijiRoutes.REVIEW -> reviewVisitToken += 1
-                                        TijiRoutes.SETTINGS -> settingsVisitToken += 1
+                                        TijiRoutes.HOME -> {
+                                            homeVisitToken += 1
+                                            scope.launch { homeListState.scrollToItem(0) }
+                                        }
+                                        TijiRoutes.LIBRARY -> {
+                                            libraryVisitToken += 1
+                                            libraryReturnPending = false
+                                            libraryReturnIndex = 0
+                                            libraryReturnOffset = 0
+                                            scope.launch { libraryListState.scrollToItem(0) }
+                                        }
+                                        TijiRoutes.SOLVE -> {
+                                            solveVisitToken += 1
+                                            scope.launch { solveListState.scrollToItem(0) }
+                                        }
+                                        TijiRoutes.REVIEW -> {
+                                            reviewVisitToken += 1
+                                            scope.launch { reviewListState.scrollToItem(0) }
+                                        }
+                                        TijiRoutes.SETTINGS -> {
+                                            settingsVisitToken += 1
+                                            scope.launch { settingsListState.scrollToItem(0) }
+                                        }
                                     }
-                                    if (route != destination.route) {
+                                    if (navController.currentBackStackEntry?.destination?.route != destination.route) {
                                         navController.navigate(destination.route) {
                                             popUpTo(navController.graph.findStartDestination().id) { saveState = false }
                                             launchSingleTop = true
@@ -290,6 +313,11 @@ fun TijiApp() {
                 state = navState,
                 onLibrarySubject = { subject ->
                     librarySubject = subject
+                },
+                onBeforeOpenLibrarySecondary = {
+                    libraryReturnIndex = libraryListState.firstVisibleItemIndex
+                    libraryReturnOffset = libraryListState.firstVisibleItemScrollOffset
+                    libraryReturnPending = true
                 }
             )
         }

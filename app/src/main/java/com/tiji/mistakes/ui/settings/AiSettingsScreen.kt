@@ -39,6 +39,8 @@ import com.tiji.mistakes.data.AiProfile
 import com.tiji.mistakes.data.AiVisualProfile
 import com.tiji.mistakes.data.AppPreferences
 import com.tiji.mistakes.service.AiProviderPreset
+import com.tiji.mistakes.service.normalizeAiThinkingMode
+import com.tiji.mistakes.service.aiThinkingModeOptions
 import com.tiji.mistakes.service.AiVisionService
 import com.tiji.mistakes.service.AiProviderCapabilityCheck
 import com.tiji.mistakes.service.OcrModelDownloadService
@@ -88,7 +90,7 @@ internal fun AiSettingsScreen(
         mutableStateOf(selectedProfile?.model ?: aiModel)
     }
     var thinkingMode by remember(selectedProfileId, selectedProfile?.thinkingMode) {
-        mutableStateOf(selectedProfile?.thinkingMode ?: "auto")
+        mutableStateOf(normalizeAiThinkingMode(selectedProfile?.thinkingMode ?: "auto"))
     }
     aiService.thinkingModeOverride = thinkingMode
     var apiKey by remember(selectedProfileId) { mutableStateOf(secureStore.read(selectedProfileId)) }
@@ -204,10 +206,14 @@ internal fun AiSettingsScreen(
                         }
                     }
                     Text("思考模式", style = MaterialTheme.typography.labelLarge)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf("auto" to "默认", "on" to "开启", "off" to "关闭").forEach { (value, label) ->
-                            TijiChip(selected = thinkingMode == value, onClick = { thinkingMode = value },
-                                modifier = Modifier.testTag("ai_thinking_$value"), label = { Text(label) })
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(aiThinkingModeOptions, key = { it.value }) { option ->
+                            TijiChip(
+                                selected = thinkingMode == option.value,
+                                onClick = { thinkingMode = option.value },
+                                modifier = Modifier.testTag("ai_thinking_${option.value}"),
+                                label = { Text(option.label) }
+                            )
                         }
                     }
                     Text("仅返回答案和解析，不展示思考内容。", style = MaterialTheme.typography.bodySmall)

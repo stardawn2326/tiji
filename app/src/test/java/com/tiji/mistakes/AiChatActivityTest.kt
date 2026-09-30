@@ -1,5 +1,6 @@
 package com.tiji.mistakes
 
+import com.tiji.mistakes.service.recoverInterruptedAiChat
 import com.tiji.mistakes.service.AiChatMessage
 import com.tiji.mistakes.service.PersistedAiChatState
 import com.tiji.mistakes.service.hasAiChatActivity
@@ -11,6 +12,22 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AiChatActivityTest {
+    @Test fun interruptedProcessKeepsPartialReplyAndReleasesRunningState() {
+        val state = PersistedAiChatState(requestId = 9, running = true, sessionId = "old",
+            currentPrompt = "question", streamedText = "partial formula", currentImagePaths = listOf("image"))
+        val restored = recoverInterruptedAiChat(state, "new")
+        assertFalse(restored.running)
+        assertEquals("partial formula", restored.messages.single().reply)
+        assertEquals(listOf("image"), restored.messages.single().imagePaths)
+        assertEquals("new", restored.sessionId)
+        assertEquals(restored, recoverInterruptedAiChat(restored, "new"))
+    }
+
+    @Test fun sameProcessRecreationDoesNotStopActiveFollowUp() {
+        val state = PersistedAiChatState(running = true, sessionId = "same")
+        assertEquals(state, recoverInterruptedAiChat(state, "same"))
+    }
+
     @Test
     fun emptyHistoryDoesNotCreateLatestConversationActivity() {
         val restored = restoredAiChatState(emptyList(), requestId = 12L)

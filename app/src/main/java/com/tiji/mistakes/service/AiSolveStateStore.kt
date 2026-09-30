@@ -95,131 +95,142 @@ internal fun extractRecognizedQuestionFromSolution(value: String): String {
 }
 
 class AiSolveStateStore(context: Context) {
+    private val storeLock = StoreFileLocks.forStore(context, FILE_NAME)
     private val preferences = context.getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE)
+
+    internal fun observe() = TaskStateUpdates.observe(FILE_NAME, ::read)
     private val durableTextStore = DurableTextStore(context, FILE_NAME)
 
     fun read(): PersistedAiSolveState {
-        val legacyRunning = preferences.getBoolean(KEY_RUNNING, false)
-        val completeText = durableTextStore.read(SLOT_COMPLETE_TEXT)
-            ?: preferences.getString(KEY_COMPLETE_TEXT, null)
-        val error = preferences.getString(KEY_ERROR, null)
-        val streamedText = (durableTextStore.read(SLOT_STREAMED_TEXT)
-            ?: preferences.getString(KEY_STREAMED_TEXT, "").orEmpty()).cleanNullStream()
-        val status = preferences.getString(KEY_STATUS, null)
-            ?.let { raw -> runCatching { AiSolveStatus.valueOf(raw) }.getOrNull() }
-            ?: when {
-                legacyRunning -> AiSolveStatus.RUNNING
-                error != null -> AiSolveStatus.FAILED
-                completeText != null -> AiSolveStatus.COMPLETED
-                else -> AiSolveStatus.IDLE
-            }
-        val legacyImagePath = preferences.getString(KEY_IMAGE_PATH, null)
-        val imagePaths = decodePaths(preferences.getString(KEY_IMAGE_PATHS, null))
-            .ifEmpty { listOfNotNull(legacyImagePath) }
-        return PersistedAiSolveState(
-            requestId = preferences.getLong(KEY_REQUEST_ID, 0L),
-            solveRunId = preferences.getString(KEY_SOLVE_RUN_ID, "").orEmpty(),
-            status = status,
-            sessionId = preferences.getString(KEY_SESSION_ID, AiSolveRuntime.sessionId).orEmpty(),
-            mode = preferences.getString(KEY_MODE, null)
-                ?.let { raw -> runCatching { AiRecognitionMode.valueOf(raw) }.getOrNull() }
-                ?: AiRecognitionMode.VISION,
-            reliabilityMode = AiSolveReliabilityMode.parse(preferences.getString(KEY_RELIABILITY_MODE, null)),
-            configurationId = preferences.getString(KEY_CONFIGURATION_ID, "").orEmpty(),
-            visualConfigurationId = preferences.getString(KEY_VISUAL_CONFIGURATION_ID, "").orEmpty(),
-            modelName = preferences.getString(KEY_MODEL_NAME, "").orEmpty(),
-            visualModelName = preferences.getString(KEY_VISUAL_MODEL_NAME, "").orEmpty(),
-            question = preferences.getString(KEY_QUESTION, null),
-            imagePath = imagePaths.firstOrNull() ?: legacyImagePath,
-            imagePaths = imagePaths,
-            graphicImagePath = preferences.getString(KEY_GRAPHIC_IMAGE_PATH, null),
-            progress = preferences.getFloat(KEY_PROGRESS, 0f).coerceIn(0f, 1f),
-            streamedText = streamedText,
-            completeText = completeText,
-            contentBlocks = durableTextStore.read(SLOT_CONTENT_BLOCKS)
-                ?: preferences.getString(KEY_CONTENT_BLOCKS, "").orEmpty(),
-            recognitionWarning = durableTextStore.read(SLOT_RECOGNITION_WARNING)
-                ?: preferences.getString(KEY_RECOGNITION_WARNING, "").orEmpty(),
-            uncertainItems = decodeStringList(preferences.getString(KEY_UNCERTAIN_ITEMS, null)),
-            verification = parsePersistedVerification(
-                preferences.getString(KEY_VERIFICATION, null)?.let { raw ->
-                    runCatching { JSONObject(raw) }.getOrNull()
+        return synchronized(storeLock) {
+            val legacyRunning = preferences.getBoolean(KEY_RUNNING, false)
+            val completeText = durableTextStore.read(SLOT_COMPLETE_TEXT)
+                ?: preferences.getString(KEY_COMPLETE_TEXT, null)
+            val error = preferences.getString(KEY_ERROR, null)
+            val streamedText = (durableTextStore.read(SLOT_STREAMED_TEXT)
+                ?: preferences.getString(KEY_STREAMED_TEXT, "").orEmpty()).cleanNullStream()
+            val status = preferences.getString(KEY_STATUS, null)
+                ?.let { raw -> runCatching { AiSolveStatus.valueOf(raw) }.getOrNull() }
+                ?: when {
+                    legacyRunning -> AiSolveStatus.RUNNING
+                    error != null -> AiSolveStatus.FAILED
+                    completeText != null -> AiSolveStatus.COMPLETED
+                    else -> AiSolveStatus.IDLE
                 }
-            ),
-            previousCompleteText = durableTextStore.read(SLOT_PREVIOUS_COMPLETE_TEXT)
-                ?: preferences.getString(KEY_PREVIOUS_COMPLETE_TEXT, "").orEmpty(),
-            previousVerification = parsePersistedVerification(
-                preferences.getString(KEY_PREVIOUS_VERIFICATION, null)?.let { raw ->
-                    runCatching { JSONObject(raw) }.getOrNull()
-                }
-            ),
-            previousUpdatedAt = preferences.getLong(KEY_PREVIOUS_UPDATED_AT, 0L),
-            diagnostics = parseDiagnostics(preferences.getString(KEY_DIAGNOSTICS, null)),
-            historyRecordId = preferences.getString(KEY_HISTORY_RECORD_ID, null),
-            historyWriteError = preferences.getString(KEY_HISTORY_WRITE_ERROR, "").orEmpty(),
-            error = error,
-            startedAt = preferences.getLong(KEY_STARTED_AT, 0L),
-            updatedAt = preferences.getLong(KEY_UPDATED_AT, 0L)
-        )
+            val legacyImagePath = preferences.getString(KEY_IMAGE_PATH, null)
+            val imagePaths = decodePaths(preferences.getString(KEY_IMAGE_PATHS, null))
+                .ifEmpty { listOfNotNull(legacyImagePath) }
+            return PersistedAiSolveState(
+                requestId = preferences.getLong(KEY_REQUEST_ID, 0L),
+                solveRunId = preferences.getString(KEY_SOLVE_RUN_ID, "").orEmpty(),
+                status = status,
+                sessionId = preferences.getString(KEY_SESSION_ID, AiSolveRuntime.sessionId).orEmpty(),
+                mode = preferences.getString(KEY_MODE, null)
+                    ?.let { raw -> runCatching { AiRecognitionMode.valueOf(raw) }.getOrNull() }
+                    ?: AiRecognitionMode.VISION,
+                reliabilityMode = AiSolveReliabilityMode.parse(preferences.getString(KEY_RELIABILITY_MODE, null)),
+                configurationId = preferences.getString(KEY_CONFIGURATION_ID, "").orEmpty(),
+                visualConfigurationId = preferences.getString(KEY_VISUAL_CONFIGURATION_ID, "").orEmpty(),
+                modelName = preferences.getString(KEY_MODEL_NAME, "").orEmpty(),
+                visualModelName = preferences.getString(KEY_VISUAL_MODEL_NAME, "").orEmpty(),
+                question = preferences.getString(KEY_QUESTION, null),
+                imagePath = imagePaths.firstOrNull() ?: legacyImagePath,
+                imagePaths = imagePaths,
+                graphicImagePath = preferences.getString(KEY_GRAPHIC_IMAGE_PATH, null),
+                progress = preferences.getFloat(KEY_PROGRESS, 0f).coerceIn(0f, 1f),
+                streamedText = streamedText,
+                completeText = completeText,
+                contentBlocks = durableTextStore.read(SLOT_CONTENT_BLOCKS)
+                    ?: preferences.getString(KEY_CONTENT_BLOCKS, "").orEmpty(),
+                recognitionWarning = durableTextStore.read(SLOT_RECOGNITION_WARNING)
+                    ?: preferences.getString(KEY_RECOGNITION_WARNING, "").orEmpty(),
+                uncertainItems = decodeStringList(preferences.getString(KEY_UNCERTAIN_ITEMS, null)),
+                verification = parsePersistedVerification(
+                    preferences.getString(KEY_VERIFICATION, null)?.let { raw ->
+                        runCatching { JSONObject(raw) }.getOrNull()
+                    }
+                ),
+                previousCompleteText = durableTextStore.read(SLOT_PREVIOUS_COMPLETE_TEXT)
+                    ?: preferences.getString(KEY_PREVIOUS_COMPLETE_TEXT, "").orEmpty(),
+                previousVerification = parsePersistedVerification(
+                    preferences.getString(KEY_PREVIOUS_VERIFICATION, null)?.let { raw ->
+                        runCatching { JSONObject(raw) }.getOrNull()
+                    }
+                ),
+                previousUpdatedAt = preferences.getLong(KEY_PREVIOUS_UPDATED_AT, 0L),
+                diagnostics = parseDiagnostics(preferences.getString(KEY_DIAGNOSTICS, null)),
+                historyRecordId = preferences.getString(KEY_HISTORY_RECORD_ID, null),
+                historyWriteError = preferences.getString(KEY_HISTORY_WRITE_ERROR, "").orEmpty(),
+                error = error,
+                startedAt = preferences.getLong(KEY_STARTED_AT, 0L),
+                updatedAt = preferences.getLong(KEY_UPDATED_AT, 0L)
+            )
+        }
     }
 
     fun write(state: PersistedAiSolveState) {
-        durableTextStore.write(SLOT_STREAMED_TEXT, state.streamedText)
-        durableTextStore.write(SLOT_COMPLETE_TEXT, state.completeText.orEmpty())
-        durableTextStore.write(SLOT_CONTENT_BLOCKS, state.contentBlocks)
-        durableTextStore.write(SLOT_RECOGNITION_WARNING, state.recognitionWarning)
-        durableTextStore.write(SLOT_PREVIOUS_COMPLETE_TEXT, state.previousCompleteText)
-        val editor = preferences.edit()
-            .putLong(KEY_REQUEST_ID, state.requestId)
-            .putString(KEY_SOLVE_RUN_ID, state.solveRunId)
-            .putString(KEY_STATUS, state.status.name)
-            .putBoolean(KEY_RUNNING, state.running)
-            .putString(KEY_SESSION_ID, state.sessionId)
-            .putString(KEY_MODE, state.mode.name)
-            .putString(KEY_RELIABILITY_MODE, state.reliabilityMode.name)
-            .putString(KEY_CONFIGURATION_ID, state.configurationId)
-            .putString(KEY_VISUAL_CONFIGURATION_ID, state.visualConfigurationId)
-            .putString(KEY_MODEL_NAME, state.modelName)
-            .putString(KEY_VISUAL_MODEL_NAME, state.visualModelName)
-            .putString(KEY_QUESTION, state.question)
-            .putString(KEY_IMAGE_PATH, state.imagePath)
-            .putString(KEY_IMAGE_PATHS, JSONArray(state.imagePaths.filter(String::isNotBlank).distinct()).toString())
-            .putString(KEY_GRAPHIC_IMAGE_PATH, state.graphicImagePath)
-            .putFloat(KEY_PROGRESS, state.progress.coerceIn(0f, 1f))
-            .remove(KEY_STREAMED_TEXT)
-            .remove(KEY_COMPLETE_TEXT)
-            .remove(KEY_CONTENT_BLOCKS)
-            .remove(KEY_RECOGNITION_WARNING)
-            .putString(KEY_UNCERTAIN_ITEMS, JSONArray(state.uncertainItems.filter(String::isNotBlank).distinct()).toString())
-            .putString(KEY_VERIFICATION, encodeVerification(state.verification).toString())
-            .remove(KEY_PREVIOUS_COMPLETE_TEXT)
-            .putString(KEY_PREVIOUS_VERIFICATION, encodeVerification(state.previousVerification).toString())
-            .putLong(KEY_PREVIOUS_UPDATED_AT, state.previousUpdatedAt)
-            .putString(KEY_DIAGNOSTICS, encodeDiagnostics(state.diagnostics).toString())
-            .putString(KEY_HISTORY_RECORD_ID, state.historyRecordId)
-            .putString(KEY_HISTORY_WRITE_ERROR, state.historyWriteError)
-            .putString(KEY_ERROR, state.error)
-            .putLong(KEY_STARTED_AT, state.startedAt)
-            .putLong(KEY_UPDATED_AT, state.updatedAt)
-        // Streaming progress is intentionally asynchronous to avoid blocking
-        // every token. A terminal result must be durable before the service
-        // publishes completion, otherwise an app/process kill immediately
-        // after the last response can erase the visible solution on relaunch.
-        if (state.status == AiSolveStatus.COMPLETED ||
-            state.status == AiSolveStatus.FAILED ||
-            state.status == AiSolveStatus.CANCELED
-        ) {
-            check(editor.commit()) { "无法持久化 AI 解题状态" }
-        } else {
-            editor.apply()
+        return synchronized(storeLock) {
+            durableTextStore.write(SLOT_STREAMED_TEXT, state.streamedText)
+            durableTextStore.write(SLOT_COMPLETE_TEXT, state.completeText.orEmpty())
+            durableTextStore.write(SLOT_CONTENT_BLOCKS, state.contentBlocks)
+            durableTextStore.write(SLOT_RECOGNITION_WARNING, state.recognitionWarning)
+            durableTextStore.write(SLOT_PREVIOUS_COMPLETE_TEXT, state.previousCompleteText)
+            val editor = preferences.edit()
+                .putLong(KEY_REQUEST_ID, state.requestId)
+                .putString(KEY_SOLVE_RUN_ID, state.solveRunId)
+                .putString(KEY_STATUS, state.status.name)
+                .putBoolean(KEY_RUNNING, state.running)
+                .putString(KEY_SESSION_ID, state.sessionId)
+                .putString(KEY_MODE, state.mode.name)
+                .putString(KEY_RELIABILITY_MODE, state.reliabilityMode.name)
+                .putString(KEY_CONFIGURATION_ID, state.configurationId)
+                .putString(KEY_VISUAL_CONFIGURATION_ID, state.visualConfigurationId)
+                .putString(KEY_MODEL_NAME, state.modelName)
+                .putString(KEY_VISUAL_MODEL_NAME, state.visualModelName)
+                .putString(KEY_QUESTION, state.question)
+                .putString(KEY_IMAGE_PATH, state.imagePath)
+                .putString(KEY_IMAGE_PATHS, JSONArray(state.imagePaths.filter(String::isNotBlank).distinct()).toString())
+                .putString(KEY_GRAPHIC_IMAGE_PATH, state.graphicImagePath)
+                .putFloat(KEY_PROGRESS, state.progress.coerceIn(0f, 1f))
+                .remove(KEY_STREAMED_TEXT)
+                .remove(KEY_COMPLETE_TEXT)
+                .remove(KEY_CONTENT_BLOCKS)
+                .remove(KEY_RECOGNITION_WARNING)
+                .putString(KEY_UNCERTAIN_ITEMS, JSONArray(state.uncertainItems.filter(String::isNotBlank).distinct()).toString())
+                .putString(KEY_VERIFICATION, encodeVerification(state.verification).toString())
+                .remove(KEY_PREVIOUS_COMPLETE_TEXT)
+                .putString(KEY_PREVIOUS_VERIFICATION, encodeVerification(state.previousVerification).toString())
+                .putLong(KEY_PREVIOUS_UPDATED_AT, state.previousUpdatedAt)
+                .putString(KEY_DIAGNOSTICS, encodeDiagnostics(state.diagnostics).toString())
+                .putString(KEY_HISTORY_RECORD_ID, state.historyRecordId)
+                .putString(KEY_HISTORY_WRITE_ERROR, state.historyWriteError)
+                .putString(KEY_ERROR, state.error)
+                .putLong(KEY_STARTED_AT, state.startedAt)
+                .putLong(KEY_UPDATED_AT, state.updatedAt)
+            // Streaming progress is intentionally asynchronous to avoid blocking
+            // every token. A terminal result must be durable before the service
+            // publishes completion, otherwise an app/process kill immediately
+            // after the last response can erase the visible solution on relaunch.
+            if (state.status == AiSolveStatus.COMPLETED ||
+                state.status == AiSolveStatus.FAILED ||
+                state.status == AiSolveStatus.CANCELED
+            ) {
+                check(editor.commit()) { "无法持久化 AI 解题状态" }
+            } else {
+                editor.apply()
+            }
+            TaskStateUpdates.changed(FILE_NAME)
         }
     }
 
     @SuppressLint("ApplySharedPref")
     fun clear() {
-        // commit() is intentional: closing the task must not leave a stale RUNNING flag.
-        durableTextStore.clear()
-        preferences.edit().clear().commit()
+        return synchronized(storeLock) {
+            // commit() is intentional: closing the task must not leave a stale RUNNING flag.
+            durableTextStore.clear()
+            preferences.edit().clear().commit()
+            TaskStateUpdates.changed(FILE_NAME)
+        }
     }
 
     private fun String.cleanNullStream(): String {

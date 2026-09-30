@@ -126,7 +126,7 @@ internal fun PdfPreviewLoadingDialog() {
         title = { Text("正在生成 PDF 预览", style = MaterialTheme.typography.titleMedium) },
         text = {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.5.dp)
+                com.tiji.mistakes.ui.design.TijiLoadingSpinner(Modifier.size(24.dp), strokeWidth = 2.5.dp)
                 Text("正在排版文字、图片和新版公式…", style = MaterialTheme.typography.bodyMedium)
             }
         },
@@ -162,7 +162,7 @@ internal fun PdfPreviewPage(file: File, pageIndex: Int) {
                     contentAlignment = Alignment.Center
                 ) {
                     if (failed) Text("此页预览失败", color = MaterialTheme.colorScheme.onErrorContainer)
-                    else CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 2.5.dp)
+                    else com.tiji.mistakes.ui.design.TijiLoadingSpinner(Modifier.size(28.dp), strokeWidth = 2.5.dp)
                 }
             } else {
                 ComposeImage(

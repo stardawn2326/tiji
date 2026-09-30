@@ -200,7 +200,7 @@ internal fun StandaloneImageEditor(
             processing = false
         }
     }
-    TijiScreen(topBar={TijiTopBar(title={Text(if (title == "重新处理") title else "处理$title")},navigationIcon={TijiIconButton(onClick={ onDiscard(history); onCancel() }){Icon(Icons.AutoMirrored.Outlined.ArrowBack,"取消图片处理")}})}) { padding ->
+    TijiScreen(topBar={TijiTopBar(title={Text("照片处理页")},navigationIcon={TijiIconButton(onClick={ onDiscard(history); onCancel() }){Icon(Icons.AutoMirrored.Outlined.ArrowBack,"取消图片处理")}})}) { padding ->
         Column(
             Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)
                 .navigationBarsPadding(),

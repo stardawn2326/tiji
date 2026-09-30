@@ -14,3 +14,6 @@ internal fun numberedAnswerParts(value: String): List<String> {
     val starts = listOf(0) + markers.drop(1).map { it.range.first }
     return starts.mapIndexed { index, start -> value.substring(start, starts.getOrNull(index + 1) ?: value.length).trim() }
 }
+
+/** Keep numbered answer items on separate lines inside one renderer. */
+internal fun numberedAnswerText(value: String): String = numberedAnswerParts(value).joinToString("\n")

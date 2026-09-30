@@ -1,5 +1,6 @@
 package com.tiji.mistakes.ui.settings
 
+import com.tiji.mistakes.ui.common.rememberPrimaryListState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -41,6 +42,7 @@ import com.tiji.mistakes.ui.design.TijiDimens
 @Composable
 internal fun SettingsHomeScreen(
     resetScrollToken: Int,
+    retainedListState: androidx.compose.foundation.lazy.LazyListState? = null,
     activeAiProfile: AiProfile,
     reviewPlanEnabled: Boolean,
     dailyReviewLimit: Int,
@@ -52,10 +54,7 @@ internal fun SettingsHomeScreen(
     onOpenAppearanceSettings: () -> Unit,
     onOpenAbout: () -> Unit
 ) {
-    val listState = rememberLazyListState()
-    LaunchedEffect(resetScrollToken) {
-        if (resetScrollToken > 0) listState.scrollToItem(0)
-    }
+    val listState = rememberPrimaryListState(resetScrollToken, retainedListState)
     androidx.compose.foundation.layout.Column(Modifier.fillMaxSize()) {
     com.tiji.mistakes.ui.design.TijiPrimaryHeader("设置")
     LazyColumn(

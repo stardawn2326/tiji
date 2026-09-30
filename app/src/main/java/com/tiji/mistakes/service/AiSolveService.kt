@@ -92,7 +92,7 @@ class AiSolveService : Service() {
         val mode = command.getStringExtra(EXTRA_MODE)
             ?.let { raw -> runCatching { AiRecognitionMode.valueOf(raw) }.getOrNull() }
             ?: AiRecognitionMode.VISION
-        val reliabilityMode = AiSolveReliabilityMode.parse(command.getStringExtra(EXTRA_RELIABILITY_MODE))
+        val reliabilityMode = AiSolveReliabilityMode.FAST
         Log.i(TAG, "solve_start request=$requestId run=${solveRunId.take(36)} mode=$mode reliability=$reliabilityMode model=${model.take(80)} images=${imagePaths.size}")
         solveJob = serviceScope.launch {
             val pipelineStartedAt = SystemClock.elapsedRealtime()
@@ -704,7 +704,7 @@ class AiSolveService : Service() {
             supplementalText: String? = null,
             graphicImagePath: String? = null,
             mode: AiRecognitionMode = AiRecognitionMode.VISION,
-            reliabilityMode: AiSolveReliabilityMode = AiSolveReliabilityMode.RELIABLE,
+            reliabilityMode: AiSolveReliabilityMode = AiSolveReliabilityMode.FAST,
             correctionContext: String? = null,
             correctionImagePaths: List<String> = emptyList(),
             recognitionCorrection: String? = null,

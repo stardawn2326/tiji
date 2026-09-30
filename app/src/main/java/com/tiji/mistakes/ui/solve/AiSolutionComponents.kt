@@ -109,6 +109,7 @@ import com.tiji.mistakes.ui.editor.MistakeSaveMetadata
 import com.tiji.mistakes.ui.editor.MistakeSaveSheet
 import com.tiji.mistakes.ui.image.ImagePreview
 import com.tiji.mistakes.ui.math.MathText
+import com.tiji.mistakes.ui.math.numberedAnswerText
 import com.tiji.mistakes.ui.MistakeViewModel
 import com.tiji.mistakes.ui.math.stripQuestionCommentary
 import com.tiji.mistakes.ui.design.TijiPaperCard
@@ -142,10 +143,8 @@ internal fun AiSolutionSection(
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Text(label, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-        val parts = if (label == "答案" || label == "最终答案") com.tiji.mistakes.ui.math.numberedAnswerParts(content) else listOf(content)
-        parts.forEach { part ->
         MathText(
-            part,
+            if (label == "答案" || label == "最终答案") numberedAnswerText(content) else content,
             normalizeTerminalPeriod = label == "最终答案",
             preserveReturnedLayout = true,
             preserveSourceExactly = preserveSourceExactly,
@@ -153,7 +152,6 @@ internal fun AiSolutionSection(
             compactQuestionLayout = label == "题目识别",
             compactVerticalSpacing = true
         )
-        }
     }
 }
 

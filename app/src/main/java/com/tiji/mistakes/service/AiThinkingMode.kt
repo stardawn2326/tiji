@@ -2,22 +2,30 @@ package com.tiji.mistakes.service
 
 import org.json.JSONObject
 
-/** Explicit user choice only; auto preserves the provider default and never gates model capabilities. */
-internal fun applyThinkingMode(body: JSONObject, endpoint: String, mode: String): JSONObject {
-    if (mode != "on" && mode != "off") return body
+internal data class AiThinkingModeOption(val value: String, val label: String)
+internal val aiThinkingModeOptions = listOf(
+    AiThinkingModeOption("auto", "默认"),
+    AiThinkingModeOption("on", "开启"),
+    AiThinkingModeOption("off", "关闭")
+)
+
+internal fun normalizeAiThinkingMode(mode: String): String = when (mode.trim()) {
+    "on", "off" -> mode.trim()
+    else -> "auto"
+}
+
+/** Default leaves the model request untouched; explicit choices use endpoint conventions. */
+internal fun applyThinkingMode(body: JSONObject, mode: String, endpoint: String): JSONObject {
+    val selected = normalizeAiThinkingMode(mode)
+    if (selected == "auto") return body
+    val enabled = selected == "on"
     return JSONObject(body.toString()).apply {
-        val enabled = mode == "on"
-        val normalizedEndpoint = endpoint.trimEnd('/').removeSuffix("/chat/completions")
-        val host = runCatching { java.net.URI(normalizedEndpoint).host.orEmpty().lowercase() }.getOrDefault("")
-        val provider = when {
-            host.endsWith(".aliyuncs.com") -> AiProviderPreset.QWEN
-            host == "generativelanguage.googleapis.com" -> AiProviderPreset.GEMINI
-            else -> AiProviderPreset.detect(normalizedEndpoint, optString("model"))
-        }
-        when (provider) {
-            AiProviderPreset.QWEN -> put("enable_thinking", enabled)
-            AiProviderPreset.OPENAI, AiProviderPreset.GEMINI -> put("reasoning_effort", if (enabled) "medium" else "none")
-            else -> put("thinking", JSONObject().put("type", if (enabled) "enabled" else "disabled"))
+        val normalizedEndpoint = endpoint.trim().lowercase()
+        when {
+            normalizedEndpoint.contains("aliyuncs.com") -> put("enable_thinking", enabled)
+            normalizedEndpoint.contains("deepseek.com") ->
+                put("thinking", JSONObject().put("type", if (enabled) "enabled" else "disabled"))
+            else -> put("reasoning_effort", if (enabled) "medium" else "none")
         }
     }
 }

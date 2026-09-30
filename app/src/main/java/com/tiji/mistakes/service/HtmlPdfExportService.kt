@@ -48,7 +48,7 @@ data class PdfExportOptions(
     val template: PdfTemplate = PdfTemplate.PRACTICE,
     /** The only source-image decision used by the current export operation. */
     val includeSourceImages: Boolean = false,
-    val answerSpaceMm: Int = 24,
+    val answerSpaceMm: Int = 20,
     /** Black-and-white photo export is separate from the recognized-text layout. */
     val originalImagesOnly: Boolean = false
 ) {
@@ -154,6 +154,7 @@ object HtmlPdfExportService {
         openOutputStream: () -> OutputStream
     ): Result<Unit> = runCatching {
         require(mistakes.isNotEmpty()) { "没有可导出的题目" }
+        val html = withContext(Dispatchers.Default) { buildHtml(mistakes, documentTitle, options) }
         withContext(Dispatchers.Main.immediate) {
             val webView = WebView(context)
             try {
@@ -176,7 +177,7 @@ object HtmlPdfExportService {
                 val assetLoader = WebViewAssetLoader.Builder()
                     .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(context))
                     .build()
-                val pageCount = loadHtml(webView, buildHtml(mistakes, documentTitle, options), assetLoader)
+                val pageCount = loadHtml(webView, html, assetLoader)
                 Log.d(TAG, "HTML ready, pages=$pageCount")
                 webView.setLayerType(View.LAYER_TYPE_SOFTWARE, null)
                 webView.measure(
@@ -217,7 +218,7 @@ object HtmlPdfExportService {
                     result == "true" -> webView.evaluateJavascript("window.__pdfPageCount || 1") { count ->
                         finish(pageCount = count.trim('"').toDoubleOrNull()?.toInt() ?: 1)
                     }
-                    attempt >= 200 -> finish(error = IllegalStateException("公式排版加载超时"))
+                    attempt >= 600 -> finish(error = IllegalStateException("公式及图片排版加载超时"))
                     else -> mainHandler.postDelayed({ waitForReady(attempt + 1) }, 50L)
                 }
             }
@@ -270,9 +271,11 @@ object HtmlPdfExportService {
             }
             positionPdfPage(webView, 0)
             Log.d(TAG, "Writing PDF document")
-            openOutputStream().use { output ->
-                document.writeTo(output)
-                output.flush()
+            withContext(Dispatchers.IO) {
+                openOutputStream().use { output ->
+                    document.writeTo(output)
+                    output.flush()
+                }
             }
             Log.d(TAG, "PDF document written")
         } finally {
@@ -333,7 +336,7 @@ object HtmlPdfExportService {
                 .pdf-page {
                   width: 794px;
                   height: 1123px;
-                  padding: 27px 36px 30px;
+                  padding: 20px;
                   overflow: hidden;
                   background: #fff;
                 }
@@ -347,11 +350,12 @@ object HtmlPdfExportService {
                 }
                 .question.question-continuation { border-top: 0; padding-top: 0; }
                 .question-continuation .question-head { margin-bottom: .6mm; }
-                .question-continuation .question-title { color: #718599; font-size: 11pt; }
+                .question-continuation .question-title { color: #718599; font-size: 10.5pt; }
+                .question-continuation .continuation-marker { color: #718599; font-size: 8.5pt; font-weight: 400; margin-left: .4em; }
                 .question-continuation .question-meta { display: none; }
                 .question:first-of-type { border-top: 0; padding-top: 0; }
                 .question-head { border-left: 1.2mm solid #3b5ecc; padding-left: 3mm; margin-bottom: .6mm; break-after: avoid; page-break-after: avoid; }
-                .question-title { font-size: 12pt; line-height: 1.2; font-weight: 700; color: #244668; break-after: avoid; page-break-after: avoid; }
+                .question-title { font-size: 10.5pt; line-height: 1.2; font-weight: 700; color: #244668; break-after: avoid; page-break-after: avoid; }
                 .question-meta { margin-top: .4mm; color: #718599; font-size: 8.5pt; }
                 .section { margin-top: .45mm; break-inside: avoid; page-break-inside: avoid; }
                 .section-label, .answer-label { color: #3b5ecc; font-size: 8.8pt; margin-bottom: .12mm; break-after: avoid; page-break-after: avoid; }
@@ -381,13 +385,14 @@ object HtmlPdfExportService {
                 .image-wrap { text-align: center; margin: .25mm 0 .2mm; }
                 .question-image {
                   display: inline-block;
-                  max-width: 100%;
-                  max-height: 82mm;
+                  max-width: 170mm;
+                  max-height: 70mm;
                   object-fit: contain;
                 }
-                .original-images-only .question-image { width: auto; max-width: 100%; max-height: 165mm; }
+                .original-images-only .question-image { width: auto; max-width: 170mm; max-height: 105mm; }
                 .photo-question-title { font-size: 10.5pt; line-height: 1.35; font-weight: 600; margin: 0 0 1mm; }
                 .answer-label { margin-top: .5mm; margin-bottom: 0; }
+                .answer-space-block { break-inside: avoid; page-break-inside: avoid; }
                 .answer-space { width: 100%; min-height: 10mm; break-inside: avoid; page-break-inside: avoid; }
                 .original-images-only .answer-label { margin-top: 1.5mm; }
                 .original-photo-answer-space {
@@ -417,7 +422,7 @@ object HtmlPdfExportService {
                 }
                 .answer-item:first-of-type { border-top: 0; }
                 .answer-item .question-head { border-left-color: #718599; }
-                .answer-item .question-title { color: #244668; font-size: 11.5pt; }
+                .answer-item .question-title { color: #244668; font-size: 10.5pt; }
                 .answer-item .answer-label { margin-top: 1mm; }
                 .empty-note { color: #718599; }
               </style>
@@ -710,7 +715,12 @@ object HtmlPdfExportService {
                           const continuationHead = children[0]?.cloneNode(true);
                           if (continuationHead) {
                             const title = continuationHead.querySelector('.question-title');
-                            if (title) title.appendChild(document.createTextNode('（续）'));
+                            if (title) {
+                              const marker = document.createElement('span');
+                              marker.className = 'continuation-marker';
+                              marker.textContent = '（续）';
+                              title.appendChild(marker);
+                            }
                             fragment.appendChild(continuationHead);
                           }
                         }
@@ -730,13 +740,25 @@ object HtmlPdfExportService {
                     );
                   }
 
-                  paginate();
-
-                  const markReady = () => requestAnimationFrame(() => requestAnimationFrame(() => {
-                    window.__pdfReady = true;
-                  }));
-                  if (document.fonts && document.fonts.ready) document.fonts.ready.then(markReady, markReady);
-                  else markReady();
+                   const markReady = () => requestAnimationFrame(() => requestAnimationFrame(() => {
+                     window.__pdfReady = true;
+                   }));
+                   const imageReady = Promise.all(Array.from(document.images, (image) => {
+                     if (image.decode) return image.decode().catch(() => {});
+                     if (image.complete) return Promise.resolve();
+                     return new Promise((resolve) => {
+                       image.addEventListener('load', resolve, { once: true });
+                       image.addEventListener('error', resolve, { once: true });
+                     });
+                   }));
+                   const fontReady = document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve();
+                   Promise.all([fontReady, imageReady]).then(() => {
+                     paginate();
+                     markReady();
+                   }, () => {
+                     paginate();
+                     markReady();
+                   });
                 })();
               </script>
             </body>
@@ -760,11 +782,12 @@ object HtmlPdfExportService {
                 if (metadata.isNotBlank()) append("<div class=\"question-meta\">${escapeHtml(metadata)}</div>")
                 append("</div>")
                 images.forEachIndexed { sourceIndex, path ->
-                    appendImageSection(this, if (sourceIndex == 0) "题目" else "", path, blackAndWhite = true)
+                    appendImageSection(this, if (sourceIndex == 0) "题目" else "", path,
+                        blackAndWhite = true, maxHeightMm = 105f, adaptToText = true)
                 }
                 if (images.none { File(it).isFile }) append("<div class=\"question-meta\">无题目图片</div>")
-                append("<div class=\"answer-label\">作答区</div>")
-                append("<div class=\"answer-space\" style=\"height:${options.answerSpaceMm}mm\"></div>")
+                append("<div class=\"answer-space-block\"><div class=\"answer-label\">作答区</div>")
+                append("<div class=\"answer-space\" style=\"height:${options.answerSpaceMm}mm\"></div></div>")
                 append("</article>")
             }
         }
@@ -782,7 +805,8 @@ object HtmlPdfExportService {
                 appendImageSection(
                     body,
                     "",
-                    path
+                    path,
+                    adaptToText = true
                 )
             }
         }
@@ -794,8 +818,8 @@ object HtmlPdfExportService {
         )
 
         if (options.template == PdfTemplate.PRACTICE) {
-            body.append("<div class=\"answer-label\">作答区</div>")
-            body.append("<div class=\"answer-space\" style=\"height:${answerSpaceMm(mistake, options)}mm\"></div>")
+            body.append("<div class=\"answer-space-block\"><div class=\"answer-label\">作答区</div>")
+            body.append("<div class=\"answer-space\" style=\"height:${answerSpaceMm(mistake, options)}mm\"></div></div>")
         }
         body.append("</article>")
         return body.toString()
@@ -986,11 +1010,25 @@ object HtmlPdfExportService {
         }
     }
 
-    private fun appendImageSection(target: StringBuilder, label: String, path: String?, blackAndWhite: Boolean = false) {
-        val dataUri = imageDataUri(path, blackAndWhite) ?: return
+    private fun appendImageSection(
+        target: StringBuilder,
+        label: String,
+        path: String?,
+        blackAndWhite: Boolean = false,
+        maxHeightMm: Float = 70f,
+        adaptToText: Boolean = false,
+        diagram: Boolean = false
+    ) {
+        val image = imageDataUri(path, blackAndWhite, adaptToText) ?: return
+        val widthMm = image.metrics?.let { metrics ->
+            PdfImageTextSizing.recommendedWidthMm(
+                metrics.widthPx, metrics.heightPx, metrics.textHeightPx, 170f, maxHeightMm, diagram
+            )
+        }
+        val style = widthMm?.let { " style=\"width:${"%.1f".format(Locale.US, it)}mm;height:auto\"" }.orEmpty()
         target.append("<section class=\"section\"><div class=\"section-label\">${escapeHtml(label)}</div>")
-        target.append("<div class=\"image-wrap\"><img class=\"question-image\" src=\"")
-        target.append(dataUri)
+        target.append("<div class=\"image-wrap\"><img class=\"question-image\"$style src=\"")
+        target.append(image.dataUri)
         target.append("\" /></div></section>")
     }
 
@@ -1000,7 +1038,9 @@ object HtmlPdfExportService {
         label: String
     ) {
         blocks.forEach { block ->
-            appendImageSection(target, "", block.path, blackAndWhite = block.kind == ContentBlockKind.GRAPHIC)
+            appendImageSection(target, "", block.path,
+                blackAndWhite = block.kind == ContentBlockKind.GRAPHIC,
+                adaptToText = true, diagram = block.kind == ContentBlockKind.GRAPHIC)
         }
     }
 
@@ -1095,19 +1135,31 @@ object HtmlPdfExportService {
         ) { "\$\$" + it.value + "\$\$" }
     }
 
-    private fun imageDataUri(path: String?, blackAndWhite: Boolean = false): String? = runCatching {
+    private data class PdfEmbeddedImage(val dataUri: String, val metrics: PdfImageTextMetrics?)
+
+    private fun imageDataUri(
+        path: String?,
+        blackAndWhite: Boolean = false,
+        adaptToText: Boolean = false
+    ): PdfEmbeddedImage? = runCatching {
         val file = path?.let(::File)
         if (file?.isFile != true) return null
         if (blackAndWhite) {
-            val bytes = ImageProcessor.documentCleanPng(file.absolutePath) ?: return null
-            return "data:image/png;base64,${Base64.encodeToString(bytes, Base64.NO_WRAP)}"
+            val prepared = ImageProcessor.documentCleanForPdf(file.absolutePath, measureText = adaptToText) ?: return null
+            return PdfEmbeddedImage(
+                "data:image/png;base64,${Base64.encodeToString(prepared.pngBytes, Base64.NO_WRAP)}",
+                prepared.textMetrics
+            )
         }
         val mime = when (file.extension.lowercase(Locale.US)) {
             "png" -> "image/png"
             "webp" -> "image/webp"
             else -> "image/jpeg"
         }
-        "data:$mime;base64,${Base64.encodeToString(file.readBytes(), Base64.NO_WRAP)}"
+        PdfEmbeddedImage(
+            "data:$mime;base64,${Base64.encodeToString(file.readBytes(), Base64.NO_WRAP)}",
+            if (adaptToText) ImageProcessor.pdfTextMetrics(file.absolutePath) else null
+        )
     }.getOrNull()
 
     private fun escapeHtml(value: String): String = normalizeTextbookPunctuation(value)

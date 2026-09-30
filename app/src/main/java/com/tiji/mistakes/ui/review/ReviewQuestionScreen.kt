@@ -18,6 +18,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -35,7 +36,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.ChevronLeft
 import androidx.compose.material.icons.outlined.ChevronRight
-import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Visibility
 import com.tiji.mistakes.ui.design.TijiButton
@@ -75,31 +75,30 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tiji.mistakes.data.MistakeEntity
-import com.tiji.mistakes.data.ReviewRecordEntity
 import com.tiji.mistakes.domain.ReviewGrade
 import com.tiji.mistakes.domain.ReviewScheduler
 import com.tiji.mistakes.domain.ReviewSessionAnalytics
 import com.tiji.mistakes.domain.ReviewSessionContext
 import com.tiji.mistakes.domain.ReviewSessionSource
-import com.tiji.mistakes.domain.time.LearningCalendar
 import com.tiji.mistakes.ui.design.TijiPageHeader
 import com.tiji.mistakes.ui.design.TijiDialog
 import com.tiji.mistakes.ui.common.formatLocalDate
 import com.tiji.mistakes.ui.common.reviewGradeUiLabel
 import com.tiji.mistakes.ui.common.reviewIntervalLabel
+import com.tiji.mistakes.ui.common.difficultyLabel
 import com.tiji.mistakes.domain.mistakeReviewStatusLabel
 import com.tiji.mistakes.ui.design.TijiSectionHeader
 import com.tiji.mistakes.ui.design.TijiTag
 import com.tiji.mistakes.ui.image.ImagePreview
 import com.tiji.mistakes.ui.LocalTijiSemanticColors
 import com.tiji.mistakes.ui.math.MathText
+import com.tiji.mistakes.ui.math.numberedAnswerText
 import com.tiji.mistakes.ui.MistakeViewModel
 import com.tiji.mistakes.ui.normalizedSubject
 import com.tiji.mistakes.ui.design.TijiDimens
 import com.tiji.mistakes.ui.design.TijiStatusBadge
 import com.tiji.mistakes.ui.design.TijiPaperCard
-import java.time.ZoneId
-import java.time.temporal.ChronoUnit
+import com.tiji.mistakes.ui.design.TijiChip
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -155,12 +154,13 @@ internal fun ReviewQuestionScreen(
     var showEasyConfirm by remember(currentId) { mutableStateOf(false) }
     var pendingEasyGrade by remember(currentId) { mutableStateOf<ReviewGrade?>(null) }
     var reviewMenuExpanded by remember(currentId) { mutableStateOf(false) }
-    var reviewReasonExpanded by remember(currentId) { mutableStateOf(false) }
     var autoAdvancePending by remember(currentId) { mutableStateOf(false) }
     var reviewSubmitting by remember(currentId) { mutableStateOf(false) }
     var autoAdvanceJob by remember(currentId) { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val displayPreferences = remember(context) { com.tiji.mistakes.data.AppPreferences(context.applicationContext) }
+    val originalImages by displayPreferences.reviewOriginalImages.collectAsStateWithLifecycle(false)
     val reduceMotion = remember {
         runCatching {
             Settings.Global.getFloat(
@@ -285,12 +285,11 @@ internal fun ReviewQuestionScreen(
             }
         }
     }
-    val progressLabel = if (effectiveReviewIds.isEmpty() || currentIndex < 0) "复习" else "${currentIndex + 1} / ${effectiveReviewIds.size}"
+    val progressLabel = if (effectiveReviewIds.isEmpty() || currentIndex < 0) "复习" else "${currentIndex + 1} / ${effectiveReviewIds.size} 题"
     val reviewHistoryFlow = remember(currentId) { viewModel.reviewHistory(currentId) }
     val currentReviewHistory by reviewHistoryFlow.collectAsStateWithLifecycle(emptyList())
     val latestReviewGrade = currentReviewHistory.firstOrNull()?.grade
         ?.let { value -> runCatching { ReviewGrade.valueOf(value) }.getOrNull() }
-    val reviewReason = current?.let { reviewReasonFor(it, currentReviewHistory.firstOrNull(), sessionContext) }
     val leaveQuestion = {
         cancelPendingAutoAdvance()
         onBack()
@@ -498,56 +497,47 @@ internal fun ReviewQuestionScreen(
                             Text(formatLocalDate(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         TijiProgress(
+                            showElapsed = false,
                             progress = { if (effectiveReviewIds.isEmpty()) 0f else ((currentIndex + 1).toFloat() / effectiveReviewIds.size).coerceIn(0f, 1f) },
                             modifier = Modifier.fillMaxWidth().height(7.dp),
                             trackColor = MaterialTheme.colorScheme.primaryContainer
                         )
                     }
                 }
-                if (reviewReason != null) {
-                    item {
-                        TijiPaperCard(contentPadding = 12.dp) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth().clickable {
-                                    reviewReasonExpanded = !reviewReasonExpanded
-                                },
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Icon(
-                                    Icons.Outlined.Info,
-                                    contentDescription = "查看复习原因",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(20.dp)
+                item {
+                    TijiPaperCard(contentPadding = 12.dp) {
+                        Text("题目展示方式", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                            listOf(false to "识别题目＋裁剪图", true to "原题图片").forEach { (original, label) ->
+                                TijiChip(
+                                    selected = originalImages == original,
+                                    onClick = { scope.launch { displayPreferences.setReviewOriginalImages(original) } },
+                                    label = { Text(label, maxLines = 1, style = MaterialTheme.typography.labelMedium) },
+                                    modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("review_display_$original")
                                 )
-                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                        Text("到期复习", style = MaterialTheme.typography.labelLarge)
-                                        Icon(Icons.Outlined.Info, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    }
-                                    if (reviewReasonExpanded) {
-                                        Text(
-                                            reviewReason,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
-                                Text(if (reviewReasonExpanded) "收起" else "详情", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                             }
                         }
                     }
                 }
                 item {
                     TijiPaperCard {
-                        Row(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
-                            TijiTag(normalizedSubject(current.subject))
-                            TijiStatusBadge(
-                                label = mistakeReviewStatusLabel(current.reviewCount, latestReviewGrade)
-                            )
-                        }
-                        Text("题目", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                        ReviewQuestionMetadata(
+                            subject = normalizedSubject(current.subject),
+                            questionType = current.questionType.ifBlank { "未分类" },
+                            difficulty = difficultyLabel(current.difficulty),
+                            status = mistakeReviewStatusLabel(current.reviewCount, latestReviewGrade)
+                        )
                         Text(current.title.ifBlank { "未命名错题" }, style = MaterialTheme.typography.titleLarge)
+                        if (originalImages) {
+                            val sources = remember(current.sourceImagePaths, current.imagePath) {
+                                runCatching {
+                                    val array = org.json.JSONArray(current.sourceImagePaths.ifBlank { "[]" })
+                                    (0 until array.length()).map { array.optString(it) }.filter(String::isNotBlank)
+                                }.getOrDefault(emptyList()).ifEmpty { listOfNotNull(current.imagePath) }.distinct()
+                            }
+                            if (sources.isEmpty()) Text("暂无原题图片，可切换为识别题目")
+                            sources.forEach { ImagePreview(it) }
+                        } else {
                         MathText(
                             current.questionText.ifBlank { "（图片题，请查看题目图片）" },
                             preserveSourceExactly = true,
@@ -555,7 +545,11 @@ internal fun ReviewQuestionScreen(
                             compactQuestionLayout = true,
                             compactVerticalSpacing = true
                         )
-                        current.imagePath?.let { ImagePreview(it) }
+                        com.tiji.mistakes.ui.solve.ContentBlockImages(
+                            com.tiji.mistakes.service.QuestionContentBlockCodec.decode(current.contentBlocks)
+                                .filter { it.role == com.tiji.mistakes.service.ContentBlockRole.QUESTION }
+                        )
+                        }
                     }
                 }
                 item {
@@ -582,8 +576,11 @@ internal fun ReviewQuestionScreen(
                     }
                     item {
                         TijiPaperCard {
-                            TijiSectionHeader("参考答案")
-                            MathText(current.answerText.ifBlank { "未填写答案" })
+                            TijiSectionHeader("答案")
+                            MathText(
+                                numberedAnswerText(current.answerText.ifBlank { "未填写答案" }),
+                                compactVerticalSpacing = true
+                            )
                         }
                     }
                 }
@@ -716,27 +713,4 @@ internal fun ReviewQuestionScreen(
         )
     }
 }
-}
-
-private fun reviewReasonFor(
-    mistake: MistakeEntity,
-    latestRecord: ReviewRecordEntity?,
-    sessionContext: ReviewSessionContext,
-    now: Long = System.currentTimeMillis()
-): String? {
-    if (sessionContext.isFocusedKnowledgePoint) return null
-    val reasons = buildList {
-        if (mistake.nextReviewAt <= now) add("今天到期")
-        latestRecord?.let { record ->
-            add("上次选择“${reviewGradeUiLabel(record.grade)}”")
-        }
-        mistake.lastReviewedAt?.let { reviewedAt ->
-            val days = ChronoUnit.DAYS.between(
-                LearningCalendar.localDate(reviewedAt, ZoneId.systemDefault()),
-                LearningCalendar.localDate(now, ZoneId.systemDefault())
-            )
-            if (days > 0) add("距离上次复习 $days 天")
-        }
-    }
-    return reasons.joinToString(" · ").takeIf(String::isNotBlank)
 }

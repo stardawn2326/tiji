@@ -8,6 +8,7 @@ import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -38,6 +39,29 @@ class MistakeDetailUiTest {
     @After
     fun removeFixture() {
         if (fixtureId > 0L) runBlocking { UiTestFixtures.delete(context, fixtureId) }
+    }
+
+    @Test
+    fun editedTitlePersistsAndReopeningEditorShowsSingleField() {
+        composeRule.onNodeWithTag("nav_library").performClick()
+        composeRule.waitUntil(5_000) {
+            composeRule.onAllNodesWithTag("mistake_card_$fixtureId").fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNodeWithTag("mistake_card_$fixtureId").performClick()
+        composeRule.onNodeWithTag("detail_more").performClick()
+        composeRule.onNodeWithText("编辑错题").performClick()
+        val updatedTitle = "编辑保存回显测试"
+        composeRule.onNodeWithText("标题").performTextReplacement(updatedTitle)
+        composeRule.onNodeWithTag("detail_edit_save_bar").performClick()
+        composeRule.waitUntil(5_000) {
+            runBlocking { AppDatabase.get(context).mistakeDao().findById(fixtureId)?.title == updatedTitle }
+        }
+        composeRule.waitUntil(5_000) {
+            composeRule.onAllNodesWithTag("detail_edit_save_bar").fetchSemanticsNodes().isEmpty()
+        }
+        composeRule.onNodeWithTag("detail_more").performClick()
+        composeRule.onNodeWithText("编辑错题").performClick()
+        composeRule.onNodeWithText(updatedTitle).assertExists()
     }
 
     @Test

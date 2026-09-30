@@ -216,7 +216,7 @@ class AiProviderContractHarnessTest {
     fun unknownVisionModelsReachProviderAndDoNotForceThinkingOff() = runBlocking {
         val transport = FakeAiProviderTransport(
             response = """{"choices":[{"message":{"content":"TIJI_VISION_TEST_OK"}}]}""",
-            streamLines = listOf(sseDelta("<thi"), sseDelta("nk>secret</think>答案"))
+            streamLines = listOf(sseDelta("<thi"), sseDelta("nk>secret</think>答案", finishReason = "stop"), "data: [DONE]")
         )
         val service = AiVisionService(transport)
         service.testVisionConnection("https://api.deepseek.com", "deepseek-v4-flash", "test-key").getOrThrow()

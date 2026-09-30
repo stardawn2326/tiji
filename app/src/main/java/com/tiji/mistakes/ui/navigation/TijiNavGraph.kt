@@ -11,6 +11,7 @@ import androidx.compose.material3.SnackbarResult
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -68,7 +69,8 @@ internal fun TijiNavGraph(
     snackbarHostState: SnackbarHostState,
     ocrModelManager: OcrModelManager,
     state: TijiNavGraphState,
-    onLibrarySubject: (String?) -> Unit
+    onLibrarySubject: (String?) -> Unit,
+    onBeforeOpenLibrarySecondary: () -> Unit
 ) {
     val context = LocalContext.current
     val activeReviewSession by viewModel.reviewSession.collectAsStateWithLifecycle()
@@ -89,6 +91,10 @@ internal fun TijiNavGraph(
     val knowledgeProgress = remember(state.progressSummary) {
         state.progressSummary.bySubject.flatMap { it.knowledgePoints }
     }
+    // State keys include each back-stack entry id: during animated, rapid
+    // navigation, outgoing and incoming entries for the same route can coexist.
+    // A route-only key would then be registered twice in the state holder.
+    val pageStateHolder = rememberSaveableStateHolder()
     NavHost(
                 navController,
                 startDestination = TijiRoutes.HOME,
@@ -146,23 +152,34 @@ internal fun TijiNavGraph(
                     }
                 }
             ) {
-                composable(TijiRoutes.HOME) {
-                    HomeScreen(
-                        progressSummary = state.progressSummary,
-                        resetScrollToken = state.homeVisitToken,
-                        onOpenKnowledge = { navController.navigate(TijiRoutes.knowledgeDetail(it)) }
-                    )
+                composable(TijiRoutes.HOME) { entry ->
+                    pageStateHolder.SaveableStateProvider("${TijiRoutes.HOME}:${entry.id}") {
+                        HomeScreen(
+                            progressSummary = state.progressSummary,
+                            resetScrollToken = state.homeVisitToken,
+                            retainedListState = state.homeListState,
+                            onOpenKnowledge = { navController.navigate(TijiRoutes.knowledgeDetail(it)) }
+                        )
+                    }
                 }
-                composable(TijiRoutes.LIBRARY) {
-                    LibraryScreen(
+                composable(TijiRoutes.LIBRARY) { entry ->
+                    pageStateHolder.SaveableStateProvider("${TijiRoutes.LIBRARY}:${entry.id}") {
+                        LibraryScreen(
                         selectedSubject = state.librarySubject,
                         resetScrollToken = state.libraryVisitToken,
+                        retainedListState = state.libraryListState,
                         onSelectSubject = { subject -> onLibrarySubject(subject) },
                         viewModel = viewModel,
                         mistakeItems = state.mistakeItems,
                         exportOriginalImagesOnly = !state.aiExcludeSourceImageByDefault,
-                        onOpen = { navController.navigate(TijiRoutes.detail(it)) },
-                        onCreate = { navController.navigate(TijiRoutes.CAPTURE) },
+                        onOpen = {
+                            onBeforeOpenLibrarySecondary()
+                            navController.navigate(TijiRoutes.detail(it))
+                        },
+                        onCreate = {
+                            onBeforeOpenLibrarySecondary()
+                            navController.navigate(TijiRoutes.CAPTURE)
+                        },
                         onBack = {
                             navController.navigate(TijiRoutes.HOME) {
                                 popUpTo(navController.graph.findStartDestination().id) { saveState = false }
@@ -179,19 +196,22 @@ internal fun TijiNavGraph(
                                 viewModel.addMistakesToTomorrow(validIds)
                             }
                         }
-                    )
+                        )
+                    }
                 }
-                composable(TijiRoutes.REVIEW) {
-                    ReviewScreen(
+                composable(TijiRoutes.REVIEW) { entry ->
+                    pageStateHolder.SaveableStateProvider("${TijiRoutes.REVIEW}:${entry.id}") {
+                        ReviewScreen(
                         allMistakes = state.allMistakes,
+                        allMistakeItems = state.allMistakeItems,
                         dailyStudyPlan = state.dailyStudyPlan,
-                        futureReviewPlan = state.futureReviewPlan,
                         now = state.reviewNow,
                         todayDate = state.todayDate,
                         activeSession = activeReviewSession,
                         viewModel = viewModel,
                         exportOriginalImagesOnly = !state.aiExcludeSourceImageByDefault,
                         reviewPlanEnabled = state.reviewPlanEnabled,
+                        randomReview = state.randomReview,
                         reviewStatuses = reviewRecordsByDate[state.todayDate].orEmpty(),
                         savedPlanIds = state.reviewPlanSnapshots[state.todayDate],
                         checkedInToday = state.todayDate in state.reviewCheckIns,
@@ -199,24 +219,31 @@ internal fun TijiNavGraph(
                         onCheckIn = { scope.launch { preferences.setReviewCheckIn(state.todayDate, true) } },
                         onOpenCalendar = { navController.navigate(TijiRoutes.REVIEW_CALENDAR) },
                           onOpenSettings = { navController.navigate(TijiRoutes.SETTINGS) },
-                        onStartSession = { ids ->
+                        onStartSession = { ids, selectedId ->
                             val plan = ReviewSessionPlan(
                                 sessionKey = viewModel.newReviewSessionId(),
                                 source = ReviewSessionSource.TODAY_PLAN,
                                 reviewIds = ids,
                                 returnDestination = TijiRoutes.REVIEW
                             )
-                            viewModel.startReviewSession(plan)
+                            val session = viewModel.startReviewSession(plan)
+                            val selectedIndex = ids.indexOf(selectedId)
+                            if (selectedIndex >= 0) {
+                                viewModel.moveReviewSession(session.sessionKey, selectedIndex - session.currentIndex)
+                            }
                             navController.navigate(TijiRoutes.reviewSession(plan.sessionId))
                         },
                         onResumeSession = { session -> navController.navigate(TijiRoutes.reviewSession(session.sessionId)) },
-                        onOpenMistake = { id -> navController.navigate(TijiRoutes.detail(id)) },
-                        resetScrollToken = state.reviewVisitToken
-                    )
+                        resetScrollToken = state.reviewVisitToken,
+                        retainedListState = state.reviewListState
+                        )
+                    }
                 }
-                composable(TijiRoutes.SOLVE) {
-                    AiSolveScreen(
+                composable(TijiRoutes.SOLVE) { entry ->
+                    pageStateHolder.SaveableStateProvider("${TijiRoutes.SOLVE}:${entry.id}") {
+                        AiSolveScreen(
                         viewModel = viewModel,
+                        retainedListState = state.solveListState,
                         allMistakes = state.allMistakes,
                         aiEndpoint = state.activeAiProfile.endpoint,
                         aiModel = state.activeAiProfile.model,
@@ -228,6 +255,12 @@ internal fun TijiNavGraph(
                         aiUploadConsent = state.aiUploadConsent,
                         aiExcludeSourceImageByDefault = state.aiExcludeSourceImageByDefault,
                         onActiveAiProfile = { id -> scope.launch { preferences.setActiveAiProfile(id, state.aiProfiles) } },
+                        onThinkingMode = { mode ->
+                            val updatedProfiles = state.aiProfiles.map { profile ->
+                                if (profile.id == state.activeAiProfileId) profile.copy(thinkingMode = mode) else profile
+                            }
+                            scope.launch { preferences.setAiProfiles(updatedProfiles) }
+                        },
                          onOpenSettings = { navController.navigate(TijiRoutes.SETTINGS) },
                         onOpenSolveHistory = { navController.navigate(TijiRoutes.AI_SOLVE_HISTORY) },
                         onOpenMistake = { id -> navController.navigate(TijiRoutes.detail(id)) },
@@ -235,11 +268,14 @@ internal fun TijiNavGraph(
                         onAiInputMode = { value -> scope.launch { preferences.setAiSolveInputMode(value.name) } },
                         onReliabilityMode = { value -> scope.launch { preferences.setAiSolveReliabilityMode(value.name) } },
                         solveVisitToken = state.solveVisitToken
-                    )
+                        )
+                    }
                 }
-                composable(TijiRoutes.SETTINGS) {
-                    SettingsHomeScreen(
+                composable(TijiRoutes.SETTINGS) { entry ->
+                    pageStateHolder.SaveableStateProvider("${TijiRoutes.SETTINGS}:${entry.id}") {
+                        SettingsHomeScreen(
                         resetScrollToken = state.settingsVisitToken,
+                        retainedListState = state.settingsListState,
                         activeAiProfile = state.activeAiProfile,
                         reviewPlanEnabled = state.reviewPlanEnabled,
                         dailyReviewLimit = state.dailyReviewLimit,
@@ -250,16 +286,20 @@ internal fun TijiNavGraph(
                         onOpenDataSettings = { navController.navigate(TijiRoutes.SETTINGS_DATA) },
                         onOpenAppearanceSettings = { navController.navigate(TijiRoutes.SETTINGS_APPEARANCE) },
                         onOpenAbout = { navController.navigate(TijiRoutes.SETTINGS_ABOUT) }
-                    )
+                        )
+                    }
                 }
-                composable(TijiRoutes.KNOWLEDGE) {
-                    KnowledgeListScreen(
+                composable(TijiRoutes.KNOWLEDGE) { entry ->
+                    pageStateHolder.SaveableStateProvider("${TijiRoutes.KNOWLEDGE}:${entry.id}") {
+                        KnowledgeListScreen(
                         points = state.knowledgePoints,
                         progress = knowledgeProgress,
                         resetScrollToken = state.knowledgeVisitToken,
+                        retainedListState = state.knowledgeListState,
                         onBack = { navController.popBackStack() },
                         onOpenDetail = { stableId -> navController.navigate(TijiRoutes.knowledgeDetail(stableId)) }
-                    )
+                        )
+                    }
                 }
                 composable(TijiRoutes.KNOWLEDGE_DETAIL_PATTERN) { entry ->
                     val stableId = Uri.decode(entry.arguments?.getString("stableId").orEmpty())

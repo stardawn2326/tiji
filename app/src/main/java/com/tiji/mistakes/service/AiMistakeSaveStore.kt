@@ -58,6 +58,8 @@ data class AiMistakeSaveState(
 class AiMistakeSaveStore(context: Context) {
     private val preferences = context.getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE)
 
+    internal fun observe() = TaskStateUpdates.observe(FILE_NAME, ::latestForUi)
+
     fun readAll(): List<AiMistakeSaveState> = synchronized(LOCK) {
         val raw = preferences.getString(KEY_ITEMS, "[]") ?: "[]"
         val array = runCatching { JSONArray(raw) }.getOrDefault(JSONArray())
@@ -86,10 +88,11 @@ class AiMistakeSaveStore(context: Context) {
         val array = JSONArray()
         states.forEach { array.put(encode(it)) }
         preferences.edit().putString(KEY_ITEMS, array.toString()).apply()
+        TaskStateUpdates.changed(FILE_NAME)
     }
 
     fun clear() = synchronized(LOCK) {
-        preferences.edit().clear().commit()
+        preferences.edit().clear().commit().also { TaskStateUpdates.changed(FILE_NAME) }
     }
 
     fun recoverInterruptedTasks(now: Long = System.currentTimeMillis()) = synchronized(LOCK) {

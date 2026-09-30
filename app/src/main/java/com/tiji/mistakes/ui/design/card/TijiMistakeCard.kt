@@ -7,6 +7,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ChevronRight
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -19,17 +25,29 @@ import com.tiji.mistakes.ui.common.difficultyLabel
 import com.tiji.mistakes.ui.common.formatLocalDate
 import com.tiji.mistakes.ui.common.parseTagValues
 import com.tiji.mistakes.ui.math.MathText
+import com.tiji.mistakes.ui.math.MathSnapshotOwner
 import com.tiji.mistakes.ui.normalizedSubject
+import kotlinx.coroutines.delay
 
 @Composable
 internal fun TijiMistakeCard(
     item: MistakeListItem,
     selected: Boolean = false,
     selectionMode: Boolean = false,
+    listScrolling: Boolean = false,
+    renderDelayMs: Long = 0L,
     onSelected: () -> Unit = {},
     onClick: () -> Unit
 ) {
     val mistake = item.mistake
+    val snapshotOwner = remember(mistake.id) { MathSnapshotOwner.library(mistake.id) }
+    var formulasReady by rememberSaveable(mistake.id) { mutableStateOf(false) }
+    LaunchedEffect(mistake.id, listScrolling) {
+        if (!listScrolling && !formulasReady) {
+            delay(300L + renderDelayMs)
+            formulasReady = true
+        }
+    }
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         // Keep the checkbox outside the WebView-safe card hit area.
         if (selectionMode) {
@@ -53,11 +71,15 @@ internal fun TijiMistakeCard(
                     }
                     TijiStatusBadge(item.statusLabel)
                 }
-                MathText(mistake.title.ifBlank { "未命名错题" }, maxLines = 2,
-                    compact = true, emphasized = true, interactive = false)
+                MathText(mistake.title.ifBlank { "未命名错题" }, maxLines = 2, renderFormulas = formulasReady,
+                    compact = true, emphasized = true, interactive = false, snapshotPreview = true,
+                    snapshotOwner = snapshotOwner)
                 if (mistake.questionText.isNotBlank()) {
-                    MathText(mistake.questionText, maxLines = 2, compact = true, muted = true,
-                        interactive = false, normalizeTerminalPeriod = true, compactQuestionLayout = true)
+                    MathText(mistake.questionText, renderFormulas = formulasReady, compact = true,
+                        interactive = false, normalizeTerminalPeriod = true, compactQuestionLayout = true,
+                        snapshotPreview = true,
+                        snapshotOwner = snapshotOwner,
+                    )
                 } else {
                     Text("图片题目，打开查看原图", style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)

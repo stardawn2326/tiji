@@ -3,6 +3,7 @@
 package com.tiji.mistakes.ui.library
 
 import com.tiji.mistakes.ui.design.TijiMistakeCard
+import com.tiji.mistakes.ui.common.rememberPrimaryListState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import android.util.Log
@@ -29,6 +30,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -71,6 +73,7 @@ import kotlinx.coroutines.withContext
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -125,6 +128,7 @@ import kotlinx.coroutines.launch
 internal fun LibraryScreen(
     selectedSubject: String?,
     resetScrollToken: Int,
+    retainedListState: androidx.compose.foundation.lazy.LazyListState? = null,
     onSelectSubject: (String?) -> Unit,
     viewModel: MistakeViewModel,
     mistakeItems: List<MistakeListItem>,
@@ -140,7 +144,7 @@ internal fun LibraryScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
-    var order by remember { mutableStateOf(MistakeOrder.NEWEST) }
+    var order by rememberSaveable { mutableStateOf(MistakeOrder.NEWEST) }
     var selectionMode by remember { mutableStateOf(false) }
     var selectedIds by remember { mutableStateOf(emptySet<Long>()) }
     var showBatchDeleteDialog by remember { mutableStateOf(false) }
@@ -150,11 +154,11 @@ internal fun LibraryScreen(
     var batchTags by remember { mutableStateOf("") }
     var batchDifficulty by remember { mutableStateOf<Int?>(null) }
     var batchReviewPlan by remember { mutableStateOf<Boolean?>(null) }
-    var masteryFilter by remember { mutableStateOf<Int?>(null) }
-    var difficultyFilter by remember { mutableStateOf<Int?>(null) }
-    var knowledgeFilter by remember { mutableStateOf<String?>(null) }
+    var masteryFilter by rememberSaveable { mutableStateOf<Int?>(null) }
+    var difficultyFilter by rememberSaveable { mutableStateOf<Int?>(null) }
+    var knowledgeFilter by rememberSaveable { mutableStateOf<String?>(null) }
     var sortMenuExpanded by remember { mutableStateOf(false) }
-    var visibleLimit by remember { mutableIntStateOf(40) }
+    var visibleLimit by rememberSaveable { mutableIntStateOf(40) }
     var pendingExportIds by rememberSaveable { mutableStateOf(longArrayOf()) }
     var previewPath by rememberSaveable {
         mutableStateOf(PendingPdfExportStore.libraryPreviewPath.takeIf { File(it).isFile }.orEmpty())
@@ -170,10 +174,8 @@ internal fun LibraryScreen(
             )
         )
     }
-    val mistakeListState = rememberLazyListState()
-    LaunchedEffect(resetScrollToken) {
-        if (resetScrollToken > 0) mistakeListState.scrollToItem(0)
-    }
+    val mistakeListState = rememberPrimaryListState(resetScrollToken, retainedListState)
+    val listScrolling by remember(mistakeListState) { derivedStateOf { mistakeListState.isScrollInProgress } }
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
         val requestedIds = pendingExportIds.takeIf { it.isNotEmpty() } ?: PendingPdfExportStore.libraryIds
         val idSet = requestedIds.toSet()
@@ -247,11 +249,18 @@ internal fun LibraryScreen(
     }
     val visibleItems = computedItems.orEmpty()
     val visibleMistakes = remember(visibleItems) { visibleItems.map(MistakeListItem::mistake) }
-    LaunchedEffect(query, order, selectedSubject, masteryFilter, difficultyFilter, knowledgeFilter) {
-        selectedIds = emptySet()
-        selectionMode = false
-        visibleLimit = 40
-        mistakeListState.scrollToItem(0)
+    val filterSignature = listOf(query, order.name, selectedSubject.orEmpty(),
+        masteryFilter?.toString().orEmpty(), difficultyFilter?.toString().orEmpty(), knowledgeFilter.orEmpty())
+        .joinToString("\u001f")
+    var handledFilterSignature by remember { mutableStateOf(filterSignature) }
+    LaunchedEffect(filterSignature) {
+        if (handledFilterSignature != filterSignature) {
+            selectedIds = emptySet()
+            selectionMode = false
+            visibleLimit = 40
+            mistakeListState.scrollToItem(0)
+            handledFilterSignature = filterSignature
+        }
     }
     val displayedItems = remember(visibleItems, visibleLimit) { visibleItems.take(visibleLimit) }
     fun addSelectedToTomorrow() {
@@ -568,7 +577,7 @@ internal fun LibraryScreen(
                     }
                 }
                 if (computedItems == null) {
-                    item { androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth()) }
+                    item { com.tiji.mistakes.ui.design.TijiProgress(Modifier.fillMaxWidth()) }
                 } else if (visibleMistakes.isEmpty()) {
                     item {
                         val hasFilter = query.isNotBlank() || selectedSubject != null ||
@@ -614,12 +623,14 @@ internal fun LibraryScreen(
                         }
                     }
                 } else {
-                    items(displayedItems, key = { it.mistake.id }, contentType = { "mistake" }) { item ->
+                    itemsIndexed(displayedItems, key = { _, item -> item.mistake.id }, contentType = { _, _ -> "mistake" }) { index, item ->
                         val mistake = item.mistake
                         TijiMistakeCard(
                             item = item,
                             selected = mistake.id in selectedIds,
                             selectionMode = selectionMode,
+                            listScrolling = listScrolling,
+                            renderDelayMs = ((index % 4) * 250L),
                             onSelected = {
                                 selectedIds = if (mistake.id in selectedIds) {
                                     selectedIds - mistake.id

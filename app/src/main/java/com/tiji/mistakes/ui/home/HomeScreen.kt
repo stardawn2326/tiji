@@ -22,6 +22,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -34,6 +35,7 @@ import com.tiji.mistakes.ui.design.TijiSectionHeader
 import com.tiji.mistakes.ui.design.TijiStatCard
 import com.tiji.mistakes.ui.design.TijiSubjectCountRow
 import com.tiji.mistakes.ui.design.TijiTag
+import com.tiji.mistakes.ui.common.rememberPrimaryListState
 import java.util.Locale
 
 /** Mastery overview with links to the existing knowledge detail destination. */
@@ -41,11 +43,11 @@ import java.util.Locale
 internal fun HomeScreen(
     progressSummary: MistakeProgressSummary,
     resetScrollToken: Int,
+    retainedListState: androidx.compose.foundation.lazy.LazyListState? = null,
     onOpenKnowledge: (String) -> Unit
 ) {
-    val listState = rememberLazyListState()
-    var expandedSubjects by remember { mutableStateOf<Set<String>>(emptySet()) }
-    LaunchedEffect(resetScrollToken) { if (resetScrollToken > 0) listState.scrollToItem(0) }
+    val listState = rememberPrimaryListState(resetScrollToken, retainedListState)
+    var expandedSubjects by rememberSaveable { mutableStateOf(emptyList<String>()) }
     androidx.compose.foundation.layout.Column(Modifier.fillMaxSize()) {
     com.tiji.mistakes.ui.design.TijiPrimaryHeader("题迹")
     LazyColumn(

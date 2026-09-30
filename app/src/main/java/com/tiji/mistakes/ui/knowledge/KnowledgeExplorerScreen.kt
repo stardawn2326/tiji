@@ -2,6 +2,7 @@
 
 package com.tiji.mistakes.ui.knowledge
 
+import com.tiji.mistakes.ui.common.rememberPrimaryListState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -103,6 +104,7 @@ internal fun KnowledgeListScreen(
     points: List<KnowledgePointEntity>,
     progress: List<KnowledgePointProgress>,
     resetScrollToken: Int,
+    retainedListState: androidx.compose.foundation.lazy.LazyListState? = null,
     onBack: () -> Unit,
     onOpenDetail: (String) -> Unit
 ) {
@@ -110,7 +112,7 @@ internal fun KnowledgeListScreen(
     var search by rememberSaveable { mutableStateOf("") }
     var sort by rememberSaveable { mutableStateOf(KnowledgeSort.MISTAKE_COUNT.name) }
     var sortExpanded by remember { mutableStateOf(false) }
-    val listState = rememberLazyListState()
+    val listState = rememberPrimaryListState(resetScrollToken, retainedListState)
     val progressByStableId = remember(progress) { progress.associateBy { it.stableId } }
     val pointRows = remember(points, progressByStableId) {
         points.mapNotNull { point ->
@@ -133,9 +135,6 @@ internal fun KnowledgeListScreen(
             )
             KnowledgeSort.NAME -> filtered.sortedWith(compareBy({ it.point.subject }, { it.point.normalizedName }, { it.point.stableId }))
         }
-    }
-    LaunchedEffect(resetScrollToken) {
-        if (resetScrollToken > 0) listState.scrollToItem(0)
     }
 
     TijiScreen(

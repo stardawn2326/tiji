@@ -1,0 +1,20 @@
+// Keep destructive instrumented fixtures in a separate application from the learner's data.
+gradle.beforeProject { project ->
+    if (project.path == ':app') {
+        project.layout.buildDirectory.set(project.layout.projectDirectory.dir('build/architecture-audit-20260929'))
+        project.afterEvaluate {
+            project.android.defaultConfig.applicationId = 'com.tiji.mistakes.audit'
+        }
+    }
+}
+
+gradle.projectsEvaluated {
+    def app = gradle.rootProject.project(':app')
+    app.tasks.register('exportAuditClasspath') {
+        doLast {
+            def output = new File(gradle.rootProject.projectDir, 'outputs/audit-classpath.txt')
+            output.parentFile.mkdirs()
+            output.setText(app.tasks.named('testDebugUnitTest').get().classpath.asPath, 'UTF-8')
+        }
+    }
+}

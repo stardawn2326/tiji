@@ -1006,7 +1006,7 @@ class AiVisionService internal constructor(
                     endpoint.trimEnd('/').removeSuffix("/chat/completions") == profile.endpoint.trimEnd('/').removeSuffix("/chat/completions")
             (profiles.firstOrNull { it.id == active && matches(it) } ?: profiles.firstOrNull(::matches))?.thinkingMode
         } ?: "auto"
-        return applyThinkingMode(body, endpoint, mode)
+        return applyThinkingMode(body, mode, endpoint)
     }
 
     fun cancelActiveRequest() {
