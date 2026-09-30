@@ -126,6 +126,22 @@ class AiMistakeSaveStateTest {
     }
 
     @Test
+    fun displayedContentOverridesTheOriginalPayloadIncludingClearedFields() {
+        val payload = AiStructuredSolutionCodec.encode(AiStructuredSolution(2, listOf(
+            AiStructuredSolutionSection("recognition", listOf(QuestionSegment("text", "原始题目"))),
+            AiStructuredSolutionSection("approach", listOf(QuestionSegment("text", "原始解析"))),
+            AiStructuredSolutionSection("derivation", emptyList()),
+            AiStructuredSolutionSection("finalAnswer", listOf(QuestionSegment("text", "原始答案")))
+        )))
+        val draft = AiSolvedMistakeDraftMapper.map(AiSolvedMistakeDraftInput(
+            payload, "当前题", "已修正题目", "", "完整解析\\(x=2\\)", preferDisplayedContent = true
+        ))
+        assertEquals("已修正题目", draft.questionText)
+        assertEquals("", draft.answerText)
+        assertEquals("完整解析\\(x=2\\)", draft.explanation)
+    }
+
+    @Test
     fun saveSheetMetadataOverridesDefaultsAndDifficultyIsExplicit() {
         val payload = AiStructuredSolutionCodec.encode(AiStructuredSolution(2, listOf(
             AiStructuredSolutionSection("recognition", listOf(QuestionSegment("text", "求极限"))),
