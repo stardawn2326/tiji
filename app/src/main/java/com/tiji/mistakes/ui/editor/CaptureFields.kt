@@ -33,7 +33,8 @@ internal fun CaptureFields(
     onErrorReason: (String) -> Unit,
     onQuestionType: (String) -> Unit,
     onTags: (String) -> Unit,
-    onDifficulty: (Int) -> Unit
+    onDifficulty: (Int) -> Unit,
+    showUserAnswer: Boolean = true
 ) {
     var showDetails by rememberSaveable { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -41,6 +42,14 @@ internal fun CaptureFields(
             TijiTextField(subject, onSubject, label = { Text("科目") }, singleLine = true, modifier = Modifier.weight(1f))
             TijiTextField(questionType, onQuestionType, label = { Text("题目类型") }, singleLine = true, modifier = Modifier.weight(1f))
         }
+        TijiTextField(
+            tags,
+            onTags,
+            label = { Text("知识点") },
+            placeholder = { Text("多个知识点用逗号分隔") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
         DifficultyPicker(difficulty, onDifficulty)
         TijiTextButton(onClick = { showDetails = !showDetails }) {
             Text(if (showDetails) "收起补充信息" else "补充信息（选填）")
@@ -54,6 +63,7 @@ internal fun CaptureFields(
                 modifier = Modifier.fillMaxWidth()
             )
             FormulaPreview(title)
+            if (showUserAnswer) {
             com.tiji.mistakes.ui.design.TijiMultilineField(
                 userAnswer,
                 onUserAnswer,
@@ -61,6 +71,7 @@ internal fun CaptureFields(
                 minLines = 2,
                 modifier = Modifier.fillMaxWidth()
             )
+            }
         }
     }
 }

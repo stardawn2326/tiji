@@ -78,6 +78,15 @@ data class QuestionContentBlock(
 )
 
 object QuestionContentBlockCodec {
+    /** Append without renumbering existing blocks or changing caller deduplication policy. */
+    fun appendQuestionImages(blocks: List<QuestionContentBlock>, paths: List<String>): List<QuestionContentBlock> {
+        if (paths.isEmpty()) return blocks
+        val nextOrder = (blocks.maxOfOrNull { it.order } ?: -1) + 1
+        return blocks + paths.mapIndexed { index, path ->
+            QuestionContentBlock(path = path, order = nextOrder + index)
+        }
+    }
+
     fun encode(blocks: List<QuestionContentBlock>): String = JSONArray().apply {
         blocks.filter { it.path.isNotBlank() && it.kind != ContentBlockKind.GENERATED_IMAGE }
             .sortedBy { it.order }.forEach { block ->

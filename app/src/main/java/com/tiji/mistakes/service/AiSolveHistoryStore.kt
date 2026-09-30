@@ -136,6 +136,7 @@ data class AiSolveHistoryRecord(
 
 class AiSolveHistoryStore(context: Context) {
     private val appContext = context.applicationContext
+    private val storeLock = StoreFileLocks.forStore(context, FILE_NAME)
     private val preferences = appContext.getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE)
     private val durableTextStore = DurableTextStore(appContext, FILE_NAME)
 
@@ -168,96 +169,101 @@ class AiSolveHistoryStore(context: Context) {
         }
     }
 
-    @Synchronized
     fun read(): List<AiSolveHistoryRecord> {
-        val decoded = decode(durableTextStore.read(SLOT_RECORDS) ?: preferences.getString(KEY_RECORDS, "[]"))
-        val retained = trimAiSolveHistory(decoded)
-        if (retained.size != decoded.size) {
-            write(retained)
-            val retainedPaths = retained.flatMap(AiSolveHistoryRecord::referencedImagePaths).toSet()
-            ImageStorage.deletePrivateFiles(
-                appContext,
-                decoded.filterNot { expired -> retained.any { it.id == expired.id } }
-                    .flatMap(AiSolveHistoryRecord::referencedImagePaths)
-                    .filterNot { it in retainedPaths }
-            )
+        return synchronized(storeLock) {
+            val decoded = decode(durableTextStore.read(SLOT_RECORDS) ?: preferences.getString(KEY_RECORDS, "[]"))
+            val retained = trimAiSolveHistory(decoded)
+            if (retained.size != decoded.size) {
+                write(retained)
+                val retainedPaths = retained.flatMap(AiSolveHistoryRecord::referencedImagePaths).toSet()
+                ImageStorage.deletePrivateFiles(
+                    appContext,
+                    decoded.filterNot { expired -> retained.any { it.id == expired.id } }
+                        .flatMap(AiSolveHistoryRecord::referencedImagePaths)
+                        .filterNot { it in retainedPaths }
+                )
+            }
+            return retained
         }
-        return retained
     }
 
     /** Idempotent so a process restart or observer replay cannot duplicate a solve. */
-    @Synchronized
     fun appendIfAbsent(
         state: PersistedAiSolveState,
         chatMessages: List<AiChatMessage> = emptyList()
     ): List<AiSolveHistoryRecord> {
-        if (!shouldPersistAiSolveHistory(state)) return read()
-        if (state.historyRecordId != null) return read()
-        val existing = read()
-        val runId = state.solveRunId.ifBlank { "legacy-request-${state.requestId}" }
-        if (existing.any {
-                it.solveRunId == runId ||
-                    (it.solveRunId.isBlank() && it.requestId == state.requestId && state.requestId > 0L)
-            }) return existing
-        val rawRecord = AiSolveHistoryRecord(
-                requestId = state.requestId,
-                solveRunId = runId,
-                completedAt = state.updatedAt.takeIf { it > 0L } ?: System.currentTimeMillis(),
-                title = deriveAiSolveHistoryTitle(state),
-                question = state.question.orEmpty(),
-                completeText = state.completeText.orEmpty(),
-                mode = state.mode,
-                reliabilityMode = state.reliabilityMode,
-                configurationId = state.configurationId,
-                visualConfigurationId = state.visualConfigurationId,
-                modelName = state.modelName,
-                visualModelName = state.visualModelName,
-                imagePath = state.imagePath,
-                imagePaths = state.imagePaths,
-                graphicImagePath = state.graphicImagePath,
-                contentBlocks = state.contentBlocks,
-                recognitionWarning = state.recognitionWarning,
-                uncertainItems = state.uncertainItems,
-                verification = state.verification,
-                diagnostics = state.diagnostics,
-                chatMessages = chatMessages
-            )
-        val (ownedRecord, created) = withOwnedImages(rawRecord)
-        val next = listOf(ownedRecord) + existing
-        val trimmed = trimAiSolveHistory(next)
-        runCatching { write(trimmed) }.onFailure {
-            ImageStorage.deletePrivateFiles(appContext, created)
-            throw it
+        return synchronized(storeLock) {
+            if (!shouldPersistAiSolveHistory(state)) return read()
+            if (state.historyRecordId != null) return read()
+            val existing = read()
+            val runId = state.solveRunId.ifBlank { "legacy-request-${state.requestId}" }
+            if (existing.any {
+                    it.solveRunId == runId ||
+                        (it.solveRunId.isBlank() && it.requestId == state.requestId && state.requestId > 0L)
+                }) return existing
+            val rawRecord = AiSolveHistoryRecord(
+                    requestId = state.requestId,
+                    solveRunId = runId,
+                    completedAt = state.updatedAt.takeIf { it > 0L } ?: System.currentTimeMillis(),
+                    title = deriveAiSolveHistoryTitle(state),
+                    question = state.question.orEmpty(),
+                    completeText = state.completeText.orEmpty(),
+                    mode = state.mode,
+                    reliabilityMode = state.reliabilityMode,
+                    configurationId = state.configurationId,
+                    visualConfigurationId = state.visualConfigurationId,
+                    modelName = state.modelName,
+                    visualModelName = state.visualModelName,
+                    imagePath = state.imagePath,
+                    imagePaths = state.imagePaths,
+                    graphicImagePath = state.graphicImagePath,
+                    contentBlocks = state.contentBlocks,
+                    recognitionWarning = state.recognitionWarning,
+                    uncertainItems = state.uncertainItems,
+                    verification = state.verification,
+                    diagnostics = state.diagnostics,
+                    chatMessages = chatMessages
+                )
+            val (ownedRecord, created) = withOwnedImages(rawRecord)
+            val next = listOf(ownedRecord) + existing
+            val trimmed = trimAiSolveHistory(next)
+            runCatching { write(trimmed) }.onFailure {
+                ImageStorage.deletePrivateFiles(appContext, created)
+                throw it
+            }
+            return trimmed
         }
-        return trimmed
     }
 
-    @Synchronized
     fun delete(id: String): AiSolveHistoryRecord? {
-        val records = read()
-        val removed = records.firstOrNull { it.id == id } ?: return null
-        write(records.filterNot { it.id == id })
-        return removed
-    }
-
-    @Synchronized
-    fun clear(): List<AiSolveHistoryRecord> {
-        val removed = read()
-        write(emptyList())
-        return removed
-    }
-
-    @Synchronized
-    fun update(record: AiSolveHistoryRecord): Boolean {
-        val records = read()
-        val previous = records.firstOrNull { it.id == record.id } ?: return false
-        val newPaths = record.referencedImagePaths().toSet() - previous.referencedImagePaths().toSet()
-        val (ownedRecord, created) = if (newPaths.isEmpty()) record to emptyList() else withOwnedImages(record, newPaths)
-        runCatching { write(records.map { if (it.id == ownedRecord.id) ownedRecord else it }) }.onFailure {
-            ImageStorage.deletePrivateFiles(appContext, created)
-            throw it
+        return synchronized(storeLock) {
+            val records = read()
+            val removed = records.firstOrNull { it.id == id } ?: return null
+            write(records.filterNot { it.id == id })
+            return removed
         }
-        return true
+    }
+
+    fun clear(): List<AiSolveHistoryRecord> {
+        return synchronized(storeLock) {
+            val removed = read()
+            write(emptyList())
+            return removed
+        }
+    }
+
+    fun update(record: AiSolveHistoryRecord): Boolean {
+        return synchronized(storeLock) {
+            val records = read()
+            val previous = records.firstOrNull { it.id == record.id } ?: return false
+            val newPaths = record.referencedImagePaths().toSet() - previous.referencedImagePaths().toSet()
+            val (ownedRecord, created) = if (newPaths.isEmpty()) record to emptyList() else withOwnedImages(record, newPaths)
+            runCatching { write(records.map { if (it.id == ownedRecord.id) ownedRecord else it }) }.onFailure {
+                ImageStorage.deletePrivateFiles(appContext, created)
+                throw it
+            }
+            return true
+        }
     }
 
     fun referencedImagePaths(): Set<String> = read().flatMap(AiSolveHistoryRecord::referencedImagePaths).toSet()

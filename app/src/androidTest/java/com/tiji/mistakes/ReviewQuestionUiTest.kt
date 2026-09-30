@@ -79,13 +79,13 @@ class ReviewQuestionUiTest {
         composeRule.waitUntil(5_000) {
             composeRule.onAllNodesWithTag("review_show_answer").fetchSemanticsNodes().isNotEmpty()
         }
-        composeRule.onNodeWithText("参考答案").assertDoesNotExist()
+        composeRule.onNodeWithText("答案").assertDoesNotExist()
         ReviewGrade.values().forEach { grade ->
             check(composeRule.onAllNodesWithTag("review_grade_${grade.name.lowercase()}").fetchSemanticsNodes().isEmpty())
         }
         composeRule.onNodeWithTag("review_show_answer").performClick()
-        composeRule.onNodeWithTag("review_question_content").performScrollToNode(hasText("参考答案"))
-        composeRule.onNodeWithText("参考答案").assertExists()
+        composeRule.onNodeWithTag("review_question_content").performScrollToNode(hasText("答案"))
+        composeRule.onNodeWithText("答案").assertExists()
         composeRule.onNodeWithTag("review_question_content").performScrollToNode(hasText("解析"))
         composeRule.onNodeWithText("解析").assertExists()
         composeRule.onNodeWithTag("review_question_content").performScrollToNode(hasText("掌握"))

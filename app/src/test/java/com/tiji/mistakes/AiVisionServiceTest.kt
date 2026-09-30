@@ -425,7 +425,7 @@ class AiVisionServiceTest {
 
         assertEquals(AiProviderPreset.DEEPSEEK, preset)
         assertTrue(preset.supportsVisionFor("deepseek-v4-flash-vision-exp"))
-        assertEquals("多模态模型", preset.modelModalityLabel("deepseek-v4-flash-vision-exp"))
+        assertEquals("能力以实际请求为准", preset.modelModalityLabel("deepseek-v4-flash-vision-exp"))
         assertTrue(preset.modelOptions.contains("deepseek-v4-flash-vision-exp"))
     }
 
@@ -451,9 +451,9 @@ class AiVisionServiceTest {
         )
         assertTrue(qwen.supportsVisionFor("qwen3.7-plus"))
         assertTrue(qwen.supportsVisionFor("qwen3-vl-plus"))
-        assertTrue(!qwen.supportsVisionFor("qwen3.7-max"))
-        assertEquals("多模态模型", qwen.modelModalityLabel("qwen3.7-plus"))
-        assertEquals("文本模型", qwen.modelModalityLabel("qwen3.7-max"))
+        assertTrue(qwen.supportsVisionFor("qwen3.7-max"))
+        assertEquals("能力以实际请求为准", qwen.modelModalityLabel("qwen3.7-plus"))
+        assertEquals("能力以实际请求为准", qwen.modelModalityLabel("qwen3.7-max"))
     }
 
     @Test

@@ -39,6 +39,8 @@ import com.tiji.mistakes.data.AiProfile
 import com.tiji.mistakes.data.AiVisualProfile
 import com.tiji.mistakes.data.AppPreferences
 import com.tiji.mistakes.service.AiProviderPreset
+import com.tiji.mistakes.service.normalizeAiThinkingMode
+import com.tiji.mistakes.service.aiThinkingModeOptions
 import com.tiji.mistakes.service.AiVisionService
 import com.tiji.mistakes.service.AiProviderCapabilityCheck
 import com.tiji.mistakes.service.OcrModelDownloadService
@@ -72,7 +74,7 @@ internal fun AiSettingsScreen(
     val scope = rememberCoroutineScope()
     val secureStore = remember { SecureKeyStore(context) }
     val ocrModelState by ocrModelManager.combinedState.collectAsStateWithLifecycle()
-    val aiService = remember { AiVisionService() }
+    val aiService = remember { AiVisionService(appContext = context) }
     var selectedProfileId by remember(activeAiProfileId) { mutableStateOf(activeAiProfileId) }
     val selectedProfile = aiProfiles.firstOrNull { it.id == selectedProfileId }
     var profileName by remember(selectedProfileId, aiProfiles) {
@@ -87,6 +89,10 @@ internal fun AiSettingsScreen(
     var model by remember(selectedProfileId, selectedProfile?.model) {
         mutableStateOf(selectedProfile?.model ?: aiModel)
     }
+    var thinkingMode by remember(selectedProfileId, selectedProfile?.thinkingMode) {
+        mutableStateOf(normalizeAiThinkingMode(selectedProfile?.thinkingMode ?: "auto"))
+    }
+    aiService.thinkingModeOverride = thinkingMode
     var apiKey by remember(selectedProfileId) { mutableStateOf(secureStore.read(selectedProfileId)) }
     val selectedVisualProfile = aiVisualProfiles.firstOrNull { it.id == aiVisualBindings[selectedProfileId] }
     var connectionMessage by remember { mutableStateOf("") }
@@ -195,15 +201,22 @@ internal fun AiSettingsScreen(
                                         onClick = { model = option },
                                         label = { Text(option, maxLines = 1) }
                                     )
-                                    Text(
-                                        preset.modelModalityLabel(option),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
                                 }
                             }
                         }
                     }
+                    Text("思考模式", style = MaterialTheme.typography.labelLarge)
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(aiThinkingModeOptions, key = { it.value }) { option ->
+                            TijiChip(
+                                selected = thinkingMode == option.value,
+                                onClick = { thinkingMode = option.value },
+                                modifier = Modifier.testTag("ai_thinking_${option.value}"),
+                                label = { Text(option.label) }
+                            )
+                        }
+                    }
+                    Text("仅返回答案和解析，不展示思考内容。", style = MaterialTheme.typography.bodySmall)
                     com.tiji.mistakes.ui.design.TijiSecretField(
                         value = apiKey,
                         onValueChange = { apiKey = it },
@@ -232,7 +245,8 @@ internal fun AiSettingsScreen(
                                         selectedProfileId,
                                         profileName.ifBlank { "未命名配置" },
                                         endpoint.trim(),
-                                        model.trim()
+                                        model.trim(),
+                                        thinkingMode = thinkingMode
                                     )
                                     val nextProfiles = if (aiProfiles.any { it.id == selectedProfileId }) {
                                         aiProfiles.map { existing -> if (existing.id == selectedProfileId) profile else existing }

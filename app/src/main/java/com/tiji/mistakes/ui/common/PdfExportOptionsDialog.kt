@@ -1,4 +1,4 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 
 package com.tiji.mistakes.ui.common
 
@@ -33,43 +33,32 @@ internal fun PdfExportOptionsDialog(
     onDismiss: () -> Unit,
     onConfirm: (PdfExportOptions) -> Unit
 ) {
-    var template by remember(initial) { mutableStateOf(initial.template) }
+    val template = PdfTemplate.PRACTICE
     var includeSourceImages by remember(initial) { mutableStateOf(initial.includeSourceImages) }
 
     TijiDialog(
         onDismissRequest = onDismiss,
         modifier = Modifier.testTag("pdf_export_options"),
-        title = { Text("选择 PDF 类型") },
+        title = { Text("导出题目 PDF") },
         text = {
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(
-                    "当前将导出 $questionCount 道题。选择输出内容后生成本地 PDF 预览。",
+                    "当前将导出 $questionCount 道题。生成本地题目 PDF 预览。",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Text("输出内容", style = MaterialTheme.typography.labelLarge)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    PdfTemplate.entries.forEach { option ->
-                        TijiChip(
-                            selected = template == option,
-                            onClick = { template = option },
-                            label = { Text(option.label) },
-                            modifier = Modifier.heightIn(min = 48.dp).testTag("pdf_template_${option.name.lowercase()}")
-                        )
-                    }
-                }
                 if (template == PdfTemplate.PRACTICE) {
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text("包含原题图片", style = MaterialTheme.typography.bodyLarge)
+                            Text("黑白图片 PDF", style = MaterialTheme.typography.bodyLarge)
                             Text(
-                                "题目 PDF 保留原题图片，便于识别几何图、手写题和长截图。",
+                                "开启后只打印经黑白净化的题目图片，不打印识别文字。",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -83,7 +72,7 @@ internal fun PdfExportOptionsDialog(
                 }
                 if (template == PdfTemplate.PRACTICE) {
                     Text(
-                        "题目 PDF 只保留题目、必要图片和每题作答区。",
+                        if (includeSourceImages) "无题目图片的题目会标明缺图，不替换成识别文字。" else "题目 PDF 只保留题目、必要图片和每题作答区。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -103,7 +92,7 @@ internal fun PdfExportOptionsDialog(
                         initial.copy(
                             template = template,
                             includeSourceImages = includeSourceImages,
-                            originalImagesOnly = initial.originalImagesOnly && template == PdfTemplate.PRACTICE
+                            originalImagesOnly = includeSourceImages
                         )
                     )
                 },

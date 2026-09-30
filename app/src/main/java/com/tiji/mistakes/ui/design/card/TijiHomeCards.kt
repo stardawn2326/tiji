@@ -8,6 +8,8 @@ import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -45,10 +47,18 @@ internal fun TijiSubjectCountRow(
     expanded: Boolean = false,
     onClick: () -> Unit
 ) {
+    val accent = MaterialTheme.colorScheme.primary
     TijiCard(onClick, Modifier.fillMaxWidth().testTag("home_subject_$subject")) {
-        Row(Modifier.fillMaxWidth().heightIn(min = 68.dp).padding(horizontal = 12.dp, vertical = 8.dp),
+        Row(Modifier.fillMaxWidth().heightIn(min = 72.dp).padding(horizontal = 16.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Box(Modifier.width(3.dp).height(36.dp).background(tijiSubjectColor(subject), TijiShapes.XS))
+            Surface(color = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.primary, shape = TijiShapes.S) {
+                Box(Modifier.size(40.dp).drawBehind {
+                    drawCircle(accent.copy(alpha = 0.10f), 16.dp.toPx(), Offset(size.width, 0f))
+                    drawCircle(accent.copy(alpha = 0.18f), 2.dp.toPx(), Offset(6.dp.toPx(), size.height - 6.dp.toPx()))
+                }, contentAlignment = Alignment.Center) {
+                    Text(subject.take(1), style = MaterialTheme.typography.titleLarge)
+                }
+            }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(subject, style = MaterialTheme.typography.titleMedium)
                 Text(

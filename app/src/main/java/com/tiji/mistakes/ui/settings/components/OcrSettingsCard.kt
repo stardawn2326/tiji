@@ -53,7 +53,7 @@ internal fun CombinedOcrSettingsCard(
                     Text("正在下载 ${status.downloadedBytes / 1_000_000} / ${(status.totalBytes + 500_000) / 1_000_000} MB", style = MaterialTheme.typography.bodySmall)
                 }
                 status.resumable -> {
-                    TijiProgress(progress = { status.progress.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+                    TijiProgress(showElapsed = false, progress = { status.progress.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
                     Text(
                         if (status.downloadedBytes > 0L) {
                             "已保留 ${status.downloadedBytes / 1_000_000} / ${(status.totalBytes + 500_000) / 1_000_000} MB，可继续下载"

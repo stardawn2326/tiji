@@ -51,8 +51,6 @@ private enum class DataResetAction { LEARNING_DATA, FACTORY_RESET }
 
 @Composable
 internal fun DataSettingsScreen(
-    aiExcludeSourceImageByDefault: Boolean,
-    onAiExcludeSourceImageByDefault: (Boolean) -> Unit,
     backgroundScope: CoroutineScope,
     onClearLearningData: ((String?) -> Unit) -> Unit,
     onFactoryReset: ((String?) -> Unit) -> Unit,
@@ -288,29 +286,6 @@ internal fun DataSettingsScreen(
                             backupMessage,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                }
-            }
-            item {
-                TijiSettingGroup("PDF 导出", Icons.Outlined.PictureAsPdf) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text("是否导出照片原图", style = MaterialTheme.typography.bodyLarge)
-                            Text(
-                                "打开后导出处理后的黑白原图 PDF。",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        TijiSwitch(
-                            checked = !aiExcludeSourceImageByDefault,
-                            onCheckedChange = { exportOriginal ->
-                                onAiExcludeSourceImageByDefault(!exportOriginal)
-                            }
                         )
                     }
                 }

@@ -25,10 +25,10 @@ internal class MathWebViewGuard {
         view.postDelayed(runnable, delayMillis)
     }
 
-    fun release(view: WebView) {
+    fun release(view: WebView, preserveContent: Boolean = false) {
         active = false
         clear(view)
-        view.tag = null
+        if (!preserveContent) view.tag = null
     }
 
     private fun clear(view: WebView) {

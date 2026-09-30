@@ -22,7 +22,8 @@ data class PersistedAiChatState(
     val lastImagePaths: List<String> = emptyList(),
     val status: String = "IDLE",
     val messages: List<AiChatMessage> = emptyList(),
-    val error: String? = null
+    val error: String? = null,
+    val sessionId: String = AiSolveRuntime.sessionId
 )
 
 internal fun restoredAiChatState(
@@ -75,11 +76,27 @@ internal fun finishAiChatWithAvailableContent(
     )
 }
 
+internal fun recoverInterruptedAiChat(
+    state: PersistedAiChatState,
+    currentSessionId: String = AiSolveRuntime.sessionId
+): PersistedAiChatState = if (state.running && state.sessionId != currentSessionId) {
+    finishAiChatWithAvailableContent(state, "STOPPED", "上次追问被中断，已保留收到的内容，可重新追问")
+        .copy(sessionId = currentSessionId)
+} else state
+
 class AiChatStateStore(context: Context) {
+    private val storeLock = StoreFileLocks.forStore(context, FILE_NAME)
     private val preferences = context.getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE)
+
+    fun restoreForCurrentProcess(): PersistedAiChatState = synchronized(storeLock) {
+        val persisted = read()
+        recoverInterruptedAiChat(persisted).also { if (it != persisted) write(it) }
+    }
+
+    internal fun observe() = TaskStateUpdates.observe(FILE_NAME, ::read)
     private val durableTextStore = DurableTextStore(context, FILE_NAME)
 
-    fun read(): PersistedAiChatState = PersistedAiChatState(
+    fun read(): PersistedAiChatState = synchronized(storeLock) { PersistedAiChatState(
         requestId = preferences.getLong(KEY_REQUEST_ID, 0L),
         running = preferences.getBoolean(KEY_RUNNING, false),
         currentPrompt = durableTextStore.read(SLOT_CURRENT_PROMPT)
@@ -94,43 +111,51 @@ class AiChatStateStore(context: Context) {
         status = preferences.getString(KEY_STATUS, "IDLE").orEmpty(),
         messages = readMessages(durableTextStore.read(SLOT_MESSAGES)
             ?: preferences.getString(KEY_MESSAGES, null)),
-        error = preferences.getString(KEY_ERROR, null)
-    )
+        error = preferences.getString(KEY_ERROR, null),
+        sessionId = preferences.getString(KEY_SESSION_ID, "").orEmpty()
+    ) }
 
     fun write(state: PersistedAiChatState) {
-        val messages = JSONArray().apply {
-            state.messages.forEach { message ->
-                put(
-                    JSONObject()
-                        .put("prompt", message.prompt)
-                        .put("reply", message.reply)
-                        .put("createdAt", message.createdAt)
-                        .put("imagePaths", JSONArray(message.imagePaths.filter(String::isNotBlank).distinct()))
-                )
+        return synchronized(storeLock) {
+            val messages = JSONArray().apply {
+                state.messages.forEach { message ->
+                    put(
+                        JSONObject()
+                            .put("prompt", message.prompt)
+                            .put("reply", message.reply)
+                            .put("createdAt", message.createdAt)
+                            .put("imagePaths", JSONArray(message.imagePaths.filter(String::isNotBlank).distinct()))
+                    )
+                }
             }
+            durableTextStore.write(SLOT_CURRENT_PROMPT, state.currentPrompt)
+            durableTextStore.write(SLOT_STREAMED_TEXT, state.streamedText)
+            durableTextStore.write(SLOT_LAST_PROMPT, state.lastPrompt)
+            durableTextStore.write(SLOT_MESSAGES, messages.toString())
+            preferences.edit()
+                .putLong(KEY_REQUEST_ID, state.requestId)
+                .putString(KEY_SESSION_ID, state.sessionId)
+                .putBoolean(KEY_RUNNING, state.running)
+                .remove(KEY_CURRENT_PROMPT)
+                .putFloat(KEY_PROGRESS, state.progress.coerceIn(0f, 1f))
+                .remove(KEY_STREAMED_TEXT)
+                .putString(KEY_CURRENT_IMAGE_PATHS, JSONArray(state.currentImagePaths.filter(String::isNotBlank).distinct()).toString())
+                .remove(KEY_LAST_PROMPT)
+                .putString(KEY_LAST_IMAGE_PATHS, JSONArray(state.lastImagePaths.filter(String::isNotBlank).distinct()).toString())
+                .putString(KEY_STATUS, state.status)
+                .remove(KEY_MESSAGES)
+                .putString(KEY_ERROR, state.error)
+                .apply()
+            TaskStateUpdates.changed(FILE_NAME)
         }
-        durableTextStore.write(SLOT_CURRENT_PROMPT, state.currentPrompt)
-        durableTextStore.write(SLOT_STREAMED_TEXT, state.streamedText)
-        durableTextStore.write(SLOT_LAST_PROMPT, state.lastPrompt)
-        durableTextStore.write(SLOT_MESSAGES, messages.toString())
-        preferences.edit()
-            .putLong(KEY_REQUEST_ID, state.requestId)
-            .putBoolean(KEY_RUNNING, state.running)
-            .remove(KEY_CURRENT_PROMPT)
-            .putFloat(KEY_PROGRESS, state.progress.coerceIn(0f, 1f))
-            .remove(KEY_STREAMED_TEXT)
-            .putString(KEY_CURRENT_IMAGE_PATHS, JSONArray(state.currentImagePaths.filter(String::isNotBlank).distinct()).toString())
-            .remove(KEY_LAST_PROMPT)
-            .putString(KEY_LAST_IMAGE_PATHS, JSONArray(state.lastImagePaths.filter(String::isNotBlank).distinct()).toString())
-            .putString(KEY_STATUS, state.status)
-            .remove(KEY_MESSAGES)
-            .putString(KEY_ERROR, state.error)
-            .apply()
     }
 
     fun clear() {
-        durableTextStore.clear()
-        preferences.edit().clear().apply()
+        return synchronized(storeLock) {
+            durableTextStore.clear()
+            preferences.edit().clear().apply()
+            TaskStateUpdates.changed(FILE_NAME)
+        }
     }
 
     private fun readMessages(raw: String?): List<AiChatMessage> = runCatching {
@@ -159,6 +184,7 @@ class AiChatStateStore(context: Context) {
 
     private companion object {
         const val FILE_NAME = "ai_chat_state"
+        const val KEY_SESSION_ID = "session_id"
         const val KEY_REQUEST_ID = "request_id"
         const val KEY_RUNNING = "running"
         const val KEY_CURRENT_PROMPT = "current_prompt"

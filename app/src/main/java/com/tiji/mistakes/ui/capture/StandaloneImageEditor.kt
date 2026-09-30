@@ -200,7 +200,7 @@ internal fun StandaloneImageEditor(
             processing = false
         }
     }
-    TijiScreen(topBar={TijiTopBar(title={Text("处理$title")},navigationIcon={TijiIconButton(onClick={ onDiscard(history); onCancel() }){Icon(Icons.AutoMirrored.Outlined.ArrowBack,"取消图片处理")}})}) { padding ->
+    TijiScreen(topBar={TijiTopBar(title={Text("照片处理页")},navigationIcon={TijiIconButton(onClick={ onDiscard(history); onCancel() }){Icon(Icons.AutoMirrored.Outlined.ArrowBack,"取消图片处理")}})}) { padding ->
         Column(
             Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)
                 .navigationBarsPadding(),
@@ -208,7 +208,7 @@ internal fun StandaloneImageEditor(
         ) {
             val editorHeight = ((configuration.screenWidthDp.dp - 32.dp) / imageAspect.coerceAtLeast(0.2f))
                 .coerceIn(180.dp, configuration.screenHeightDp.dp * 0.44f)
-            BoxWithConstraints(Modifier.height(editorHeight).fillMaxWidth().clip(TijiShapes.L)) {
+            BoxWithConstraints(Modifier.height(editorHeight).fillMaxWidth()) {
                 val widthPx = constraints.maxWidth.toFloat().coerceAtLeast(1f)
                 val heightPx = constraints.maxHeight.toFloat().coerceAtLeast(1f)
                 val containerAspect = widthPx / heightPx
@@ -305,10 +305,19 @@ internal fun StandaloneImageEditor(
                         drawRect(dim, Offset(imageLeft, top), Size(left - imageLeft, bottom - top))
                         drawRect(dim, Offset(right, top), Size(imageLeft + imageWidth - right, bottom - top))
                         drawRect(Color.White, Offset(left, top), Size(right - left, bottom - top), style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3f))
-                        val handle = 18f
-                        listOf(Offset(left, top), Offset(right, top), Offset(left, bottom), Offset(right, bottom)).forEach { point ->
-                            drawCircle(Color.White, handle / 2f, point)
-                            drawCircle(handleColor, handle / 2f - 3f, point)
+                        val cornerLength = minOf(18.dp.toPx(), (right - left) / 3f, (bottom - top) / 3f)
+                        listOf(
+                            Triple(Offset(left, top), 1f, 1f),
+                            Triple(Offset(right, top), -1f, 1f),
+                            Triple(Offset(left, bottom), 1f, -1f),
+                            Triple(Offset(right, bottom), -1f, -1f)
+                        ).forEach { (point, directionX, directionY) ->
+                            val corner = androidx.compose.ui.graphics.Path().apply {
+                                moveTo(point.x + directionX * cornerLength, point.y)
+                                lineTo(point.x, point.y)
+                                lineTo(point.x, point.y + directionY * cornerLength)
+                            }
+                            drawPath(corner, handleColor, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3.dp.toPx()))
                         }
                         val edgeHandleLength = 52f
                         val edgeHandleWidth = 9f

@@ -1,5 +1,6 @@
 package com.tiji.mistakes.ui.settings
 
+import com.tiji.mistakes.ui.common.rememberPrimaryListState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -41,6 +42,7 @@ import com.tiji.mistakes.ui.design.TijiDimens
 @Composable
 internal fun SettingsHomeScreen(
     resetScrollToken: Int,
+    retainedListState: androidx.compose.foundation.lazy.LazyListState? = null,
     activeAiProfile: AiProfile,
     reviewPlanEnabled: Boolean,
     dailyReviewLimit: Int,
@@ -52,21 +54,16 @@ internal fun SettingsHomeScreen(
     onOpenAppearanceSettings: () -> Unit,
     onOpenAbout: () -> Unit
 ) {
-    val listState = rememberLazyListState()
-    LaunchedEffect(resetScrollToken) {
-        if (resetScrollToken > 0) listState.scrollToItem(0)
-    }
+    val listState = rememberPrimaryListState(resetScrollToken, retainedListState)
+    androidx.compose.foundation.layout.Column(Modifier.fillMaxSize()) {
+    com.tiji.mistakes.ui.design.TijiPrimaryHeader("设置")
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize().testTag("my_settings_list"),
-        contentPadding = PaddingValues(horizontal = TijiDimens.pagePadding, vertical = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(0.dp)
+        contentPadding = PaddingValues(horizontal = TijiDimens.pagePadding, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
-            TijiPageHeader("设置")
-        }
-        item {
-            Spacer(Modifier.height(12.dp))
             com.tiji.mistakes.ui.design.TijiSettingRow(
                 title = "AI 模型",
                 subtitle = "当前模型：${activeAiProfile.model}",
@@ -75,7 +72,6 @@ internal fun SettingsHomeScreen(
             )
         }
         item {
-            com.tiji.mistakes.ui.design.TijiSettingDivider()
             com.tiji.mistakes.ui.design.TijiSettingRow(
                 title = "复习计划",
                 subtitle = if (reviewPlanEnabled) "已开启 · 每日上限 $dailyReviewLimit 题" else "尚未开启，安排今天和接下来的复习节奏",
@@ -84,7 +80,6 @@ internal fun SettingsHomeScreen(
             )
         }
         item {
-            com.tiji.mistakes.ui.design.TijiSettingDivider()
             com.tiji.mistakes.ui.design.TijiSettingRow(
                 title = "备份与恢复",
                 subtitle = "导出、检查、合并恢复或重置本机数据",
@@ -93,7 +88,6 @@ internal fun SettingsHomeScreen(
             )
         }
         item {
-            com.tiji.mistakes.ui.design.TijiSettingDivider()
             com.tiji.mistakes.ui.design.TijiSettingRow(
                 title = "显示模式与主题",
                 subtitle = "${themeMode.label} · ${themePalette.label}",
@@ -102,7 +96,6 @@ internal fun SettingsHomeScreen(
             )
         }
         item {
-            com.tiji.mistakes.ui.design.TijiSettingDivider()
             com.tiji.mistakes.ui.design.TijiSettingRow(
                 title = "关于题迹",
                 subtitle = "版本与使用说明",
@@ -110,5 +103,6 @@ internal fun SettingsHomeScreen(
                 onClick = onOpenAbout
             )
         }
+    }
     }
 }

@@ -16,6 +16,8 @@ import com.tiji.mistakes.data.ReviewRecordEntity
 import com.tiji.mistakes.domain.ReviewGrade
 import com.tiji.mistakes.domain.Difficulty
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -57,6 +59,8 @@ data class BackupImportResult(
 
 /** Versioned, app-readable .tiji archive. It deliberately excludes API keys and AI working state. */
 object BackupService {
+    private val importMutex = Mutex()
+
     private const val FORMAT = "tiji-backup"
     private const val SCHEMA_VERSION = 4
     private const val MIN_READER_SCHEMA_VERSION = 3
@@ -260,6 +264,14 @@ object BackupService {
         context: Context,
         database: AppDatabase,
         preferences: AppPreferences?
+    ): BackupRecoveryAction = importMutex.withLock {
+        recoverPendingImportUnlocked(context, database, preferences)
+    }
+
+    private suspend fun recoverPendingImportUnlocked(
+        context: Context,
+        database: AppDatabase,
+        preferences: AppPreferences?
     ): BackupRecoveryAction = withContext(Dispatchers.IO) {
         val coordinator = BackupImportCoordinator(context)
         val journalRead = coordinator.readResult()
@@ -345,9 +357,19 @@ object BackupService {
         mode: BackupImportMode,
         database: AppDatabase,
         preferences: AppPreferences? = null
+    ): Result<BackupImportResult> = importMutex.withLock {
+        importBackupUnlocked(context, uri, mode, database, preferences)
+    }
+
+    private suspend fun importBackupUnlocked(
+        context: Context,
+        uri: Uri,
+        mode: BackupImportMode,
+        database: AppDatabase,
+        preferences: AppPreferences?
     ): Result<BackupImportResult> = withContext(Dispatchers.IO) {
         val coordinator = BackupImportCoordinator(context)
-        check(recoverPendingImport(context, database, preferences) != BackupRecoveryAction.CORRUPT_JOURNAL) {
+        check(recoverPendingImportUnlocked(context, database, preferences) != BackupRecoveryAction.CORRUPT_JOURNAL) {
             "备份导入 journal 损坏，已保留现场，请先修复 journal.error"
         }
         val importId = UUID.randomUUID().toString()

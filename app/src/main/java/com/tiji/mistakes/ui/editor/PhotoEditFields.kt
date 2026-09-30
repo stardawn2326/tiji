@@ -4,26 +4,23 @@ package com.tiji.mistakes.ui.editor
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.CameraAlt
-import androidx.compose.material.icons.outlined.Image
 import com.tiji.mistakes.ui.design.TijiCard
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import com.tiji.mistakes.ui.design.TijiSecondaryButton
+import com.tiji.mistakes.ui.design.TijiTextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.tiji.mistakes.service.ContentBlockRole
 import com.tiji.mistakes.service.QuestionContentBlock
 import com.tiji.mistakes.ui.image.ImagePreview
 import com.tiji.mistakes.ui.capture.PhotoRole
@@ -33,7 +30,6 @@ internal fun PhotoEditFields(
     questionImage: String?,
     answerImage: String?,
     explanationImage: String?,
-    onEditImage: (PhotoRole, String) -> Unit,
     onGallery: (PhotoRole) -> Unit,
     onCamera: (PhotoRole) -> Unit,
     title: String,
@@ -59,49 +55,56 @@ internal fun PhotoEditFields(
     onAnswer: (String) -> Unit,
     onExplanation: (String) -> Unit,
     showTextFields: Boolean,
-    onDeleteImage: (PhotoRole, String) -> Unit = { _, _ -> }
+    onDeleteImage: (PhotoRole, String) -> Unit = { _, _ -> },
+    showUserAnswer: Boolean = true,
+    questionBlocks: List<QuestionContentBlock> = emptyList(),
+    onDeleteBlock: (QuestionContentBlock) -> Unit = {},
+    questionImagePaths: List<String> = listOfNotNull(questionImage)
 ) {
+    var addingRole by remember { mutableStateOf<PhotoRole?>(null) }
+    addingRole?.let { role ->
+        ImageSourceDialog(
+            onDismiss = { addingRole = null },
+            onGallery = { addingRole = null; onGallery(role) },
+            onCamera = { addingRole = null; onCamera(role) }
+        )
+    }
+
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        buildList {
-            add(PhotoRole.QUESTION to questionImage)
-            if (answerImage != null) add(PhotoRole.ANSWER to answerImage)
-            if (explanationImage != null) add(PhotoRole.EXPLANATION to explanationImage)
-        }.forEach { (role, path) ->
+        PhotoRole.entries.forEach { role ->
+            val paths = when (role) {
+                PhotoRole.QUESTION -> when {
+                    questionImagePaths.isEmpty() -> listOfNotNull(questionImage)
+                    questionImage == null -> questionImagePaths.distinct()
+                    else -> (listOf(questionImage) + questionImagePaths.drop(1)).distinct()
+                }
+                PhotoRole.ANSWER -> listOfNotNull(answerImage)
+                PhotoRole.EXPLANATION -> listOfNotNull(explanationImage)
+            }
             TijiCard(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(role.label, fontWeight = FontWeight.Bold)
-                    path?.let { imagePath ->
+                    if (paths.isEmpty()) Text("未添加图片", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    paths.forEachIndexed { index, imagePath ->
+                        if (paths.size > 1) Text("第 ${index + 1} 张", style = MaterialTheme.typography.labelSmall)
                         ImagePreview(imagePath, onDelete = { onDeleteImage(role, imagePath) })
-                    } ?: Text("未添加图片", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                        TijiSecondaryButton(
-                            onClick = { onGallery(role) },
-                            modifier = Modifier.weight(1f),
-                            contentPadding = PaddingValues(horizontal = 4.dp)
-                        ) {
-                            Icon(Icons.Outlined.Image, contentDescription = null)
-                            Spacer(Modifier.size(4.dp))
-                            Text("相册", maxLines = 1)
-                        }
-                        TijiSecondaryButton(
-                            onClick = { onCamera(role) },
-                            modifier = Modifier.weight(1f),
-                            contentPadding = PaddingValues(horizontal = 4.dp)
-                        ) {
-                            Icon(Icons.Outlined.CameraAlt, contentDescription = null)
-                            Spacer(Modifier.size(4.dp))
-                            Text("拍照", maxLines = 1)
-                        }
-                        if (path != null) {
-                            TijiSecondaryButton(
-                                onClick = { onEditImage(role, path) },
-                                modifier = Modifier.weight(1f),
-                                contentPadding = PaddingValues(horizontal = 4.dp)
-                            ) { Text("处理", maxLines = 1) }
-                        }
+                    }
+                    if (role == PhotoRole.QUESTION) {
+                        com.tiji.mistakes.ui.solve.ContentBlockImages(
+                            questionBlocks.filterNot { block ->
+                                paths.any { it == block.path || it == block.sourcePath }
+                            },
+                            onDeleteBlock
+                        )
+                    }
+                    TijiTextButton(
+                        onClick = { addingRole = role },
+                        modifier = Modifier.testTag("edit_add_image_${role.name.lowercase()}")
+                    ) {
+                        Text("添加图片")
                     }
                 }
             }
@@ -130,7 +133,9 @@ internal fun PhotoEditFields(
                 onDifficulty = onDifficulty,
                 questionType = questionType,
                 onQuestionType = onQuestionType,
-                showRenderedPreview = true
+                showRenderedPreview = true,
+                showEditorPreviews = false,
+                showUserAnswer = showUserAnswer
             )
         } else {
             CaptureFields(
@@ -149,7 +154,8 @@ internal fun PhotoEditFields(
                 onErrorReason = onErrorReason,
                 onQuestionType = onQuestionType,
                 onTags = onTags,
-                onDifficulty = onDifficulty
+                onDifficulty = onDifficulty,
+                showUserAnswer = showUserAnswer
             )
         }
     }

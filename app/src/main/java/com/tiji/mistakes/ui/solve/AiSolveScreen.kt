@@ -63,11 +63,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -82,6 +84,8 @@ import com.tiji.mistakes.service.AiChatMessage
 import com.tiji.mistakes.service.mergeTagText
 import com.tiji.mistakes.service.normalizeClassificationDifficulty
 import com.tiji.mistakes.service.AiProviderPreset
+import com.tiji.mistakes.service.aiThinkingModeOptions
+import com.tiji.mistakes.service.normalizeAiThinkingMode
 import com.tiji.mistakes.service.AiRecognitionMode
 import com.tiji.mistakes.service.AiSolveHistoryRecord
 import com.tiji.mistakes.service.AiSolveReliabilityMode
@@ -128,6 +132,7 @@ import kotlinx.coroutines.withContext
 @Composable
 internal fun AiSolveScreen(
     viewModel: MistakeViewModel,
+    retainedListState: androidx.compose.foundation.lazy.LazyListState? = null,
     allMistakes: List<MistakeEntity>,
     aiEndpoint: String,
     aiModel: String,
@@ -139,6 +144,7 @@ internal fun AiSolveScreen(
     aiUploadConsent: Boolean,
     aiExcludeSourceImageByDefault: Boolean,
     onActiveAiProfile: (String) -> Unit,
+    onThinkingMode: (String) -> Unit,
     onOpenSettings: () -> Unit,
     onOpenSolveHistory: () -> Unit,
     onOpenMistake: (Long) -> Unit,
@@ -146,6 +152,60 @@ internal fun AiSolveScreen(
     onAiInputMode: (AiInputMode) -> Unit,
     onReliabilityMode: (AiSolveReliabilityMode) -> Unit,
     solveVisitToken: Int
+) {
+    var resetGeneration by rememberSaveable { mutableIntStateOf(0) }
+    androidx.compose.runtime.key(resetGeneration) {
+        AiSolveScreenBody(
+            viewModel = viewModel,
+            retainedListState = retainedListState,
+            allMistakes = allMistakes,
+            aiEndpoint = aiEndpoint,
+            aiModel = aiModel,
+            aiProfiles = aiProfiles,
+            activeAiProfileId = activeAiProfileId,
+            visualAssistProfile = visualAssistProfile,
+            initialAiInputMode = initialAiInputMode,
+            initialReliabilityMode = initialReliabilityMode,
+            aiUploadConsent = aiUploadConsent,
+            aiExcludeSourceImageByDefault = aiExcludeSourceImageByDefault,
+            onActiveAiProfile = onActiveAiProfile,
+            onThinkingMode = onThinkingMode,
+            onOpenSettings = onOpenSettings,
+            onOpenSolveHistory = onOpenSolveHistory,
+            onOpenMistake = onOpenMistake,
+            onAiUploadConsent = onAiUploadConsent,
+            onAiInputMode = onAiInputMode,
+            onReliabilityMode = onReliabilityMode,
+            solveVisitToken = solveVisitToken,
+            onPageReset = { resetGeneration++ }
+        )
+    }
+}
+
+@Composable
+private fun AiSolveScreenBody(
+    viewModel: MistakeViewModel,
+    retainedListState: androidx.compose.foundation.lazy.LazyListState?,
+    allMistakes: List<MistakeEntity>,
+    aiEndpoint: String,
+    aiModel: String,
+    aiProfiles: List<AiProfile>,
+    activeAiProfileId: String,
+    visualAssistProfile: AiVisualProfile?,
+    initialAiInputMode: String,
+    initialReliabilityMode: String,
+    aiUploadConsent: Boolean,
+    aiExcludeSourceImageByDefault: Boolean,
+    onActiveAiProfile: (String) -> Unit,
+    onThinkingMode: (String) -> Unit,
+    onOpenSettings: () -> Unit,
+    onOpenSolveHistory: () -> Unit,
+    onOpenMistake: (Long) -> Unit,
+    onAiUploadConsent: (Boolean) -> Unit,
+    onAiInputMode: (AiInputMode) -> Unit,
+    onReliabilityMode: (AiSolveReliabilityMode) -> Unit,
+    solveVisitToken: Int,
+    onPageReset: () -> Unit
 ) {
     var showSolveInputs by rememberSaveable { mutableStateOf(false) }
     var showSolveConfiguration by rememberSaveable { mutableStateOf(false) }
@@ -173,6 +233,7 @@ internal fun AiSolveScreen(
     var difficulty by remember { mutableIntStateOf(0) }
     var message by remember { mutableStateOf("") }
     var savedMessage by remember { mutableStateOf("") }
+    var savedNoticeVersion by remember { mutableStateOf(0) }
     var showPrivacyDialog by remember { mutableStateOf(false) }
     var showFollowUpDialog by remember { mutableStateOf(false) }
     var showDuplicateDialog by rememberSaveable { mutableStateOf(false) }
@@ -202,9 +263,8 @@ internal fun AiSolveScreen(
     var imageEditing by remember { mutableStateOf(false) }
     var cameraFile by remember { mutableStateOf(ImageStorage.cameraFile(context)) }
     var aiInputModeName by rememberSaveable { mutableStateOf(initialAiInputMode) }
-    var reliabilityModeName by rememberSaveable { mutableStateOf(initialReliabilityMode) }
     val aiInputMode = AiInputMode.entries.firstOrNull { it.name == aiInputModeName } ?: AiInputMode.VISION
-    val reliabilityMode = AiSolveReliabilityMode.parse(reliabilityModeName)
+    val reliabilityMode = AiSolveReliabilityMode.FAST
     val detectedPreset = remember(aiEndpoint, aiModel) { AiProviderPreset.detect(aiEndpoint, aiModel) }
     val visualApiKey = visualAssistProfile?.let { profile ->
         secureStore.read(profile.id).ifBlank { profile.keyProfileId?.let(secureStore::read).orEmpty() }
@@ -213,6 +273,13 @@ internal fun AiSolveScreen(
         aiInputMode == AiInputMode.VISUAL_ASSISTED &&
             (visualAssistProfile == null || visualApiKey.isBlank())
     val isLoading = aiSolveState.running
+    var elapsedSeconds by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(isLoading, aiSolveState.startedAt) {
+        while (isLoading) {
+            elapsedSeconds = ((System.currentTimeMillis() - aiSolveState.startedAt) / 1_000).coerceAtLeast(0L)
+            kotlinx.coroutines.delay(1_000)
+        }
+    }
     val completeSolution = aiSolveState.completeText.orEmpty()
     val solutionSections = remember(completeSolution) { parseAiSolutionSections(completeSolution) }
     val duplicateCandidates = remember(question, imagePaths, allMistakes) {
@@ -298,7 +365,6 @@ internal fun AiSolveScreen(
     }
 
     LaunchedEffect(initialReliabilityMode) {
-        reliabilityModeName = initialReliabilityMode
     }
 
     LaunchedEffect(solveVisitToken, aiSolveState.requestId, aiSolveState.completeText) {
@@ -413,6 +479,13 @@ internal fun AiSolveScreen(
             aiMistakeSaveState.message
         } else {
             ""
+        }
+    }
+
+    LaunchedEffect(savedMessage, savedNoticeVersion, aiMistakeSaveState.mistakeId, aiMistakeSaveState.running) {
+        if (savedMessage.isNotBlank() && aiMistakeSaveState.mistakeId != null && !aiMistakeSaveState.running) {
+            kotlinx.coroutines.delay(3_000)
+            savedMessage = ""
         }
     }
 
@@ -979,11 +1052,7 @@ internal fun AiSolveScreen(
     val savedCurrent = aiMistakeSaveState.requestId == aiSolveState.requestId && aiMistakeSaveState.mistakeId != null
     TijiScreen(
         topBar = {
-            TijiTopBar(
-                title = { Text("AI 解题") },
-                actions = { TijiTextButton(onClick = onOpenSolveHistory) { Text("历史记录") } },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
-            )
+            com.tiji.mistakes.ui.design.TijiPrimaryHeader("AI 解题") { TijiTextButton(onClick = onOpenSolveHistory) { Text("历史记录") } }
         },
         bottomBar = {
             if (hasSolution) com.tiji.mistakes.ui.design.TijiBottomActionBar(
@@ -995,8 +1064,13 @@ internal fun AiSolveScreen(
                             shape = TijiShapes.M,
                             modifier = Modifier.weight(1f).heightIn(min = 50.dp)
                         ) { Text("继续追问") }
-                        TijiButton(onClick = ::saveSolvedMistake, shape = TijiShapes.M,
-                            enabled = !aiMistakeSaveState.running && !savedCurrent,
+                        TijiButton(onClick = {
+                            if (savedCurrent) {
+                                savedMessage = "已保存到错题库"
+                                savedNoticeVersion++
+                            } else saveSolvedMistake()
+                        }, shape = TijiShapes.M,
+                            enabled = !aiMistakeSaveState.running,
                             modifier = Modifier.weight(1.4f).heightIn(min = 50.dp)) {
                             Text(if (savedCurrent) "已保存到错题库" else if (aiMistakeSaveState.running) "正在保存…" else "保存为错题")
                         }
@@ -1004,34 +1078,30 @@ internal fun AiSolveScreen(
         }
     ) { padding ->
         LazyColumn(
-            contentPadding = PaddingValues(start = 16.dp, top = 12.dp, end = 16.dp, bottom = 24.dp),
+            state = retainedListState ?: androidx.compose.foundation.lazy.rememberLazyListState(),
+            contentPadding = PaddingValues(start = 20.dp, top = 12.dp, end = 20.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
             modifier = Modifier.padding(padding).fillMaxSize()
         ) {
-            if (hasSolution) item {
-                TijiPaperCard {
-                    TijiSectionHeader(
-                        "本次解题",
-                        action = { TijiTextButton(onClick = { showSolveInputs = !showSolveInputs }) { Text(if (showSolveInputs) "收起" else "查看原题") } }
-                    )
-                }
-            }
-            if (!hasSolution || showSolveInputs) item {
+            item {
                 TijiPaperCard(contentPadding = 12.dp) {
-                    TijiSectionHeader(
-                        "输入题目",
-                        action = { TijiTextButton(onClick = { showSolveConfiguration = !showSolveConfiguration }) { Text(if (showSolveConfiguration) "收起" else "更多设置") } }
-                    )
-                    if (imagePaths.isNotEmpty()) {
-                        Text("解题方式", style = MaterialTheme.typography.labelLarge)
-                        AiInputModeSelector(
-                            selected = aiInputMode,
-                            onSelected = { aiInputModeName = it.name; onAiInputMode(it) },
-                            title = ""
-                        )
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("输入题目", style = MaterialTheme.typography.titleLarge)
+                        TijiTextButton(enabled = !aiMistakeSaveState.running, modifier = Modifier.testTag("ai_solve_clear"), onClick = {
+                            val draftPaths = imagePaths + pendingImagePaths + followUpImagePaths + followUpPendingImagePaths + listOfNotNull(editingOriginalPath, followUpEditingPath)
+                            viewModel.resetAiSolveSession()
+                            viewModel.deleteImagesIfUnreferenced(draftPaths)
+                            onPageReset()
+                        }) { Text("清空") }
+                        if (hasSolution) TijiTextButton(onClick = { showSolveInputs = !showSolveInputs }) { Text(if (showSolveInputs) "收起" else "展开") }
+                    }
+                    if (!hasSolution || showSolveInputs) {
+                    androidx.compose.material3.HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    TijiTextButton(modifier = Modifier.fillMaxWidth(), contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp), onClick = { showSolveConfiguration = !showSolveConfiguration }) {
+                        Text(if (showSolveConfiguration) "收起模型设置" else "使用模型+解题方式+思考模式", modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Start)
                     }
                     if (showSolveConfiguration) {
-                        Text("当前 AI 配置", style = MaterialTheme.typography.labelLarge)
+                        Text("使用模型", style = MaterialTheme.typography.labelLarge)
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             items(aiProfiles, key = { it.id }) { profile ->
                                 TijiChip(selected = profile.id == activeAiProfileId, onClick = { onActiveAiProfile(profile.id) }, label = { Text(profile.name) })
@@ -1041,14 +1111,35 @@ internal fun AiSolveScreen(
                         TijiTextButton(onClick = onOpenSettings, modifier = Modifier.heightIn(min = 48.dp)) {
                             Text("打开 AI 配置")
                         }
+                        Text("解题方式", style = MaterialTheme.typography.labelLarge)
+                        AiInputModeSelector(
+                            selected = aiInputMode,
+                            onSelected = { aiInputModeName = it.name; onAiInputMode(it) },
+                            title = ""
+                        )
+                        Text("思考模式", style = MaterialTheme.typography.labelLarge)
+                        val selectedThinkingMode = normalizeAiThinkingMode(
+                            aiProfiles.firstOrNull { it.id == activeAiProfileId }?.thinkingMode ?: "auto"
+                        )
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            items(aiThinkingModeOptions, key = { it.value }) { option ->
+                                TijiChip(
+                                    selected = selectedThinkingMode == option.value,
+                                    onClick = { onThinkingMode(option.value) },
+                                    modifier = Modifier.testTag("ai_solve_thinking_${option.value}"),
+                                    label = { Text(option.label) }
+                                )
+                            }
+                        }
                     }
+                    androidx.compose.material3.HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     if (imagePaths.isEmpty()) {
                         TijiDropZone(
                             title = "拍照或选择图片",
                             subtitle = "支持多张图片，AI 会按顺序识别",
                             icon = Icons.Outlined.AddAPhoto,
                             onClick = { galleryLauncher.launch("image/*") },
-                            minHeight = 140.dp,
+                            minHeight = 112.dp,
                             compact = true,
                             actions = {
                                 TijiSecondaryButton(
@@ -1088,11 +1179,19 @@ internal fun AiSolveScreen(
                                     imagePath = imagePaths.firstOrNull()
                                     viewModel.removeAiSolveImage(path)
                                     message = "已删除第 ${index + 1} 张图片"
-                                }, overlayActionLabel = "重新处理", onOverlayAction = {
-                                    editingOriginalPath = path
-                                    imagePath = path
-                                    imageEditing = true
                                 })
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    TijiTextButton(enabled = index > 0, onClick = {
+                                        imagePaths = imagePaths.toMutableList().apply { add(index - 1, removeAt(index)) }
+                                        imageHistory = imagePaths
+                                        imagePath = imagePaths.firstOrNull()
+                                    }) { Text("上移") }
+                                    TijiTextButton(enabled = index < imagePaths.lastIndex, onClick = {
+                                        imagePaths = imagePaths.toMutableList().apply { add(index + 1, removeAt(index)) }
+                                        imageHistory = imagePaths
+                                        imagePath = imagePaths.firstOrNull()
+                                    }) { Text("下移") }
+                                }
                             }
                         }
                     }
@@ -1116,6 +1215,7 @@ internal fun AiSolveScreen(
                         if (isLoading) TijiSecondaryButton(onClick = viewModel::stopAiSolve) { Text("停止") }
                     }
                     if (visualAssistBindingMissing) TijiTag("此模型尚未配置视觉辅助", containerColor = MaterialTheme.colorScheme.primaryContainer)
+                    }
                 }
             }
             item {
@@ -1124,9 +1224,10 @@ internal fun AiSolveScreen(
                     .orEmpty()
                 val statusMessage = when {
                     aiSolveState.error != null -> "AI 解题失败：${aiSolveState.error?.trimEnd('。', '.')}。"
-                    aiSolveState.status == AiSolveStatus.VERIFYING ||
-                        aiSolveState.status == AiSolveStatus.REPAIRING -> "AI 正在整理解答…"
-                    isLoading -> "AI 正在后台编写解答，切换页面、回到桌面或锁屏都不会中断…"
+                    aiSolveState.status == AiSolveStatus.VERIFYING -> "答案已返回，正在独立校验；可先查看下方解答。已用时 ${elapsedSeconds} 秒"
+                    aiSolveState.status == AiSolveStatus.REPAIRING -> "正在修正并复验解答。已用时 ${elapsedSeconds} 秒"
+                    isLoading && aiSolveState.streamedText.isBlank() -> "正在等待模型返回答案，已用时 ${elapsedSeconds} 秒"
+                    isLoading -> "正在接收解答，已用时 ${elapsedSeconds} 秒"
                     aiSolveState.status == AiSolveStatus.CANCELED -> "已停止解题。"
                     aiSolveState.status == AiSolveStatus.COMPLETED && completeSolution.isNotBlank() ->
                         "解题完成。即使切换页面，AI 任务也已在后台完成。"
@@ -1139,6 +1240,7 @@ internal fun AiSolveScreen(
                             if (isLoading) {
                                 TijiProgress(
                                     progress = { aiSolveState.progress.coerceIn(0f, 1f) },
+                                    showElapsed = false,
                                     modifier = Modifier.fillMaxWidth()
                                 )
                             }
@@ -1154,21 +1256,25 @@ internal fun AiSolveScreen(
                     }
                 }
             }
-            if (completeSolution.isNotBlank() && !isLoading) item {
+            if (completeSolution.isNotBlank() && (!isLoading || aiSolveState.status == AiSolveStatus.VERIFYING || aiSolveState.status == AiSolveStatus.REPAIRING)) item {
                 TijiPaperCard {
                     TijiSectionHeader(
                         "答案与解析",
                         action = {
                             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                 if (aiSolveState.previousCompleteText.isNotBlank()) {
-                                    TijiTextButton(onClick = viewModel::undoAiSolveCorrection) { Text("撤销本次修正") }
+                                    TijiTextButton(enabled = !isLoading, onClick = viewModel::undoAiSolveCorrection) { Text("撤销本次修正") }
                                 }
                                 TijiTextButton(onClick = { aiSolutionExpanded = !aiSolutionExpanded }) { Text(if (aiSolutionExpanded) "收起" else "展开") }
                             }
                         }
                     )
                     if (aiSolutionExpanded) {
-                        if (solutionSections.structured) {
+                        if (isLoading) {
+                            // Verification is still running: expose returned text
+                            // without enabling edits to an unfinished solve state.
+                            AiSolutionSection("解答预览", visibleAiSolution(completeSolution))
+                        } else if (solutionSections.structured) {
                             AiSolutionSection(
                                 "题目",
                                 if (solutionSections.schemaVersion >= 2) {
@@ -1182,13 +1288,18 @@ internal fun AiSolveScreen(
                                 solveContentBlocks.filter { it.role == ContentBlockRole.QUESTION },
                                 onDelete = { block -> viewModel.removeAiSolveContentBlock(block.path) }
                             )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
                             TijiTextButton(
+                                enabled = !isLoading,
                                 onClick = {
                                     recognitionEditDraft = question
                                     showRecognitionEditor = true
                                 },
                                 modifier = Modifier.heightIn(min = 48.dp)
                             ) { Text("编辑题目") }
+                            com.tiji.mistakes.ui.editor.AddQuestionImagesButton(viewModel::addAiSolveQuestionImages)
+                            }
+                            androidx.compose.material3.HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                             val explanation = listOf(solutionSections.approach, solutionSections.derivation)
                                 .filter(String::isNotBlank)
                                 .joinToString("\n\n")
@@ -1201,6 +1312,7 @@ internal fun AiSolveScreen(
                                 solveContentBlocks.filter { it.role == ContentBlockRole.EXPLANATION },
                                 onDelete = { block -> viewModel.removeAiSolveContentBlock(block.path) }
                             )
+                            androidx.compose.material3.HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                             AiSolutionSection(
                                 "答案",
                                 solutionSections.finalAnswer,
@@ -1216,6 +1328,7 @@ internal fun AiSolveScreen(
                                 solveContentBlocks.filter { it.role == ContentBlockRole.EXPLANATION },
                                 onDelete = { block -> viewModel.removeAiSolveContentBlock(block.path) }
                             )
+                            androidx.compose.material3.HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                         }
                     }
                     Text("长按题目、答案或解析文字可选择部分复制", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -1250,9 +1363,6 @@ internal fun AiSolveScreen(
                                 latestChat.imagePaths.forEach { path -> ImagePreview(path) }
                                 Text("AI 解答", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
                                 AiConversationReply(latestChat.reply)
-                            }
-                            if (latestChat != null && !followUpLoading) {
-                                TijiTextButton(onClick = { copyAiText(followUpReplyForDisplay(latestChat.reply)) }) { Text("复制回复") }
                             }
                             if (aiChatStatusMessage.isNotBlank()) {
                                 val chatFailed = aiChatStatusMessage.startsWith("AI 对话失败：")

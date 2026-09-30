@@ -109,6 +109,7 @@ import com.tiji.mistakes.ui.editor.MistakeSaveMetadata
 import com.tiji.mistakes.ui.editor.MistakeSaveSheet
 import com.tiji.mistakes.ui.image.ImagePreview
 import com.tiji.mistakes.ui.math.MathText
+import com.tiji.mistakes.ui.math.numberedAnswerText
 import com.tiji.mistakes.ui.MistakeViewModel
 import com.tiji.mistakes.ui.math.stripQuestionCommentary
 import com.tiji.mistakes.ui.design.TijiPaperCard
@@ -137,16 +138,13 @@ internal fun AiSolutionSection(
     preserveSourceExactly: Boolean = false
 ) {
     if (content.isBlank()) return
-    TijiSurface(
-        color = if (label == "最终答案") MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
-        shape = TijiShapes.M,
-        border = BorderStroke(1.dp, if (label == "最终答案") MaterialTheme.colorScheme.primary.copy(alpha = 0.32f) else MaterialTheme.colorScheme.outlineVariant),
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(label, fontWeight = FontWeight.Bold, color = if (label == "最终答案") MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.primary)
+        Text(label, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
         MathText(
-            content,
+            if (label == "答案" || label == "最终答案") numberedAnswerText(content) else content,
             normalizeTerminalPeriod = label == "最终答案",
             preserveReturnedLayout = true,
             preserveSourceExactly = preserveSourceExactly,
@@ -154,7 +152,6 @@ internal fun AiSolutionSection(
             compactQuestionLayout = label == "题目识别",
             compactVerticalSpacing = true
         )
-    }
     }
 }
 

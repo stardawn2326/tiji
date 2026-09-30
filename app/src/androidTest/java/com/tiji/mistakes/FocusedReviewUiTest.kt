@@ -185,7 +185,7 @@ class FocusedReviewUiTest {
                 true
             }.getOrDefault(false)
         }
-        composeRule.onNodeWithTag("review_session_completed").assertTextEquals("2")
+        composeRule.onNodeWithTag("review_session_completed").assertDoesNotExist()
         composeRule.onNodeWithTag("review_session_forgot").assertTextEquals("0")
         composeRule.onNodeWithTag("review_session_hard").assertTextEquals("0")
         composeRule.onNodeWithTag("review_session_good").assertTextEquals("2")

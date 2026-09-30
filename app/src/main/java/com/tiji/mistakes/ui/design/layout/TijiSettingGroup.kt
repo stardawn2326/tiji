@@ -25,8 +25,7 @@ internal fun TijiSettingGroup(
     headerIcon: (@Composable () -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
-    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+    TijiPaperCard(modifier = Modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             headerIcon?.invoke() ?: Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.size(8.dp))

@@ -37,12 +37,12 @@ object AiStructuredFollowUpCodec {
         return raw.substring(payloadStart, end).trim()
     }
 
-    private fun parseSegments(raw: JSONArray?): List<QuestionSegment> {
+    internal fun parseSegments(raw: JSONArray?): List<QuestionSegment> {
         if (raw == null) return emptyList()
         return buildList {
             for (index in 0 until raw.length()) {
                 val item = raw.optJSONObject(index) ?: continue
-                val type = when (item.optString("type").trim().lowercase()) {
+                val type = when (item.segmentTypeName().trim().lowercase()) {
                     "math", "formula", "latex" -> "math"
                     "block", "display", "displaymath", "display_math" -> "block"
                     "linebreak", "line_break", "line break" -> "lineBreak"
@@ -51,9 +51,9 @@ object AiStructuredFollowUpCodec {
                     else -> "text"
                 }
                 val value = when (type) {
-                    "math", "block" -> repairMalformedFollowUpLatex(item.optString("latex"))
+                    "math", "block" -> repairMalformedFollowUpLatex(item.segmentContent(math = true))
                     "lineBreak", "paragraphBreak" -> ""
-                    else -> item.optString("text")
+                    else -> item.segmentContent(math = false)
                 }
                 if (type == "text") {
                     addAll(repairStructuredFollowUpText(value))
@@ -92,7 +92,7 @@ internal fun repairMalformedFollowUpLatex(raw: String): String {
         }
         .replace(Regex("""(?<![\\A-Za-z])xi\s*in(?=\s*(?:\(|\[))""")) { "\\xi\\in" }
         .replace(Regex("""(?<![\\A-Za-z])int(?=\s*[_^])""")) { "\\int" }
-        .replace(Regex("""(?<![\\A-Za-z])mathrm\s*\{\s*d\s*}""")) { "\\mathrm{d}" }
+        .replace(Regex("""(?<![\\A-Za-z])mathrm\s*\{\s*d\s*\}""")) { "\\mathrm{d}" }
         .replace(Regex("""(?<![\\A-Za-z])(?:eta|xi)(?=\s*[_^{(])""")) { "\\${it.value}" }
         .replace(Regex("""(?<=[0-9})])\s+subset(?=\s*(?:\(|\[))""")) { " \\subset" }
         .replace(Regex("""(?<![\\A-Za-z])mathrm\s*d(?=\s*t\b)""")) { "\\mathrm{d}" }
@@ -165,36 +165,21 @@ private fun incompleteFollowUpForDisplay(raw: String): String {
         .trim()
     if (payload.isBlank()) return raw.trim()
 
-    val completeSegment = Regex(
-        """(?s)\{\s*\"type\"\s*:\s*\"(text|math|block)\"\s*,\s*\"(?:text|latex)\"\s*:\s*\"((?:\\.|[^\"\\])*)\"\s*}"""
-    )
-    val completeMatches = completeSegment.findAll(payload).toList()
-    val recovered = completeMatches.mapNotNull { match ->
-        val value = decodeJsonString(match.groupValues[2]) ?: return@mapNotNull null
-        when (match.groupValues[1]) {
-            "text" -> repairStructuredFollowUpText(value)
-            "math", "block" -> listOf(QuestionSegment(match.groupValues[1], repairMalformedFollowUpLatex(value)))
-            else -> emptyList()
-        }
-    }.flatten().toMutableList()
-
-    val tailStart = completeMatches.lastOrNull()?.range?.last?.plus(1) ?: 0
-    val incompleteValue = Regex(
-        """(?s)\"type\"\s*:\s*\"(text|math|block)\"\s*,\s*\"(?:text|latex)\"\s*:\s*\"((?:\\.|[^\"\\])*)$"""
-    ).find(payload.substring(tailStart))
-    if (incompleteValue != null) {
-        val value = decodeJsonString(incompleteValue.groupValues[2])
-        if (!value.isNullOrBlank()) {
-            when (incompleteValue.groupValues[1]) {
-                "text" -> recovered += repairStructuredFollowUpText(value)
-                "math", "block" -> recovered += QuestionSegment(
-                    incompleteValue.groupValues[1],
-                    repairMalformedFollowUpLatex(value)
-                )
-            }
+    val segmentsStart = Regex(""""segments"\s*:\s*\[""").find(payload)?.range?.last?.plus(1)
+        ?: return markdownFollowUpForDisplay(payload)
+    val objects = extractCompleteJsonObjects(payload, segmentsStart)
+    val recovered = objects.complete.flatMap { objectSource ->
+        runCatching {
+            AiStructuredFollowUpCodec.parseSegments(JSONArray().put(JSONObject(objectSource)))
+        }.getOrDefault(emptyList())
+    }.toMutableList()
+    objects.partial?.let(::parsePartialSegment)?.let { segment ->
+        when (segment.type) {
+            "text" -> recovered += repairStructuredFollowUpText(segment.value)
+            "math", "block" -> recovered += segment.copy(value = repairMalformedFollowUpLatex(segment.value))
+            else -> recovered += segment
         }
     }
-
     return recovered.takeIf(List<QuestionSegment>::isNotEmpty)
         ?.let { AiStructuredSolutionSection("followUp", it).displaySource() }
         ?.takeIf(String::isNotBlank)

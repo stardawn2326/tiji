@@ -22,7 +22,8 @@ data class AiProfile(
     val id: String,
     val name: String,
     val endpoint: String,
-    val model: String
+    val model: String,
+    val thinkingMode: String = "auto"
 )
 
 /** A vision-only helper bound to one text-model profile. The API key is kept in the
@@ -57,6 +58,7 @@ class AppPreferences(private val context: Context) {
     private val reviewSubjectCatalogKey = stringPreferencesKey("review_subject_catalog")
     private val reviewPlanEnabledKey = booleanPreferencesKey("review_plan_enabled")
     private val randomReviewKey = booleanPreferencesKey("random_review")
+    private val reviewOriginalImagesKey = booleanPreferencesKey("review_original_images")
     private val reviewCheckInsKey = stringPreferencesKey("review_check_ins")
     private val reviewProgressKey = stringPreferencesKey("review_progress")
     private val reviewMasteryKey = stringPreferencesKey("review_mastery")
@@ -93,6 +95,7 @@ class AppPreferences(private val context: Context) {
     val reviewSubjectCatalog: Flow<List<String>> = context.tijiDataStore.data.map { decodeSubjectCatalog(it[reviewSubjectCatalogKey]) }
     val reviewPlanEnabled: Flow<Boolean> = context.tijiDataStore.data.map { it[reviewPlanEnabledKey] ?: false }
     val randomReview: Flow<Boolean> = context.tijiDataStore.data.map { it[randomReviewKey] ?: false }
+    val reviewOriginalImages: Flow<Boolean> = context.tijiDataStore.data.map { it[reviewOriginalImagesKey] ?: false }
     val reviewCheckIns: Flow<Set<String>> = context.tijiDataStore.data.map { decodeStringSet(it[reviewCheckInsKey]) }
     /**
      * Deprecated compatibility surfaces. ReviewRecordEntity is now the only
@@ -261,6 +264,7 @@ class AppPreferences(private val context: Context) {
     }
     suspend fun setReviewPlanEnabled(value: Boolean) { context.tijiDataStore.edit { it[reviewPlanEnabledKey] = value } }
     suspend fun setRandomReview(value: Boolean) { context.tijiDataStore.edit { it[randomReviewKey] = value } }
+    suspend fun setReviewOriginalImages(value: Boolean) { context.tijiDataStore.edit { it[reviewOriginalImagesKey] = value } }
 
     /** @deprecated Legacy migration shim; new review facts are written by Room. */
     @Deprecated("Use MistakeRepository.recordReview")
@@ -346,6 +350,7 @@ class AppPreferences(private val context: Context) {
             .put("reviewSubjectCatalog", JSONArray(preferences[reviewSubjectCatalogKey] ?: "[]"))
             .put("reviewPlanEnabled", preferences[reviewPlanEnabledKey] ?: false)
             .put("randomReview", preferences[randomReviewKey] ?: false)
+            .put("reviewOriginalImages", preferences[reviewOriginalImagesKey] ?: false)
             .put("reviewCheckIns", JSONArray(preferences[reviewCheckInsKey] ?: "[]"))
             .put("reviewPlanSnapshots", snapshots)
     }
@@ -412,6 +417,7 @@ class AppPreferences(private val context: Context) {
             preferences[reviewSubjectCatalogKey] = (json.optJSONArray("reviewSubjectCatalog") ?: JSONArray()).toString()
             preferences[reviewPlanEnabledKey] = json.optBoolean("reviewPlanEnabled", false)
             preferences[randomReviewKey] = json.optBoolean("randomReview", false)
+            preferences[reviewOriginalImagesKey] = json.optBoolean("reviewOriginalImages", false)
 
             val importedCheckIns = decodeStringSet(json.optJSONArray("reviewCheckIns")?.toString())
             val currentCheckIns = if (replace) emptySet() else decodeStringSet(preferences[reviewCheckInsKey])
@@ -448,14 +454,14 @@ class AppPreferences(private val context: Context) {
             (0 until array.length()).mapNotNull { index ->
                 val item = array.optJSONObject(index) ?: return@mapNotNull null
                 val id = item.optString("id").trim().ifBlank { return@mapNotNull null }
-                AiProfile(id, item.optString("name").ifBlank { "未命名配置" }, item.optString("endpoint"), item.optString("model"))
+                AiProfile(id, item.optString("name").ifBlank { "未命名配置" }, item.optString("endpoint"), item.optString("model"), item.optString("thinkingMode", "auto"))
             }.ifEmpty { listOf(AiProfile(DEFAULT_PROFILE_ID, "默认 AI", endpoint, model)) }
         }.getOrElse { listOf(AiProfile(DEFAULT_PROFILE_ID, "默认 AI", endpoint, model)) }
     }
 
     private fun encodeProfiles(value: List<AiProfile>): String = JSONArray().apply {
         value.forEach { profile ->
-            put(JSONObject().put("id", profile.id).put("name", profile.name).put("endpoint", profile.endpoint).put("model", profile.model))
+            put(JSONObject().put("id", profile.id).put("name", profile.name).put("endpoint", profile.endpoint).put("model", profile.model).put("thinkingMode", profile.thinkingMode))
         }
     }.toString()
 

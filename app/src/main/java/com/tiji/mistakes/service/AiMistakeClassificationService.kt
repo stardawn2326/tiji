@@ -170,7 +170,7 @@ class AiMistakeClassificationService : Service() {
                 buildClassificationSource(mistake)
             }
             val classification = withTimeout(CLASSIFICATION_TIMEOUT_MS) {
-                AiVisionService().analyzeSolvedContent(
+                AiVisionService(appContext = this@AiMistakeClassificationService).analyzeSolvedContent(
                     endpoint = running.endpoint,
                     model = running.model,
                     apiKey = apiKey,

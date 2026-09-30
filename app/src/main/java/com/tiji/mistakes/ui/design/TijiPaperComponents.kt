@@ -3,6 +3,7 @@ package com.tiji.mistakes.ui.design
 import androidx.compose.ui.unit.dp
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
@@ -27,6 +28,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -46,7 +49,7 @@ internal fun TijiPageHeader(
     eyebrow: String? = null,
     action: @Composable () -> Unit = {}
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Column(modifier = Modifier.padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
@@ -79,12 +82,15 @@ internal fun TijiSectionHeader(
     subtitle: String? = null,
     action: @Composable () -> Unit = {}
 ) {
+    val ruleColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().drawBehind {
+            drawLine(ruleColor, Offset(0f, size.height + 4.dp.toPx()), Offset(size.width, size.height + 4.dp.toPx()), 1.dp.toPx())
+        },
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(title, style = MaterialTheme.typography.titleLarge)
+            Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { heading() })
             if (!subtitle.isNullOrBlank()) {
                 Text(
                     subtitle,
@@ -125,13 +131,13 @@ internal fun TijiDropZone(
     icon: ImageVector,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    minHeight: Dp = 148.dp,
+    minHeight: Dp = 112.dp,
     compact: Boolean = false,
     actions: (@Composable RowScope.() -> Unit)? = null
 ) {
     val shape = TijiShapes.L
     val borderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.56f)
-    val contentPadding = if (compact) 12.dp else 18.dp
+    val contentPadding = if (compact) 8.dp else 12.dp
     val iconPadding = if (compact) 8.dp else 10.dp
     val iconSize = if (compact) 23.dp else 25.dp
     val titleGap = if (compact) 6.dp else 10.dp
@@ -140,18 +146,9 @@ internal fun TijiDropZone(
             .fillMaxWidth()
             .heightIn(min = minHeight)
             .clip(shape)
+            .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f))
             .clickable(onClick = onClick)
     ) {
-        Canvas(Modifier.fillMaxSize()) {
-            drawRoundRect(
-                color = borderColor,
-                style = Stroke(
-                    width = 1.5.dp.toPx(),
-                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(10.dp.toPx(), 7.dp.toPx()))
-                ),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(16.dp.toPx())
-            )
-        }
         Column(
             modifier = Modifier.fillMaxWidth().padding(contentPadding),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -189,24 +186,37 @@ internal fun TijiPaperCard(
     selected: Boolean = false,
     onClick: (() -> Unit)? = null,
     contentPadding: Dp = TijiDimens.cardPadding,
+    animateContentSizeEnabled: Boolean = true,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val borderColor = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
     val borderWidth = if (selected) 1.5.dp else 1.dp
     val cardModifier = modifier.fillMaxWidth().semantics { this.selected = selected }
+    val contentModifier = Modifier
+        .fillMaxWidth()
+        .let { base ->
+            if (animateContentSizeEnabled) {
+                base.animateContentSize(animationSpec = tween(TijiMotion.Normal))
+            } else {
+                base
+            }
+        }
     val cardContent: @Composable ColumnScope.() -> Unit = {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .animateContentSize(animationSpec = tween(TijiMotion.Normal))
-                .padding(contentPadding),
+            modifier = contentModifier.padding(contentPadding),
             verticalArrangement = Arrangement.spacedBy(TijiDimens.controlGap),
             content = content
         )
     }
     if (onClick == null) {
         Card(
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            colors = CardDefaults.cardColors(
+                containerColor = if (selected) {
+                    MaterialTheme.colorScheme.primaryContainer
+                } else {
+                    MaterialTheme.colorScheme.surface
+                }
+            ),
             border = BorderStroke(borderWidth, borderColor),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
             shape = TijiShapes.M,
@@ -216,7 +226,13 @@ internal fun TijiPaperCard(
     } else {
         Card(
             onClick = onClick,
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            colors = CardDefaults.cardColors(
+                containerColor = if (selected) {
+                    MaterialTheme.colorScheme.primaryContainer
+                } else {
+                    MaterialTheme.colorScheme.surface
+                }
+            ),
             border = BorderStroke(borderWidth, borderColor),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
             shape = TijiShapes.M,

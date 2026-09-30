@@ -6,6 +6,19 @@ import org.json.JSONObject
 const val TIJI_SOLUTION_V2_START = "[[TIJI_SOLUTION_V2_START]]"
 const val TIJI_SOLUTION_V2_END = "[[TIJI_SOLUTION_V2_END]]"
 
+/** Keep provider content even when a segment uses a compatible field name. */
+internal fun JSONObject.segmentContent(math: Boolean): String {
+    val fields = if (math) listOf("latex", "math", "block", "formula", "display", "text", "content", "value") else listOf("text", "content", "value", "latex")
+    return fields.firstNotNullOfOrNull { field ->
+        (opt(field) as? String)?.takeIf(String::isNotBlank)
+    }.orEmpty()
+}
+
+/** Some compatible providers encode segments as {"math":"..."} without a type. */
+internal fun JSONObject.segmentTypeName(): String = optString("type").takeIf { it.isNotBlank() && it != "null" }
+    ?: listOf("math", "block", "formula", "latex", "display", "lineBreak", "paragraphBreak", "blank", "text")
+        .firstOrNull(::has).orEmpty()
+
 data class AiStructuredSolutionSection(
     val id: String,
     val segments: List<QuestionSegment>
@@ -30,8 +43,13 @@ data class AiStructuredSolution(
     val schemaVersion: Int,
     val sections: List<AiStructuredSolutionSection>
 ) {
-    fun section(id: String): AiStructuredSolutionSection? =
-        sections.firstOrNull { it.id.equals(id, ignoreCase = true) }
+    fun section(id: String): AiStructuredSolutionSection? {
+        val matching = sections.filter { it.id.equals(id, ignoreCase = true) }
+        if (matching.isEmpty()) return null
+        return AiStructuredSolutionSection(id, matching.flatMapIndexed { index, section ->
+            if (index == 0) section.segments else listOf(QuestionSegment("paragraphBreak", "")) + section.segments
+        })
+    }
 
     fun copyText(): String = buildList {
         listOf(
@@ -92,7 +110,12 @@ object AiStructuredSolutionCodec {
 
     private fun extractPayload(raw: String): String? {
         val start = raw.indexOf(TIJI_SOLUTION_V2_START)
-        if (start < 0) return null
+        if (start < 0) {
+            // Some compatible providers omit the transport envelope or wrap
+            // the same JSON in a Markdown fence. Schema validation stays in parse().
+            val bare = raw.trim().removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
+            return bare.takeIf { it.startsWith("{") && it.endsWith("}") }
+        }
         val payloadStart = start + TIJI_SOLUTION_V2_START.length
         val end = raw.indexOf(TIJI_SOLUTION_V2_END, payloadStart)
         if (end <= payloadStart) return null
@@ -107,11 +130,11 @@ object AiStructuredSolutionCodec {
         return buildList {
             for (index in 0 until raw.length()) {
                 val item = raw.optJSONObject(index) ?: continue
-                val type = canonicalSegmentType(item.optString("type"))
+                val type = canonicalSegmentType(item.segmentTypeName())
                 val value = when (type) {
-                    "math", "block" -> item.optString("latex")
+                    "math", "block" -> item.segmentContent(math = true)
                     "lineBreak", "paragraphBreak", "blank" -> ""
-                    else -> item.optString("text")
+                    else -> item.segmentContent(math = false)
                 }
                 if (type in setOf("lineBreak", "paragraphBreak", "blank") || value.isNotBlank()) {
                     add(QuestionSegment(type, value))
@@ -136,6 +159,10 @@ object AiStructuredSolutionCodec {
         "blank", "fill", "underline" -> "blank"
         else -> "text"
     }
+}
+
+internal fun requireReadableAiSolution(raw: String) {
+    require(stripAiProtocolForDisplay(raw).isNotBlank()) { "AI 未返回可展示的解题结果" }
 }
 
 /** Hide transport envelopes for both frozen V2 results and legacy history rows. */
@@ -185,7 +212,7 @@ private fun recoverPartialStructuredSolutionForDisplay(raw: String): String? {
             val objects = extractCompleteJsonObjects(region, segmentsStart)
             val parsed = objects.complete.mapNotNull(::parseRecoveredSegment).toMutableList()
             objects.partial?.let(::parsePartialSegment)?.let(parsed::add)
-            if (parsed.isNotEmpty() && none { it.id == id }) {
+            if (parsed.isNotEmpty()) {
                 add(AiStructuredSolutionSection(id, parsed))
             }
         }
@@ -200,12 +227,12 @@ private fun recoverPartialStructuredSolutionForDisplay(raw: String): String? {
     return payload
 }
 
-private data class RecoveredJsonObjects(
+internal data class RecoveredJsonObjects(
     val complete: List<String>,
     val partial: String?
 )
 
-private fun extractCompleteJsonObjects(source: String, startIndex: Int): RecoveredJsonObjects {
+internal fun extractCompleteJsonObjects(source: String, startIndex: Int): RecoveredJsonObjects {
     val complete = mutableListOf<String>()
     var objectStart = -1
     var depth = 0
@@ -243,23 +270,23 @@ private fun extractCompleteJsonObjects(source: String, startIndex: Int): Recover
 
 private fun parseRecoveredSegment(raw: String): QuestionSegment? = runCatching {
     val item = JSONObject(raw)
-    val type = canonicalPartialSegmentType(item.optString("type"))
+    val type = canonicalPartialSegmentType(item.segmentTypeName())
     val value = when (type) {
-        "math", "block" -> item.optString("latex")
+        "math", "block" -> item.segmentContent(math = true)
         "lineBreak", "paragraphBreak", "blank" -> ""
-        else -> item.optString("text")
+        else -> item.segmentContent(math = false)
     }
     QuestionSegment(type, value).takeIf {
         type in setOf("lineBreak", "paragraphBreak", "blank") || value.isNotBlank()
     }
 }.getOrNull()
 
-private fun parsePartialSegment(raw: String): QuestionSegment? {
+internal fun parsePartialSegment(raw: String): QuestionSegment? {
     val typeValue = Regex("\\\"type\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"")
         .find(raw)?.groupValues?.getOrNull(1) ?: return null
     val type = canonicalPartialSegmentType(typeValue)
     if (type in setOf("lineBreak", "paragraphBreak", "blank")) return QuestionSegment(type, "")
-    val field = if (type == "math" || type == "block") "latex" else "text"
+    val field = if (type == "math" || type == "block") "(?:latex|text|content|value)" else "(?:text|content|value|latex)"
     val fieldMatch = Regex("\\\"$field\\\"\\s*:\\s*\\\"").find(raw) ?: return null
     val encodedStart = fieldMatch.range.last + 1
     val encoded = buildString {

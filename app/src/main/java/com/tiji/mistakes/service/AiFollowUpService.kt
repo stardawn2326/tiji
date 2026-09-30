@@ -22,7 +22,7 @@ import kotlinx.coroutines.TimeoutCancellationException
 
 class AiFollowUpService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val aiService = AiVisionService()
+    private val aiService = AiVisionService(appContext = this)
     private lateinit var stateStore: AiChatStateStore
     private var followUpJob: Job? = null
 
@@ -47,8 +47,6 @@ class AiFollowUpService : Service() {
         val endpoint = command.getStringExtra(EXTRA_ENDPOINT).orEmpty()
         val model = command.getStringExtra(EXTRA_MODEL).orEmpty()
         val apiKey = command.getStringExtra(EXTRA_API_KEY).orEmpty()
-        val baseContext = command.getStringExtra(EXTRA_CONTEXT).orEmpty()
-        val prompt = command.getStringExtra(EXTRA_PROMPT).orEmpty()
         val imagePath = command.getStringExtra(EXTRA_IMAGE_PATH)
         val sourceImagePaths = (command.getStringArrayListExtra(EXTRA_SOURCE_IMAGE_PATHS).orEmpty() + listOfNotNull(imagePath))
             .filter(String::isNotBlank)
@@ -56,7 +54,25 @@ class AiFollowUpService : Service() {
         val graphicImagePath = command.getStringExtra(EXTRA_GRAPHIC_IMAGE_PATH)
         val followUpImagePaths = command.getStringArrayListExtra(EXTRA_FOLLOW_UP_IMAGE_PATHS).orEmpty()
         followUpJob = serviceScope.launch {
+            val payload = runCatching {
+                command.getStringExtra(EXTRA_PAYLOAD)?.let { AiFollowUpRequestStore(this@AiFollowUpService).take(it) }
+                    ?: (command.getStringExtra(EXTRA_CONTEXT).orEmpty() to command.getStringExtra(EXTRA_PROMPT).orEmpty())
+            }.getOrElse { error ->
+                val current = stateStore.read()
+                if (current.requestId == requestId && current.running) {
+                    stateStore.write(finishAiChatWithAvailableContent(current, status = "FAILED", error = error.message))
+                }
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf(startId)
+                return@launch
+            }
+            val (baseContext, prompt) = payload
             val previous = stateStore.read()
+            if (previous.requestId != requestId || !previous.running) {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf(startId)
+                return@launch
+            }
             val initial = previous.copy(
                 requestId = requestId,
                 running = true,
@@ -100,6 +116,12 @@ class AiFollowUpService : Service() {
                 }
             ).getOrThrow() } }
             result.exceptionOrNull()?.let { if (it is CancellationException && it !is TimeoutCancellationException) throw it }
+            val latest = stateStore.read()
+            if (latest.requestId != requestId || !latest.running) {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf(startId)
+                return@launch
+            }
             result.onSuccess { reply ->
                 stateStore.write(
                     initial.copy(
@@ -198,6 +220,7 @@ class AiFollowUpService : Service() {
         const val EXTRA_API_KEY = "api_key"
         const val EXTRA_CONTEXT = "context"
         const val EXTRA_PROMPT = "prompt"
+        internal const val EXTRA_PAYLOAD = "payload_reference"
         const val EXTRA_IMAGE_PATH = "image_path"
         const val EXTRA_SOURCE_IMAGE_PATHS = "source_image_paths"
         const val EXTRA_GRAPHIC_IMAGE_PATH = "graphic_image_path"
@@ -223,8 +246,7 @@ class AiFollowUpService : Service() {
             putExtra(EXTRA_ENDPOINT, endpoint)
             putExtra(EXTRA_MODEL, model)
             putExtra(EXTRA_API_KEY, apiKey)
-            putExtra(EXTRA_CONTEXT, baseContext)
-            putExtra(EXTRA_PROMPT, prompt)
+            putExtra(EXTRA_PAYLOAD, AiFollowUpRequestStore(context).write(baseContext, prompt))
             putExtra(EXTRA_IMAGE_PATH, imagePath)
             putStringArrayListExtra(EXTRA_SOURCE_IMAGE_PATHS, ArrayList(sourceImagePaths.filter(String::isNotBlank).distinct()))
             putExtra(EXTRA_GRAPHIC_IMAGE_PATH, graphicImagePath)

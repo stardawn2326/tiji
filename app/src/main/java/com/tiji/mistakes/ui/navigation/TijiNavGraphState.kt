@@ -1,5 +1,6 @@
 package com.tiji.mistakes.ui.navigation
 
+import androidx.compose.foundation.lazy.LazyListState
 import com.tiji.mistakes.data.AiProfile
 import com.tiji.mistakes.data.AiVisualProfile
 import com.tiji.mistakes.data.MistakeEntity
@@ -7,7 +8,6 @@ import com.tiji.mistakes.data.MistakeKnowledgePointCrossRef
 import com.tiji.mistakes.data.ReviewRecordEntity
 import com.tiji.mistakes.data.KnowledgePointEntity
 import com.tiji.mistakes.domain.DailyStudyPlan
-import com.tiji.mistakes.domain.FutureReviewPlanDay
 import com.tiji.mistakes.domain.ReviewAnalyticsSummary
 import com.tiji.mistakes.domain.MistakeProgressSummary
 import com.tiji.mistakes.domain.MistakeListItem
@@ -26,7 +26,6 @@ internal data class TijiNavGraphState(
     val knowledgePointLinks: List<MistakeKnowledgePointCrossRef>,
     val reviewAnalytics: ReviewAnalyticsSummary,
     val dailyStudyPlan: DailyStudyPlan,
-    val futureReviewPlan: List<FutureReviewPlanDay>,
     val reviewPlanSnapshots: Map<String, List<Long>>,
     val reviewRecords: List<ReviewRecordEntity>,
     val reviewCheckIns: Set<String>,
@@ -52,5 +51,11 @@ internal data class TijiNavGraphState(
     val solveVisitToken: Int,
     val reviewVisitToken: Int,
     val settingsVisitToken: Int,
-    val knowledgeVisitToken: Int
+    val knowledgeVisitToken: Int,
+    val homeListState: LazyListState,
+    val libraryListState: LazyListState,
+    val solveListState: LazyListState,
+    val reviewListState: LazyListState,
+    val settingsListState: LazyListState,
+    val knowledgeListState: LazyListState
 )

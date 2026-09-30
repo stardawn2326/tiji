@@ -12,7 +12,8 @@ internal fun buildMathHtml(
     preserveSourceExactly: Boolean = false,
     allowDomLayout: Boolean = true,
     responsiveQuestionLayout: Boolean = false,
-    compactVerticalSpacing: Boolean = false
+    compactVerticalSpacing: Boolean = false,
+    renderMathMl: Boolean = true
 ): String {
     val dollar = '$'
     val quotedSource = JSONObject.quote(source)
@@ -84,6 +85,7 @@ internal fun buildMathHtml(
               const source = $quotedSource
                 .replace(/\\n(?![A-Za-z])/g, '\n');
               const root = document.getElementById('root');
+              window.__TIJI_MATH_READY__ = false;
               let renderTarget = root;
               let preserveLeadingLineBreaks = false;
               let lastFormulaNode = null;
@@ -166,7 +168,7 @@ internal fun buildMathHtml(
                   node.innerHTML = katex.renderToString(renderedFormula, {
                     displayMode: renderDisplay,
                     throwOnError: true,
-                    output: 'htmlAndMathml'
+                    output: '${if (renderMathMl) "htmlAndMathml" else "html"}'
                   });
                   renderTarget.appendChild(node);
                   lastFormulaNode = node;
@@ -264,7 +266,18 @@ internal fun buildMathHtml(
 
               requestAnimationFrame(() => {
                 decorateFormulas();
-                requestAnimationFrame(decorateFormulas);
+                requestAnimationFrame(() => {
+                  decorateFormulas();
+                  const fontsReady = document.fonts && document.fonts.ready
+                    ? document.fonts.ready
+                    : Promise.resolve();
+                  Promise.resolve(fontsReady)
+                    .then(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+                    .then(() => {
+                      decorateFormulas();
+                      window.__TIJI_MATH_READY__ = true;
+                    });
+                });
               });
             })();
           </script>

@@ -2,7 +2,6 @@ package com.tiji.mistakes.ui
 
 import com.tiji.mistakes.ui.design.*
 import android.app.Activity
-import android.graphics.Color as AndroidColor
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.darkColorScheme
@@ -13,6 +12,10 @@ import androidx.compose.material3.Typography
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.remember
+import com.tiji.mistakes.ui.math.MathWebViewPool
+import com.tiji.mistakes.ui.math.LocalMathWebViewPool
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
@@ -30,7 +33,14 @@ enum class ThemeMode(val key: String, val label: String) {
 }
 
 enum class ThemePalette(val key: String, val label: String, val preview: Color) {
-    BLUE("blue", "蓝白纸感", Color(0xFF5267F7));
+    BLUE("blue", "晴蓝", Color(0xFF2563EB)),
+    GREEN("green", "松绿", Color(0xFF087F5B)),
+    TEAL("teal", "湖青", Color(0xFF0E7490)),
+    PURPLE("purple", "鸢紫", Color(0xFF7C3AED)),
+    ROSE("rose", "玫粉", Color(0xFFBE185D)),
+    AMBER("amber", "琥珀", Color(0xFFB45309)),
+    INDIGO("indigo", "靛青", Color(0xFF4338CA)),
+    COCOA("cocoa", "可可", Color(0xFF795548));
     companion object { fun fromKey(key: String) = entries.firstOrNull { it.key == key } ?: BLUE }
 }
 
@@ -62,7 +72,7 @@ private fun SystemBars(dark: Boolean, background: Color) {
         val activity = context as? Activity
         if (activity != null) {
             val window = activity.window
-            window.statusBarColor = if (dark) background.toArgb() else AndroidColor.TRANSPARENT
+            window.statusBarColor = background.toArgb()
             window.navigationBarColor = background.toArgb()
             WindowCompat.getInsetsController(window, window.decorView).apply {
                 isAppearanceLightStatusBars = !dark
@@ -79,8 +89,10 @@ fun TijiTheme(
     content: @Composable () -> Unit
 ) {
     val dark = when (mode) { ThemeMode.SYSTEM -> isSystemInDarkTheme(); ThemeMode.LIGHT -> false; ThemeMode.DARK -> true }
-    val colors = if (dark) TijiDarkColors else TijiLightColors
-    CompositionLocalProvider(LocalTijiSemanticColors provides if (dark) DarkTijiSemanticColors else LightTijiSemanticColors) {
+    val colors = tijiColorScheme(palette, dark)
+    val mathPool = remember { MathWebViewPool() }
+    DisposableEffect(mathPool) { onDispose { mathPool.close() } }
+    CompositionLocalProvider(LocalMathWebViewPool provides mathPool, LocalTijiSemanticColors provides if (dark) DarkTijiSemanticColors else LightTijiSemanticColors) {
         MaterialTheme(
             colorScheme = colors,
             typography = TijiTypography,

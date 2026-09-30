@@ -5,6 +5,7 @@ import com.tiji.mistakes.data.ReviewRecordEntity
 import com.tiji.mistakes.domain.time.LearningCalendar
 import java.time.LocalDate
 import java.time.ZoneId
+import kotlin.random.Random
 
 enum class DailyStudyBucket(val label: String) {
     DUE("到期复习")
@@ -27,6 +28,7 @@ data class DailyStudyPlannerInput(
     val dueMistakes: List<MistakeEntity>,
     val recentRecords: List<ReviewRecordEntity>,
     val dailyLimit: Int,
+    val randomReview: Boolean = false,
     val subjectPreferences: Map<String, Int> = emptyMap(),
     val now: Long,
     val zoneId: ZoneId = ZoneId.systemDefault()
@@ -51,26 +53,36 @@ object DailyStudyPlanner {
         val latestRecord = recordsByMistake.mapValues { (_, records) ->
             records.maxWithOrNull(compareBy<ReviewRecordEntity> { it.reviewedAt }.thenBy { it.id })
         }
-        val dueIds = input.dueMistakes.asSequence()
-            .map { it.id }
-            .filter { it in activeById }
-            .distinct()
-            .mapNotNull(activeById::get)
-            .toList()
-
-        val selectedDue = selectDueForDay(
-            eligible = dueIds,
-            dailyLimit = limit,
-            subjectPreferences = input.subjectPreferences,
-            latestRecords = latestRecord
-        )
-        val reasons = selectedDue.associate { mistake ->
-            mistake.id to reasonFor(
-                mistake = mistake,
-                latestRecord = latestRecord[mistake.id],
-                now = input.now,
-                zoneId = input.zoneId
+        val selectedDue = if (input.randomReview) {
+            // Keep a stable queue for the local day, while drawing from every
+            // active plan item instead of the due-only list.
+            active.shuffled(Random(LearningCalendar.localDate(input.now, input.zoneId).toEpochDay()))
+                .take(limit)
+        } else {
+            val dueIds = input.dueMistakes.asSequence()
+                .map { it.id }
+                .filter { it in activeById }
+                .distinct()
+                .mapNotNull(activeById::get)
+                .toList()
+            selectDueForDay(
+                eligible = dueIds,
+                dailyLimit = limit,
+                subjectPreferences = input.subjectPreferences,
+                latestRecords = latestRecord
             )
+        }
+        val reasons = if (input.randomReview) {
+            selectedDue.associate { it.id to "全随机抽取" }
+        } else {
+            selectedDue.associate { mistake ->
+                mistake.id to reasonFor(
+                    mistake = mistake,
+                    latestRecord = latestRecord[mistake.id],
+                    now = input.now,
+                    zoneId = input.zoneId
+                )
+            }
         }
         return DailyStudyPlan(
             due = selectedDue.map(MistakeEntity::id),

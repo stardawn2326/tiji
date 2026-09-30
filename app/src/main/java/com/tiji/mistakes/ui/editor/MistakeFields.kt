@@ -24,6 +24,7 @@ import com.tiji.mistakes.service.ContentBlockRole
 import com.tiji.mistakes.service.QuestionContentBlock
 import com.tiji.mistakes.ui.math.FormulaPreview
 import com.tiji.mistakes.ui.math.MathText
+import com.tiji.mistakes.ui.math.numberedAnswerText
 import com.tiji.mistakes.ui.design.TijiPaperCard
 import com.tiji.mistakes.ui.solve.ContentBlockImages
 import com.tiji.mistakes.ui.common.difficultyLabel
@@ -59,21 +60,24 @@ internal fun MistakeFields(
     onUserAnswer: (String) -> Unit = {},
     onErrorReason: (String) -> Unit = {},
     showOptionalFields: Boolean = true,
-    showClassification: Boolean = true
+    showClassification: Boolean = true,
+    showUserAnswer: Boolean = true,
+    showEditorPreviews: Boolean = true,
+    onAddQuestionImages: ((List<String>) -> Unit)? = null
 ) {
     val editorBodyTextStyle = MaterialTheme.typography.bodyLarge.copy(
         fontFamily = FontFamily.Serif
     )
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         if (showOptionalFields) {
             TijiTextField(title, onTitle, label = { Text("标题") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            if (showRenderedPreview && title.isNotBlank()) {
+            if (showEditorPreviews && showRenderedPreview && title.isNotBlank()) {
                 TijiCard(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer), modifier = Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(16.dp)) {
                         MathText(title, emphasized = true)
                     }
                 }
-            } else {
+            } else if (showEditorPreviews) {
                 FormulaPreview(title)
             }
         }
@@ -85,13 +89,14 @@ internal fun MistakeFields(
             minLines = 4,
             modifier = Modifier.fillMaxWidth()
         )
-        if (showRenderedPreview) {
+        if (contentBlocks.any { it.role == ContentBlockRole.QUESTION }) {
             ContentBlockImages(
                 contentBlocks.filter { it.role == ContentBlockRole.QUESTION },
                 onDelete = onDeleteBlock
             )
         }
-        if (showOptionalFields) {
+        onAddQuestionImages?.let { AddQuestionImagesButton(it) }
+        if (showOptionalFields && showUserAnswer) {
             com.tiji.mistakes.ui.design.TijiMultilineField(
                 userAnswer,
                 onUserAnswer,
@@ -104,7 +109,7 @@ internal fun MistakeFields(
         com.tiji.mistakes.ui.design.TijiMultilineField(
             answer,
             onAnswer,
-            label = { Text("正确答案") },
+            label = { Text("答案") },
             textStyle = editorBodyTextStyle,
             minLines = 2,
             modifier = Modifier.fillMaxWidth()
@@ -117,9 +122,12 @@ internal fun MistakeFields(
             minLines = 3,
             modifier = Modifier.fillMaxWidth()
         )
-        if (showRenderedPreview && (question.isNotBlank() || answer.isNotBlank() || explanation.isNotBlank())) {
-            RenderedMistakeContentCard(question, answer, explanation, contentBlocks, onDeleteBlock)
-        } else {
+        if (!showEditorPreviews) {
+            ContentBlockImages(contentBlocks.filter { it.role != ContentBlockRole.QUESTION }, onDeleteBlock)
+        }
+        if (showEditorPreviews && showRenderedPreview && (question.isNotBlank() || answer.isNotBlank() || explanation.isNotBlank())) {
+            RenderedMistakeContentCard(question, answer, explanation, contentBlocks.filterNot { it.role == ContentBlockRole.QUESTION }, onDeleteBlock)
+        } else if (showEditorPreviews) {
             FormulaPreview(question, normalizeTerminalPeriod = true)
             FormulaPreview(answer)
             FormulaPreview(explanation, normalizeTerminalPeriod = true)
@@ -141,6 +149,14 @@ internal fun MistakeFields(
                     modifier = Modifier.weight(1f)
                 )
             }
+            TijiTextField(
+                tags,
+                onTags,
+                label = { Text("知识点") },
+                placeholder = { Text("多个知识点用逗号分隔") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
             DifficultyPicker(difficulty, onDifficulty)
         }
     }
@@ -171,7 +187,7 @@ internal fun RenderedMistakeContentCard(
         )
         if (answer.isNotBlank()) {
             Text("答案", style = MaterialTheme.typography.titleMedium)
-            MathText(answer, compactVerticalSpacing = true)
+            MathText(numberedAnswerText(answer), compactVerticalSpacing = true)
         }
         ContentBlockImages(
             contentBlocks.filter { it.role == ContentBlockRole.ANSWER },

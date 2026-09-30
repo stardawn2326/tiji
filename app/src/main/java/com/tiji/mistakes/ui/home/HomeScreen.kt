@@ -1,5 +1,12 @@
 package com.tiji.mistakes.ui.home
 
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.platform.testTag
+import androidx.compose.material3.Icon
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
+import com.tiji.mistakes.ui.design.TijiMotion
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -15,6 +22,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -27,37 +35,29 @@ import com.tiji.mistakes.ui.design.TijiSectionHeader
 import com.tiji.mistakes.ui.design.TijiStatCard
 import com.tiji.mistakes.ui.design.TijiSubjectCountRow
 import com.tiji.mistakes.ui.design.TijiTag
+import com.tiji.mistakes.ui.common.rememberPrimaryListState
 import java.util.Locale
 
-/** Home is a read-only mastery overview; actions live in the primary navigation. */
+/** Mastery overview with links to the existing knowledge detail destination. */
 @Composable
 internal fun HomeScreen(
     progressSummary: MistakeProgressSummary,
-    resetScrollToken: Int
+    resetScrollToken: Int,
+    retainedListState: androidx.compose.foundation.lazy.LazyListState? = null,
+    onOpenKnowledge: (String) -> Unit
 ) {
-    val listState = rememberLazyListState()
-    var expandedSubjects by remember { mutableStateOf<Set<String>>(emptySet()) }
-    LaunchedEffect(resetScrollToken) { if (resetScrollToken > 0) listState.scrollToItem(0) }
+    val listState = rememberPrimaryListState(resetScrollToken, retainedListState)
+    var expandedSubjects by rememberSaveable { mutableStateOf(emptyList<String>()) }
+    androidx.compose.foundation.layout.Column(Modifier.fillMaxSize()) {
+    com.tiji.mistakes.ui.design.TijiPrimaryHeader("题迹")
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = TijiDimens.pagePadding, vertical = 20.dp),
+        contentPadding = PaddingValues(horizontal = TijiDimens.pagePadding, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        item { TijiPageHeader("题迹") }
         item {
-            TijiPaperCard {
-                TijiSectionHeader("掌握概览")
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    TijiStatCard("错题总数", progressSummary.total.toString(), Modifier.weight(1f))
-                    TijiStatCard("已掌握", progressSummary.mastered.toString(), Modifier.weight(1f))
-                    TijiStatCard(
-                        "掌握率",
-                        String.format(Locale.ROOT, "%.1f%%", progressSummary.masteryRate * 100f),
-                        Modifier.weight(1f)
-                    )
-                }
-            }
+            com.tiji.mistakes.ui.design.TijiMasteryOverview(progressSummary)
         }
         item { TijiSectionHeader("各科统计") }
         if (progressSummary.bySubject.isEmpty()) {
@@ -70,7 +70,7 @@ internal fun HomeScreen(
             progressSummary.bySubject.forEach { subjectProgress ->
                 item(key = "subject-${subjectProgress.subject}") {
                     val expanded = subjectProgress.subject in expandedSubjects
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(modifier = Modifier.animateContentSize(tween(TijiMotion.Normal)), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         TijiSubjectCountRow(
                             subject = subjectProgress.subject,
                             total = subjectProgress.total,
@@ -94,7 +94,11 @@ internal fun HomeScreen(
                                 )
                             } else {
                                 subjectProgress.knowledgePoints.forEach { point ->
-                                    TijiPaperCard(contentPadding = 12.dp) {
+                                    TijiPaperCard(
+                                        modifier = Modifier.testTag("home_knowledge_${point.stableId}"),
+                                        onClick = { onOpenKnowledge(point.stableId) },
+                                        contentPadding = 12.dp
+                                    ) {
                                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                                 Text(point.name, style = MaterialTheme.typography.bodyLarge)
@@ -105,6 +109,7 @@ internal fun HomeScreen(
                                                 )
                                             }
                                             TijiTag(String.format(Locale.ROOT, "%.1f%%", point.masteryRate * 100f))
+                                            Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, contentDescription = "查看知识点详情")
                                         }
                                     }
                                 }
@@ -114,5 +119,6 @@ internal fun HomeScreen(
                 }
             }
         }
+    }
     }
 }

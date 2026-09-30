@@ -42,13 +42,13 @@ internal fun <T> TijiSegmentedControl(options: List<T>, selected: T?, onSelected
         options.forEach { option ->
             val active = option == selected
             Box(Modifier.weight(1f).fillMaxHeight().heightIn(min = 48.dp).clip(TijiShapes.S)
-                .background(if (active) MaterialTheme.colorScheme.surface else Color.Transparent)
+                .background(if (active) MaterialTheme.colorScheme.primary else Color.Transparent)
                 .selectable(active, enabled = enabled, role = Role.Tab, onClick = { onSelected(option) })
                 .padding(horizontal = 4.dp, vertical = 12.dp), contentAlignment = Alignment.Center) {
                 Text(label(option), style = MaterialTheme.typography.labelLarge,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                     color = if (!enabled) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                        else if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                        else if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }

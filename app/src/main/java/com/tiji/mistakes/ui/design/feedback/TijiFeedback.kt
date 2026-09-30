@@ -8,6 +8,8 @@ import androidx.compose.foundation.selection.*
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.material3.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.MenuBook
 import androidx.compose.runtime.*
 import androidx.compose.ui.*
 import androidx.compose.ui.draw.clip
@@ -26,19 +28,50 @@ internal fun TijiSnackbar(hostState: SnackbarHostState, modifier: Modifier = Mod
 internal fun TijiProgress(modifier: Modifier = Modifier,
     color: Color = MaterialTheme.colorScheme.primary,
     trackColor: Color = MaterialTheme.colorScheme.primaryContainer) {
-    LinearProgressIndicator(modifier, color, trackColor)
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        LinearProgressIndicator(Modifier.fillMaxWidth(), color, trackColor)
+        TijiElapsedTime()
+    }
 }
 @Composable
 internal fun TijiProgress(progress: () -> Float, modifier: Modifier = Modifier,
     color: Color = MaterialTheme.colorScheme.primary,
-    trackColor: Color = MaterialTheme.colorScheme.primaryContainer) {
-    LinearProgressIndicator(progress, modifier, color, trackColor)
+    trackColor: Color = MaterialTheme.colorScheme.primaryContainer,
+    showElapsed: Boolean = true, startedAt: Long = 0L) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        LinearProgressIndicator(progress, Modifier.fillMaxWidth(), color, trackColor)
+        if (showElapsed) TijiElapsedTime(startedAt)
+    }
+}
+
+/** Use persisted task time when available; local loaders count their visible wait. */
+@Composable
+internal fun TijiElapsedTime(startedAt: Long = 0L) {
+    val origin = androidx.compose.runtime.saveable.rememberSaveable(startedAt) {
+        startedAt.takeIf { it > 0L } ?: System.currentTimeMillis()
+    }
+    var seconds by remember(origin) { mutableLongStateOf(((System.currentTimeMillis() - origin) / 1000).coerceAtLeast(0)) }
+    LaunchedEffect(origin) {
+        while (true) {
+            seconds = ((System.currentTimeMillis() - origin) / 1000).coerceAtLeast(0)
+            kotlinx.coroutines.delay(1000)
+        }
+    }
+    Text("已用时 $seconds 秒", style = MaterialTheme.typography.bodySmall)
+}
+
+@Composable
+internal fun TijiLoadingSpinner(modifier: Modifier = Modifier, strokeWidth: Dp = 2.dp) {
+    CircularProgressIndicator(modifier, strokeWidth = strokeWidth)
 }
 @Composable
 internal fun TijiEmptyState(title: String, message: String, modifier: Modifier = Modifier,
     action: @Composable () -> Unit = {}) {
-    Column(modifier.fillMaxWidth().padding(vertical = 24.dp, horizontal = 16.dp),
+    Column(modifier.fillMaxWidth().padding(vertical = 14.dp, horizontal = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Surface(shape = TijiShapes.L, color = MaterialTheme.colorScheme.primaryContainer) {
+            Icon(Icons.Outlined.MenuBook, null, Modifier.padding(16.dp).size(32.dp), tint = MaterialTheme.colorScheme.primary)
+        }
         Text(title, style = MaterialTheme.typography.titleLarge)
         Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center)

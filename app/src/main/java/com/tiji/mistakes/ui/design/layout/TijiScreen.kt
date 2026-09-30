@@ -10,6 +10,8 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.*
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.semantics.*
@@ -32,13 +34,13 @@ internal fun TijiScreen(modifier: Modifier = Modifier, topBar: @Composable () ->
 internal fun TijiTopBar(title: @Composable () -> Unit, modifier: Modifier = Modifier,
     navigationIcon: @Composable () -> Unit = {}, actions: @Composable RowScope.() -> Unit = {},
     colors: TopAppBarColors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)) {
-    Surface(color = colors.containerColor) {
+    Surface(color = MaterialTheme.colorScheme.surface) {
         Row(modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.statusBars)
-            .heightIn(min = 64.dp).padding(horizontal = 4.dp, vertical = 8.dp),
+            .heightIn(min = 68.dp).padding(horizontal = 8.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically) {
             navigationIcon()
             Box(Modifier.weight(1f).padding(horizontal = 12.dp).semantics { heading() }) {
-                ProvideTextStyle(MaterialTheme.typography.headlineMedium, title)
+                ProvideTextStyle(MaterialTheme.typography.titleLarge, title)
             }
             Row(verticalAlignment = Alignment.CenterVertically, content = actions)
         }
@@ -54,5 +56,21 @@ internal fun TijiBottomActionBar(modifier: Modifier = Modifier, supportingText: 
                 verticalAlignment = Alignment.CenterVertically, content = content)
             supportingText()
         }
+    }
+}
+
+@Composable
+internal fun TijiPrimaryHeader(title: String, actions: @Composable RowScope.() -> Unit = {}) {
+    val accent = MaterialTheme.colorScheme.primary
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 76.dp).padding(horizontal = TijiDimens.pagePadding, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(title, modifier = Modifier.weight(1f).drawBehind {
+            drawLine(accent, Offset(0f, size.height + 4.dp.toPx()), Offset(22.dp.toPx(), size.height + 4.dp.toPx()), 3.dp.toPx(), StrokeCap.Round)
+            drawCircle(accent.copy(alpha = 0.35f), 1.5.dp.toPx(), Offset(29.dp.toPx(), size.height + 4.dp.toPx()))
+        }.semantics { heading() },
+            style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onBackground)
+        actions()
     }
 }
