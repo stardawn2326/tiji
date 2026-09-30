@@ -534,7 +534,7 @@ internal fun LibraryScreen(
                                 ) {
                                     MistakeOrder.entries.forEach { value ->
                                         TijiMenuItem(
-                                            text = { Text(value.label) },
+                                            text = { Text(if (order == value) "✓ ${value.label}" else value.label) },
                                             onClick = { order = value; sortMenuExpanded = false }
                                         )
                                     }
