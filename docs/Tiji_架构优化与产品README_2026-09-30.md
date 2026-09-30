@@ -77,10 +77,14 @@
 
 随后本机设备测试在库搜索输入时被打断，同一时段 logcat 记录 Trime 输入法 `_activeTheme` 未初始化崩溃。复核暂时使用系统 LatinIME，并在结束后恢复原输入法；清理的仅是独立审计包 `com.tiji.mistakes.audit`。该次中断日志保存在 `outputs/architecture-20260930-regression-verified.log`、`outputs/architecture-20260930-inputmethod-failure-logcat.txt` 和 `outputs/architecture-20260930-lastanr.txt`。
 
+GitHub 同提交推送检查全部成功，但首次 PR 设备检查出现重复评分用例的竞争：第一次评分后页面自动进入下一题，后两次重新查找原按钮偶尔找不到节点。该用例改为在一次 UI 语义动作中连续触发同一个 OnClick 三次，仍断言每题最多一条记录、两题总共两条记录和正确评分汇总；其余点击和手势测试保持原样。失败日志保存在 `outputs/architecture-20260930-ci-pr-failed.log`。
+
+最后这次修正仅修改测试夹具；四个复习重建/重复评分专项用例全部通过，日志 `outputs/architecture-20260930-focused-review-verified.log`。生产源码与下方已构建、已安装的制品一致；最终全部测试夹具的全量验证由更新后的 GitHub CI 执行。
+
 | 检查 | 最终结果 | 本机证据 |
 | --- | --- | --- |
 | JVM 单元测试 | 227 项全部通过；使用本轮 Gradle 导出的 classpath 执行同一批 JUnit 类 | `outputs/architecture-20260930-junit-verified.log` |
-| API30 设备测试 | XML 统计 141 项：134 通过、0 失败、0 错误、7 跳过；包括大字体和库搜索用例 | `outputs/architecture-20260930-regression-clean-ime.log` 与审计构建目录下测试 XML |
+| API30 本机全量设备测试 | 当次 XML 统计 141 项：134 通过、0 失败、0 错误、7 跳过；包括大字体和库搜索用例，随后补充上述测试夹具专项验证 | `outputs/architecture-20260930-regression-clean-ime.log` |
 | 完整 Lint | 0 errors、5 原有 warnings、2 information；没有新增 baseline 隐藏报告 | `app/build/isolated-release-20260925/reports/lint-results-debug.xml` |
 | Release / R8 / 资源压缩 | BUILD SUCCESSFUL | `outputs/architecture-20260930-release-final.log` |
 | 签名 / 覆盖安装 / 冷启动 | apksigner 验证通过；API30 `adb install -r` 为 Success，MainActivity 冷启动 Status: ok | 下方安装包与证书信息 |
