@@ -57,7 +57,8 @@ internal fun DataSettingsScreen(
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
-    var backupMessage by remember { mutableStateOf("") }
+    val backupMessageState = com.tiji.mistakes.ui.common.rememberStatusMessageState()
+    var backupMessage by backupMessageState
     var importPreview by remember { mutableStateOf<BackupPreview?>(null) }
     var importUri by remember { mutableStateOf<Uri?>(null) }
     var importingBackup by remember { mutableStateOf(false) }
@@ -79,7 +80,7 @@ internal fun DataSettingsScreen(
                 backupMessage = "正在导出题迹数据…"
                 BackupService.writeBackup(context, uri).fold(
                     onSuccess = { preview ->
-                        backupMessage = "备份完成：${preview.mistakeCount} 道错题、${preview.imageCount} 张图片"
+                        backupMessageState.complete("备份完成：${preview.mistakeCount} 道错题、${preview.imageCount} 张图片")
                     },
                     onFailure = { error ->
                         backupMessage = "备份失败：${error.message ?: "未知错误"}"
@@ -115,7 +116,7 @@ internal fun DataSettingsScreen(
         backgroundScope.launch {
             BackupService.importBackup(context, source, mode).fold(
                 onSuccess = { result ->
-                    backupMessage = "恢复完成：新增 ${result.inserted}、更新 ${result.updated}、跳过 ${result.skipped} 道错题"
+                    backupMessageState.complete("恢复完成：新增 ${result.inserted}、更新 ${result.updated}、跳过 ${result.skipped} 道错题")
                 },
                 onFailure = { error ->
                     backupMessage = "恢复失败：${error.message ?: "未知错误"}"
@@ -165,7 +166,8 @@ internal fun DataSettingsScreen(
                         val callback = if (resetAction == DataResetAction.FACTORY_RESET) onFactoryReset else onClearLearningData
                         callback { message ->
                             resettingData = false
-                            backupMessage = message ?: if (resetAction == DataResetAction.FACTORY_RESET) "已恢复出厂设置" else "学习数据已清除"
+                            if (message != null) backupMessage = message
+                            else backupMessageState.complete(if (resetAction == DataResetAction.FACTORY_RESET) "已恢复出厂设置" else "学习数据已清除")
                             resetAction = null
                         }
                     }

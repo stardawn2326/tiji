@@ -230,8 +230,10 @@ private fun AiSolveScreenBody(
     var questionType by remember { mutableStateOf("") }
     var tags by remember { mutableStateOf("") }
     var difficulty by remember { mutableIntStateOf(0) }
-    var message by remember { mutableStateOf("") }
-    var savedMessage by remember { mutableStateOf("") }
+    val messageState = com.tiji.mistakes.ui.common.rememberStatusMessageState()
+    var message by messageState
+    val savedMessageState = com.tiji.mistakes.ui.common.rememberStatusMessageState()
+    var savedMessage by savedMessageState
     var showPrivacyDialog by remember { mutableStateOf(false) }
     var showFollowUpDialog by remember { mutableStateOf(false) }
     var showDuplicateDialog by rememberSaveable { mutableStateOf(false) }
@@ -438,13 +440,9 @@ private fun AiSolveScreenBody(
         tags = ""
         difficulty = 0
         note = ""
-        message = aiSolveState.historyWriteError.ifBlank {
-            if (aiSolveState.status == AiSolveStatus.FAILED) {
-                "AI 解题失败，已保留当前收到的部分内容，可继续追问修正。"
-            } else {
-                "解题完成。即使切换页面，AI 任务也已在后台继续完成。"
-            }
-        }
+        if (aiSolveState.historyWriteError.isNotBlank()) message = aiSolveState.historyWriteError
+        else if (aiSolveState.status == AiSolveStatus.FAILED) message = "AI 解题失败，已保留当前收到的部分内容，可继续追问修正。"
+        else messageState.complete("解题完成。即使切换页面，AI 任务也已在后台继续完成。")
     }
 
     LaunchedEffect(aiSolveState.requestId, aiSolveState.status, aiSolveState.error) {
@@ -471,7 +469,7 @@ private fun AiSolveScreenBody(
         aiSolveState.requestId
     ) {
         val belongsToCurrentSolve = aiMistakeSaveState.requestId == aiSolveState.requestId
-        savedMessage = if (belongsToCurrentSolve &&
+        val text = if (belongsToCurrentSolve &&
             aiMistakeSaveState.phase != com.tiji.mistakes.service.AiMistakeSavePhase.SAVING &&
             aiMistakeSaveState.phase != com.tiji.mistakes.service.AiMistakeSavePhase.IDLE
         ) {
@@ -479,13 +477,8 @@ private fun AiSolveScreenBody(
         } else {
             ""
         }
-    }
-
-    LaunchedEffect(savedMessage, aiMistakeSaveState.mistakeId, aiMistakeSaveState.running) {
-        if (savedMessage.isNotBlank() && aiMistakeSaveState.mistakeId != null && !aiMistakeSaveState.running) {
-            kotlinx.coroutines.delay(3_000)
-            savedMessage = ""
-        }
+        if (aiMistakeSaveState.success == true && !aiMistakeSaveState.running) savedMessageState.complete(text)
+        else savedMessage = text
     }
 
     // The classifier is owned by the durable foreground service. Polling through the ViewModel
@@ -521,7 +514,7 @@ private fun AiSolveScreenBody(
             if (MistakeSaveField.DIFFICULTY !in saveMetadataEditedFields && difficulty == 0) {
                 difficulty = normalizeClassificationDifficulty(classification.difficulty)
             }
-            message = "分类已带入保存表单，可继续修改。"
+            messageState.complete("分类已带入保存表单，可继续修改。")
             saveMetadataLoading = false
         } else if (aiMistakeSaveState.phase == com.tiji.mistakes.service.AiMistakeSavePhase.CLASSIFICATION_FAILED) {
             message = "自动分类暂不可用，可在保存表单中手动补充。"
@@ -563,7 +556,7 @@ private fun AiSolveScreenBody(
             result.onSuccess { processed ->
                 imageHistory = imageHistory + processed
                 imagePath = processed
-                message = "${operation.label}完成，可撤销"
+                messageState.complete("${operation.label}完成，可撤销")
             }.onFailure { message = "处理失败：${it.message ?: "未知错误"}" }
         }
     }
@@ -619,7 +612,7 @@ private fun AiSolveScreenBody(
     fun copyAiText(text: String) {
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
         clipboard?.setPrimaryClip(ClipData.newPlainText("AI 解答", text))
-        message = "AI 解答已复制"
+        messageState.complete("AI 解答已复制")
     }
 
     fun askFollowUp() {
@@ -832,7 +825,8 @@ private fun AiSolveScreenBody(
                 imageHistory = updated
                 if (original != null && original != processed) viewModel.deleteImagesIfUnreferenced(listOf(original))
                 openNextImage()
-                message = if (pendingImagePaths.isEmpty()) "图片处理完成，点击“开始 AI 解题”后才会上传并解题" else "继续处理下一张图片"
+                if (pendingImagePaths.isEmpty()) messageState.complete("图片处理完成，点击“开始 AI 解题”后才会上传并解题")
+                else message = "继续处理下一张图片"
             }
         )
         return
@@ -1065,6 +1059,21 @@ private fun AiSolveScreenBody(
 
     val hasSolution = completeSolution.isNotBlank() && !isLoading
     val savedCurrent = aiMistakeSaveState.requestId == aiSolveState.requestId && aiMistakeSaveState.mistakeId != null
+    // Own timers at screen scope: scrolling a lazy item offscreen must not restart them.
+    val solveCompletedNotice = com.tiji.mistakes.ui.common.rememberCompletionNotice(
+        "解题完成。即使切换页面，AI 任务也已在后台完成。",
+        listOf(aiSolveState.requestId, aiSolveState.completeText),
+        aiSolveState.status == AiSolveStatus.COMPLETED
+    )
+    val chatCompletedNotice = com.tiji.mistakes.ui.common.rememberCompletionNotice(
+        "追问回答完成。", aiChatState.requestId, aiChatState.status == "COMPLETED"
+    )
+    val stoppedChatNotice = com.tiji.mistakes.ui.common.rememberCompletionNotice(
+        "已停止回答，可重新追问。", aiChatState.requestId, aiChatState.status == "STOPPED"
+    )
+    val stoppedSolveNotice = com.tiji.mistakes.ui.common.rememberCompletionNotice(
+        "已停止解题。", aiSolveState.requestId, aiSolveState.status == AiSolveStatus.CANCELED
+    )
     TijiScreen(
         topBar = {
             com.tiji.mistakes.ui.design.TijiPrimaryHeader("AI 解题") { TijiTextButton(onClick = onOpenSolveHistory) { Text("历史记录") } }
@@ -1190,7 +1199,7 @@ private fun AiSolveScreenBody(
                                     imageHistory = imagePaths
                                     imagePath = imagePaths.firstOrNull()
                                     viewModel.removeAiSolveImage(path)
-                                    message = "已删除第 ${index + 1} 张图片"
+                                    messageState.complete("已删除第 ${index + 1} 张图片")
                                 })
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     TijiTextButton(enabled = index > 0, onClick = {
@@ -1240,9 +1249,9 @@ private fun AiSolveScreenBody(
                     aiSolveState.status == AiSolveStatus.REPAIRING -> "正在修正并复验解答。已用时 ${elapsedSeconds} 秒"
                     isLoading && aiSolveState.streamedText.isBlank() -> "正在等待模型返回答案，已用时 ${elapsedSeconds} 秒"
                     isLoading -> "正在接收解答，已用时 ${elapsedSeconds} 秒"
-                    aiSolveState.status == AiSolveStatus.CANCELED -> "已停止解题。"
+                    aiSolveState.status == AiSolveStatus.CANCELED -> stoppedSolveNotice
                     aiSolveState.status == AiSolveStatus.COMPLETED && completeSolution.isNotBlank() ->
-                        "解题完成。即使切换页面，AI 任务也已在后台完成。"
+                        aiSolveState.historyWriteError.ifBlank { solveCompletedNotice }
                     else -> generalStatusMessage
                 }
                 if (statusMessage.isNotBlank()) {
@@ -1346,8 +1355,8 @@ private fun AiSolveScreenBody(
                     aiChatStatusOverride.isNotBlank() -> aiChatStatusOverride
                     hasAiChatActivity && aiChatState.running -> "AI 正在后台回答追问，切换页面不会中断…"
                     hasAiChatActivity && aiChatState.error != null -> "AI 对话失败：${aiChatState.error?.trimEnd('。', '.')}。"
-                    hasAiChatActivity && aiChatState.status == "STOPPED" -> "已停止回答，可重新追问。"
-                    hasAiChatActivity && aiChatState.status == "COMPLETED" -> "追问回答完成。"
+                    hasAiChatActivity && aiChatState.status == "STOPPED" -> stoppedChatNotice
+                    hasAiChatActivity && aiChatState.status == "COMPLETED" -> chatCompletedNotice
                     else -> ""
                 }
                 if (latestChat != null || hasAiChatActivity) {

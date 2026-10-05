@@ -174,7 +174,8 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
     var reviewSubmitting by remember(current.id) { mutableStateOf(false) }
     var explanationExpanded by remember(current.id) { mutableStateOf(false) }
     var detailMenuExpanded by remember(current.id) { mutableStateOf(false) }
-    var saveMessage by remember(current.id) { mutableStateOf("") }
+    val saveMessageState = com.tiji.mistakes.ui.common.rememberStatusMessageState(current.id)
+    var saveMessage by saveMessageState
     var detailSaving by remember(current.id) { mutableStateOf(false) }
     var questionImage by rememberSaveable(current.id) { mutableStateOf(current.imagePath) }
     var answerImage by rememberSaveable(current.id) { mutableStateOf(current.answerImagePath) }
@@ -201,7 +202,7 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                 nextReviewAt = record.nextReviewAt,
                 inReviewPlan = ReviewScheduler.shouldRemainInReviewPlan(grade)
             )
-            saveMessage = "已记录：${reviewGradeUiLabel(grade)}"
+            saveMessageState.complete("已记录：${reviewGradeUiLabel(grade)}")
         }
         if (reviewJob == null) {
             reviewSubmitting = false
@@ -386,7 +387,7 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
         if (paths.isEmpty()) return
         originalQuestionImages = (originalQuestionImages + paths).distinct()
         if (questionImage.isNullOrBlank()) questionImage = originalQuestionImages.firstOrNull()
-        saveMessage = "已添加 ${paths.size} 张题目图片，请保存修改"
+        saveMessageState.complete("已添加 ${paths.size} 张题目图片，请保存修改")
     }
     fun removeDetailContentBlock(block: com.tiji.mistakes.service.QuestionContentBlock) {
         val remaining = detailContentBlocks
@@ -602,7 +603,7 @@ internal fun DetailScreen(viewModel: MistakeViewModel, id: Long, onDelete: (Long
                                         pendingRemovedImagePaths = emptySet()
                                         detailSaving = false
                                         editing = false
-                                        saveMessage = "已保存修改"
+                                        saveMessageState.complete("已保存修改")
                                     },
                                     onFailure = { error ->
                                         detailSaving = false

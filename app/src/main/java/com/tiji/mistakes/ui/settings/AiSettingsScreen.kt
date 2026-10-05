@@ -95,7 +95,8 @@ internal fun AiSettingsScreen(
     aiService.thinkingModeOverride = thinkingMode
     var apiKey by remember(selectedProfileId) { mutableStateOf(secureStore.read(selectedProfileId)) }
     val selectedVisualProfile = aiVisualProfiles.firstOrNull { it.id == aiVisualBindings[selectedProfileId] }
-    var connectionMessage by remember { mutableStateOf("") }
+    val connectionMessageState = com.tiji.mistakes.ui.common.rememberStatusMessageState()
+    var connectionMessage by connectionMessageState
     var capabilityCheck by remember { mutableStateOf<AiProviderCapabilityCheck?>(null) }
 
     SettingsPageScaffold(title = "AI 模型", pageTag = "settings_ai", onBack = onBack) { padding ->
@@ -257,7 +258,7 @@ internal fun AiSettingsScreen(
                                     onActiveAiProfile(selectedProfileId)
                                     secureStore.save(apiKey, selectedProfileId)
                                     onSaveAiConfig(endpoint, model)
-                                    connectionMessage = "配置已保存"
+                                    connectionMessageState.complete("配置已保存")
                                 },
                                 modifier = Modifier.weight(1f).testTag("ai_save_config")
                             ) { Text("保存配置") }
@@ -279,7 +280,7 @@ internal fun AiSettingsScreen(
                                                 }
                                             }
                                         )
-                                        connectionMessage = "能力自检完成"
+                                        connectionMessageState.complete("能力自检完成")
                                     }
                                 },
                                 modifier = Modifier.weight(1f).testTag("ai_test_connection")

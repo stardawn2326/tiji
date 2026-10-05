@@ -129,6 +129,16 @@ class AiSolveEditingUiTest {
         assertEquals(result(fixtureTitle, "x=2"), model.aiSolve.value.completeText)
     }
 
+    @Test fun completedSolveNoticeExpiresWithoutRemovingTheResultOrSaveAction() {
+        rule.mainClock.autoAdvance = false
+        rule.onNodeWithText("解题完成。即使切换页面，AI 任务也已在后台完成。").assertExists()
+        rule.mainClock.advanceTimeBy(3_300)
+        rule.onNodeWithText("解题完成。即使切换页面，AI 任务也已在后台完成。").assertDoesNotExist()
+        rule.onNodeWithText("答案与解析").assertExists()
+        rule.onNodeWithText("保存为错题").assertIsEnabled()
+        assertEquals(result(fixtureTitle, "x=2"), model.aiSolve.value.completeText)
+    }
+
     private fun saveCurrent() {
         rule.onNodeWithText("保存为错题").assertIsEnabled().performClick()
         rule.onNodeWithText("保存到错题库").performScrollTo().performClick()
