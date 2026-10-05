@@ -202,6 +202,11 @@ internal fun ReviewQuestionScreen(
         )
     }
     val selectedGrade = focusedGrade ?: dailySelectedGrade
+    val recordedNotice = com.tiji.mistakes.ui.common.rememberCompletionNotice(
+        selectedGrade?.let { "已记录：${reviewGradeUiLabel(it)}" }.orEmpty(),
+        currentId,
+        selectedGrade != null
+    )
 
     LaunchedEffect(currentId) {
         mistake = null
@@ -635,7 +640,7 @@ internal fun ReviewQuestionScreen(
                             }
                             when {
                                 reviewSubmitting -> Text("正在记录…", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
-                                selectedGrade != null -> Text("已记录：${reviewGradeUiLabel(selectedGrade!!)}", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
+                                recordedNotice.isNotBlank() -> Text(recordedNotice, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
                             }
                         }
                     }

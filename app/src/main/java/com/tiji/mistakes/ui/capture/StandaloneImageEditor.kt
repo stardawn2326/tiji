@@ -134,7 +134,8 @@ internal fun StandaloneImageEditor(
 ) {
     val context = LocalContext.current; val scope = rememberCoroutineScope()
     var path by remember(initialPath) { mutableStateOf(initialPath) }; var history by remember(initialPath) { mutableStateOf(listOf(initialPath)) }
-    var message by remember { mutableStateOf("") }
+    val messageState = com.tiji.mistakes.ui.common.rememberStatusMessageState(initialPath)
+    var message by messageState
     var cropSelection by remember(initialPath) { mutableStateOf(initialCropSelection()) }
     var localProcessing by remember { mutableStateOf(false) }
     val processing = localProcessing || externalProcessing
@@ -156,7 +157,7 @@ internal fun StandaloneImageEditor(
             localProcessing = true
             message="正在${operation.label}…"
             ImageProcessor.process(context,path,operation)
-                .onSuccess { path=it; history=history+it; message="${operation.label}完成" }
+                .onSuccess { path=it; history=history+it; messageState.complete("${operation.label}完成") }
                 .onFailure { message="处理失败：${it.message ?: "未知错误"}" }
             localProcessing = false
         }
@@ -166,7 +167,7 @@ internal fun StandaloneImageEditor(
         path = initialPath
         history = listOf(initialPath)
         cropSelection = initialCropSelection()
-        message = "已恢复原图"
+        messageState.complete("已恢复原图")
     }
     fun confirmProcessedImage() {
         if (processing) return
@@ -195,7 +196,7 @@ internal fun StandaloneImageEditor(
                 path = cropped
                 history = history + cropped
                 cropSelection = CropSelection(0f, 0f, 1f, 1f)
-                message = "图片处理完成"
+                messageState.complete("图片处理完成")
                 onDiscard((history + cropped).filterNot { it == cropped })
                 onConfirm(cropped)
             }.onFailure { message = "裁剪失败：${it.message ?: "未知错误"}" }
@@ -340,7 +341,7 @@ internal fun StandaloneImageEditor(
             }
             Text("拖动框内区域移动；拖动四角或四边中间的粗线调整裁剪范围", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             LazyRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                item { TijiSecondaryButton(enabled = !processing, onClick={scope.launch { localProcessing=true; ImageProcessor.cropNormalized(context, path, cropSelection.left, cropSelection.top, cropSelection.right, cropSelection.bottom).onSuccess { path=it; history=history+it; cropSelection=CropSelection(0f,0f,1f,1f); message="裁剪完成" }.onFailure { message="裁剪失败：${it.message ?: "未知错误"}" }; localProcessing=false }}) { Text("裁剪") } }
+                item { TijiSecondaryButton(enabled = !processing, onClick={scope.launch { localProcessing=true; ImageProcessor.cropNormalized(context, path, cropSelection.left, cropSelection.top, cropSelection.right, cropSelection.bottom).onSuccess { path=it; history=history+it; cropSelection=CropSelection(0f,0f,1f,1f); messageState.complete("裁剪完成") }.onFailure { message="裁剪失败：${it.message ?: "未知错误"}" }; localProcessing=false }}) { Text("裁剪") } }
                 items(listOf(ImageOperation.ROTATE, ImageOperation.ENHANCE, ImageOperation.GRAYSCALE, ImageOperation.BINARY)) { op -> TijiSecondaryButton(enabled = !processing, onClick={apply(op)}) { Text(op.label) } }
                 item { TijiSecondaryButton(enabled = !processing, onClick=::resetOriginal) { Text("原图") } }
                 item { TijiSecondaryButton(enabled=history.size>1 && !processing,onClick={onDiscard(listOf(history.last()));history=history.dropLast(1);path=history.last()}) { Text("撤销") } }

@@ -74,7 +74,8 @@ internal fun VisualAssistConfigScreen(
             }.orEmpty()
         )
     }
-    var connectionMessage by remember { mutableStateOf("") }
+    val connectionMessageState = com.tiji.mistakes.ui.common.rememberStatusMessageState()
+    var connectionMessage by connectionMessageState
 
     SettingsPageScaffold(title = "视觉辅助配置", pageTag = "visual_config", onBack = onBack) { padding ->
         LazyColumn(
@@ -180,9 +181,9 @@ internal fun VisualAssistConfigScreen(
                                     existingProfile?.keyProfileId?.let(secureStore::read).orEmpty()
                                 }
                                 val result = aiService.testVisionConnection(endpoint, model, key)
-                                connectionMessage = result.fold(
-                                    { "图片输入测试成功" },
-                                    { "测试失败：${it.message ?: "未知错误"}" }
+                                result.fold(
+                                    { connectionMessageState.complete("图片输入测试成功") },
+                                    { connectionMessage = "测试失败：${it.message ?: "未知错误"}" }
                                 )
                             }
                         },

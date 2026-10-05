@@ -73,7 +73,8 @@ internal fun ReviewSettingsScreen(
             .sorted()
     }
     var selectedWeekday by remember { mutableIntStateOf(1) }
-    var message by remember { mutableStateOf("") }
+    val messageState = com.tiji.mistakes.ui.common.rememberStatusMessageState()
+    var message by messageState
 
     SettingsPageScaffold(title = "复习", pageTag = "settings_review", onBack = onBack) { padding ->
         LazyColumn(
@@ -163,7 +164,7 @@ internal fun ReviewSettingsScreen(
                                     .filter { it.value.toIntOrNull() != null }
                                     .joinToString(";") { "${it.key}=${it.value}" }
                             )
-                            message = "复习计划已保存，明日继续按此安排"
+                            messageState.complete("复习计划已保存，明日继续按此安排")
                         },
                         modifier = Modifier.testTag("review_save_plan")
                     ) { Text("保存复习计划") }

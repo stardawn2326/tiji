@@ -367,7 +367,8 @@ internal fun NewCaptureScreen(
     // after Compose restores this destination.
     var pendingCameraPath by rememberSaveable { mutableStateOf<String?>(null) }
     val cameraCopyScope = rememberCoroutineScope()
-    var captureMessage by rememberSaveable { mutableStateOf("") }
+    val captureMessageState = com.tiji.mistakes.ui.common.rememberStatusMessageState()
+    var captureMessage by captureMessageState
     var aiFilled by rememberSaveable { mutableStateOf(false) }
     var showAiConsentDialog by remember { mutableStateOf(false) }
     var pendingRecognition by remember { mutableStateOf<AiRecognitionResult?>(null) }
@@ -528,20 +529,20 @@ internal fun NewCaptureScreen(
     fun removePhotoQuestionImage(path: String) {
         photoQuestionImages = photoQuestionImages.filterNot { it == path }
         viewModel.deleteImagesIfUnreferenced(listOf(path))
-        captureMessage = "已删除第 ${photoQuestionImages.size + 1} 张图片，可继续添加"
+        captureMessageState.complete("已删除第 ${photoQuestionImages.size + 1} 张图片，可继续添加")
     }
     fun movePhotoQuestionImage(from: Int, to: Int) {
         if (from !in photoQuestionImages.indices || to !in photoQuestionImages.indices || from == to) return
         photoQuestionImages = photoQuestionImages.toMutableList().apply {
             add(to, removeAt(from))
         }
-        captureMessage = "题目图片顺序已调整"
+        captureMessageState.complete("题目图片顺序已调整")
     }
     val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
         val copied = uris.mapNotNull { uri -> ImageStorage.copyToPrivate(context, uri, selectedRole.prefix) }
         if (selectedRole == PhotoRole.QUESTION && mode == EntryMode.PHOTO) {
             photoQuestionImages = (photoQuestionImages + copied).distinct()
-            captureMessage = if (copied.size > 1) "已按选择顺序添加 ${copied.size} 张题目图片" else "已添加题目图片"
+            captureMessageState.complete(if (copied.size > 1) "已按选择顺序添加 ${copied.size} 张题目图片" else "已添加题目图片")
         } else {
             copied.firstOrNull()?.let { load(it, selectedRole) }
         }
@@ -570,7 +571,7 @@ internal fun NewCaptureScreen(
                     captureMessage = "照片保存失败，请重新拍照"
                 } else if (role == PhotoRole.QUESTION && mode == EntryMode.PHOTO) {
                     photoQuestionImages = (photoQuestionImages + copied).distinct()
-                    captureMessage = "已添加题目图片"
+                    captureMessageState.complete("已添加题目图片")
                 } else {
                     load(copied, role)
                 }
@@ -718,7 +719,7 @@ internal fun NewCaptureScreen(
         aiFilled = false
         pendingRecognition = null
         viewModel.discardAiRecognition(retainedPaths = aiRecognitionImages)
-        captureMessage = "已删除图片，可继续添加或重新识别"
+        captureMessageState.complete("已删除图片，可继续添加或重新识别")
     }
 
     LaunchedEffect(
@@ -750,18 +751,15 @@ internal fun NewCaptureScreen(
             aiRecognitionState.status == AiRecognitionStatus.COMPLETED -> {
                 aiRecognitionState.result?.let {
                     pendingRecognition = it
-                    captureMessage = if (it.recognitionWarning.isBlank()) {
-                        "AI 识别完成，请确认识别结果"
-                    } else {
-                        OCR_USER_WARNING
-                    }
+                    if (it.recognitionWarning.isBlank()) captureMessageState.complete("AI 识别完成，请确认识别结果")
+                    else captureMessage = OCR_USER_WARNING
                 }
             }
             aiRecognitionState.status == AiRecognitionStatus.FAILED -> {
                 captureMessage = "AI 识别失败：${aiRecognitionState.error ?: "未知错误"}"
             }
             aiRecognitionState.status == AiRecognitionStatus.CANCELED -> {
-                captureMessage = "AI 识别已停止，可重新识别"
+                captureMessageState.complete("AI 识别已停止，可重新识别")
             }
         }
     }
@@ -921,18 +919,15 @@ internal fun NewCaptureScreen(
                     enterRecognitionEditor()
                     pendingRecognition = null
                     viewModel.clearAiRecognition()
-                    captureMessage = if (result.recognitionWarning.isBlank()) {
-                        "AI 识别结果已填入，请检查后保存"
-                    } else {
-                        result.recognitionWarning
-                    }
+                    if (result.recognitionWarning.isBlank()) captureMessageState.complete("AI 识别结果已填入，请检查后保存")
+                    else captureMessage = result.recognitionWarning
                 }) { Text("确认填入") }
             },
             dismissButton = {
                 TijiTextButton(onClick = {
                     pendingRecognition = null
                     viewModel.discardAiRecognition()
-                    captureMessage = "已取消填入，可手动编辑"
+                    captureMessageState.complete("已取消填入，可手动编辑")
                 }) { Text("取消") }
             }
         )
